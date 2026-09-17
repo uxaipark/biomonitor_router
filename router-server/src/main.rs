@@ -53,6 +53,9 @@ async fn main() -> anyhow::Result<()> {
     // 분석 지연 플러셔: 응답이 늦는 패킷을 무분석으로 방출해 파형 연속성 보장
     tokio::spawn(router_core::state::run_flusher(state.clone()));
 
+    // 알람 엔진 (1 Hz): 수치 임계·전극 탈락·배터리·패치/게이트웨이 무응답
+    tokio::spawn(router_core::alarms::run(state.clone()));
+
     // CPU 사용률 샘플러 (어드민 시스템 모니터링)
     tokio::spawn(router_core::sysmon::run_cpu_sampler());
 

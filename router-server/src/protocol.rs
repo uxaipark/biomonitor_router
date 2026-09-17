@@ -274,6 +274,9 @@ pub enum OutMsg {
         patient: Option<Patient>,
         connected: bool,
     },
+    /// 알람 발생/해제 (의사 그룹 `alarms` 구독자에게)
+    #[serde(rename = "alarm")]
+    Alarm { event: String, alarm: serde_json::Value },
     /// 데이터가 비어 있는 채널 상태 이벤트 (연결해제 등)
     #[serde(rename = "channel_event")]
     ChannelEvent {

@@ -3,6 +3,7 @@ use crate::grouping::GroupStore;
 use crate::protocol::{now_ms, AnalysisEvent, EcgPacket, OutMsg};
 use crate::registry::Registry;
 use crate::gateways::GatewayTable;
+use crate::alarms::AlarmBook;
 use crate::patch_store::StoreOp;
 use serde::Serialize;
 use std::collections::{HashSet, VecDeque};
@@ -82,6 +83,12 @@ pub struct AppState {
     pub ingest_allow: Mutex<Option<std::collections::HashSet<std::net::IpAddr>>>,
     /// ingest 소스 IP 별 활성 연결 수 (어드민 입력 소스 현황 표시용)
     pub ingest_sources: Mutex<std::collections::HashMap<std::net::IpAddr, u64>>,
+    /// 알람 장부 (규칙·활성·이력)
+    pub alarms: AlarmBook,
+    /// 마지막 저장 큐 드롭 시각 (ms) — 알람 엔진의 백프레셔 판정
+    pub last_store_drop_ms: AtomicU64,
+    /// 에뮬레이터 EMR 프록시 캐시: path → (만료 시각 ms, 본문)
+    pub emr_cache: Mutex<std::collections::HashMap<String, (u64, Arc<String>)>>,
 }
 
 impl AppState {
@@ -132,6 +139,9 @@ impl AppState {
             displays: Mutex::new(displays),
             ingest_allow: Mutex::new(None),
             ingest_sources: Mutex::new(std::collections::HashMap::new()),
+            alarms: AlarmBook::new(),
+            last_store_drop_ms: AtomicU64::new(0),
+            emr_cache: Mutex::new(std::collections::HashMap::new()),
         });
         (state, analysis_rx, db_rx, store_rx)
     }
@@ -162,6 +172,7 @@ impl AppState {
     pub fn send_store(&self, op: StoreOp) {
         if self.store_tx.try_send(op).is_err() {
             let n = self.dropped_wave.fetch_add(1, Ordering::Relaxed) + 1;
+            self.last_store_drop_ms.store(now_ms(), Ordering::Relaxed);
             if n % 1000 == 1 {
                 tracing::warn!("store 큐 포화 — 누적 {}건 드롭 (디스크 정체)", n);
             }
@@ -185,6 +196,7 @@ impl AppState {
             "queue_dropped_store": self.dropped_wave.load(Ordering::Relaxed),
             "analysis_connected": self.analysis_up(),
             "gateways": self.gateways.summary(),
+            "alarms": self.alarms.summary(),
         })
     }
 

@@ -18,3 +18,4 @@ pub mod patch_store;
 pub mod gateways;
 pub mod emu_link;
 pub mod sysmon;
+pub mod alarms;

@@ -27,6 +27,8 @@ pub struct Config {
     pub report_every_s: u64,
     /// EMR(입원/환자) 동기화 주기 (초)
     pub emr_sync_s: u64,
+    /// 웹 콘솔 정적 파일 디렉터리 (vite build 산출물). 없으면 API 만 서빙
+    pub web_dir: String,
 }
 
 impl Config {
@@ -45,6 +47,7 @@ impl Config {
             emulator_addr: env::var("ROUTER_EMULATOR_ADDR").ok().filter(|s| !s.is_empty()),
             report_every_s: get("ROUTER_REPORT_EVERY_S", "5").parse().unwrap_or(5),
             emr_sync_s: get("ROUTER_EMR_SYNC_S", "30").parse().unwrap_or(30),
+            web_dir: get("ROUTER_WEB_DIR", "../web/console/dist"),
         }
     }
 }

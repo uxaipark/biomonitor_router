@@ -1,7 +1,7 @@
 use crate::grouping::GroupConfig;
 use crate::output;
 use crate::state::AppState;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, post, put};
@@ -12,6 +12,7 @@ use tower_http::cors::CorsLayer;
 
 /// 어드민 REST API + 출력 WS 를 하나의 HTTP 서버(7300)로 제공
 pub fn router(state: Arc<AppState>) -> Router {
+    let web_dir = state.cfg.web_dir.clone();
     Router::new()
         .route("/api/health", get(health))
         .route("/api/stats", get(stats))
@@ -36,8 +37,107 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/ingest/sources", get(ingest_sources))
         .route("/api/ingest/allow", put(set_ingest_allow))
         .route("/ws", get(output::ws_handler))
+        .route("/api/alarms", get(alarms_active))
+        .route("/api/alarms/history", get(alarms_history))
+        .route("/api/alarms/rules", get(alarm_rules).put(set_alarm_rules))
+        .route("/api/alarms/{id}/ack", post(ack_alarm))
+        .route("/api/emu/status", get(emu_status))
+        .route("/api/emu/discovery", get(emu_discovery))
+        .route("/api/emr/{*path}", get(emr_proxy))
         .layer(CorsLayer::permissive())
+        .fallback_service(spa(&web_dir))
         .with_state(state)
+}
+
+/// 웹 콘솔(vite build 산출물) 서빙. 해시 라우팅이라 모르는 경로는 index.html 로.
+fn spa(dir: &str) -> tower_http::services::ServeDir<tower_http::services::ServeFile> {
+    let index = std::path::Path::new(dir).join("index.html");
+    tower_http::services::ServeDir::new(dir).fallback(tower_http::services::ServeFile::new(index))
+}
+
+async fn alarms_active(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(serde_json::json!({"summary": state.alarms.summary(), "alarms": state.alarms.active()}))
+}
+
+#[derive(serde::Deserialize)]
+struct LimitQ {
+    limit: Option<usize>,
+}
+
+async fn alarms_history(State(state): State<Arc<AppState>>, Query(q): Query<LimitQ>) -> impl IntoResponse {
+    Json(state.alarms.history(q.limit.unwrap_or(200).min(500)))
+}
+
+async fn alarm_rules(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(state.alarms.rules())
+}
+
+async fn set_alarm_rules(State(state): State<Arc<AppState>>, Json(r): Json<crate::alarms::Rules>) -> impl IntoResponse {
+    state.alarms.set_rules(r.clone());
+    state.push_event("alarm_rules", None, "알람 규칙 변경".into());
+    Json(r)
+}
+
+async fn ack_alarm(State(state): State<Arc<AppState>>, Path(id): Path<u64>) -> impl IntoResponse {
+    if state.alarms.ack(id) {
+        Json(serde_json::json!({"ok": true})).into_response()
+    } else {
+        (StatusCode::NOT_FOUND, "no such active alarm").into_response()
+    }
+}
+
+/// 에뮬레이터 EMR/상태 프록시. 에뮬레이터는 CORS 헤더가 없으므로 브라우저는 라우터만 본다.
+/// 도면·게이트웨이 목록처럼 큰 정적 응답은 TTL 캐시로 에뮬레이터 부하를 막는다.
+async fn emr_get(state: &Arc<AppState>, path: &str, ttl_ms: u64) -> axum::response::Response {
+    let Some(addr) = state.cfg.emulator_addr.clone() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "ROUTER_EMULATOR_ADDR not set").into_response();
+    };
+    let now = crate::protocol::now_ms();
+    if ttl_ms > 0 {
+        if let Some((exp, body)) = state.emr_cache.lock().unwrap().get(path).cloned() {
+            if exp > now {
+                return json_body(body);
+            }
+        }
+    }
+    match crate::emu_link::request(&addr, "GET", path, None).await {
+        Ok((200, body)) => {
+            let body = Arc::new(body);
+            if ttl_ms > 0 {
+                let mut c = state.emr_cache.lock().unwrap();
+                c.retain(|_, (exp, _)| *exp > now);
+                c.insert(path.to_string(), (now + ttl_ms, body.clone()));
+            }
+            json_body(body)
+        }
+        Ok((code, body)) => (StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_GATEWAY), body).into_response(),
+        Err(e) => (StatusCode::BAD_GATEWAY, format!("emulator unreachable: {e}")).into_response(),
+    }
+}
+
+fn json_body(body: Arc<String>) -> axum::response::Response {
+    ([(axum::http::header::CONTENT_TYPE, "application/json; charset=utf-8")], body.as_str().to_owned()).into_response()
+}
+
+async fn emr_proxy(State(state): State<Arc<AppState>>, Path(path): Path<String>, axum::extract::RawQuery(q): axum::extract::RawQuery) -> impl IntoResponse {
+    let ttl = match path.split('/').next().unwrap_or("") {
+        "layout" | "hospital" | "floors" | "wards" | "rooms" | "beds" | "staff" => 300_000,
+        "gateways" | "admissions" | "patients" | "patches" | "devices" | "trips" | "schedules" => 10_000,
+        _ => 3_000,
+    };
+    let full = match q {
+        Some(q) => format!("/api/v1/emr/{path}?{q}"),
+        None => format!("/api/v1/emr/{path}"),
+    };
+    emr_get(&state, &full, ttl).await
+}
+
+async fn emu_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    emr_get(&state, "/api/v1/status", 2_000).await
+}
+
+async fn emu_discovery(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    emr_get(&state, "/api/v1", 600_000).await
 }
 
 #[derive(Serialize)]
