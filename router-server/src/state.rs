@@ -2,6 +2,8 @@ use crate::config::Config;
 use crate::grouping::GroupStore;
 use crate::protocol::{now_ms, AnalysisEvent, EcgPacket, OutMsg};
 use crate::registry::Registry;
+use crate::gateways::GatewayTable;
+use crate::patch_store::StoreOp;
 use serde::Serialize;
 use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -48,9 +50,11 @@ pub struct AppState {
     pub analysis_tx: mpsc::Sender<String>,
     /// DB API 로 push 할 op 큐 (SQLite 실시간 갱신). 상한 있음 — 포화 시 드롭.
     pub db_tx: mpsc::Sender<String>,
-    /// 파형 파일 저장 큐 (wave_store 기록 태스크). 상한 있음 — 디스크가 못
-    /// 따라오면 드롭 (파형 파일에 seq 갭으로 남음).
-    pub wave_tx: mpsc::Sender<crate::protocol::EcgPacket>,
+    /// 패치 저장소 큐 (patch_store 기록 스레드). 상한 있음 — 디스크가 못
+    /// 따라오면 드롭 (패치 파일에 seq 갭으로 남음).
+    pub store_tx: mpsc::Sender<StoreOp>,
+    /// 게이트웨이 표 (v3 링크 상태·시퀀스 검사·NACK)
+    pub gateways: GatewayTable,
     /// 큐 포화로 드롭된 건수 (analysis / db / wave)
     pub dropped_analysis: AtomicU64,
     pub dropped_db: AtomicU64,
@@ -73,16 +77,11 @@ pub struct AppState {
     pub events: Mutex<VecDeque<SystemEvent>>,
     /// 디스플레이(센트럴 모니터) ID → 그룹 ID 매핑 (displays.json 영속화)
     pub displays: Mutex<std::collections::HashMap<String, String>>,
-    /// 게이트웨이 상태 (에뮬레이터 push): (known 수, 장애 중 ID 목록, 갱신 시각 ms)
-    pub gateway_status: Mutex<(u64, Vec<String>, u64)>,
     /// ingest 소스 IP 허용목록. None = 전체 허용, Some(set) = 목록 내 IP 만
     /// (루프백은 항상 허용 — 로컬 에뮬레이터용). 어드민 입력 소스 선택이 설정한다.
     pub ingest_allow: Mutex<Option<std::collections::HashSet<std::net::IpAddr>>>,
     /// ingest 소스 IP 별 활성 연결 수 (어드민 입력 소스 현황 표시용)
     pub ingest_sources: Mutex<std::collections::HashMap<std::net::IpAddr, u64>>,
-    /// 파형 저장소 리셋 신호 — 값이 바뀌면 기록 태스크가 열린 핸들을 모두 닫고
-    /// 저장 파일을 삭제한다 (어드민 테스트 > 저장소 리셋)
-    pub wave_reset: tokio::sync::watch::Sender<u64>,
 }
 
 impl AppState {
@@ -92,8 +91,7 @@ impl AppState {
         Arc<Self>,
         mpsc::Receiver<String>,
         mpsc::Receiver<String>,
-        mpsc::Receiver<crate::protocol::EcgPacket>,
-        tokio::sync::watch::Receiver<u64>,
+        mpsc::Receiver<StoreOp>,
     ) {
         let (out_tx, _) = broadcast::channel(4096);
         // 큐 상한: 정상 운영에서 절대 차지 않는 크기.
@@ -104,8 +102,7 @@ impl AppState {
         //  - wave 16384 pkt ≈ ~3MB. 디스크 정체 시 드롭.
         let (analysis_tx, analysis_rx) = mpsc::channel(8192);
         let (db_tx, db_rx) = mpsc::channel(16384);
-        let (wave_tx, wave_rx) = mpsc::channel(16384);
-        let (wave_reset, wave_reset_rx) = tokio::sync::watch::channel(0u64);
+        let (store_tx, store_rx) = mpsc::channel(65536);
         let displays = std::fs::read_to_string(&cfg.displays_path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -117,7 +114,8 @@ impl AppState {
             out_tx,
             analysis_tx,
             db_tx,
-            wave_tx,
+            store_tx,
+            gateways: GatewayTable::new(),
             dropped_analysis: AtomicU64::new(0),
             dropped_db: AtomicU64::new(0),
             dropped_wave: AtomicU64::new(0),
@@ -132,12 +130,10 @@ impl AppState {
             started_at: Instant::now(),
             events: Mutex::new(VecDeque::new()),
             displays: Mutex::new(displays),
-            gateway_status: Mutex::new((0, Vec::new(), 0)),
             ingest_allow: Mutex::new(None),
             ingest_sources: Mutex::new(std::collections::HashMap::new()),
-            wave_reset,
         });
-        (state, analysis_rx, db_rx, wave_rx, wave_reset_rx)
+        (state, analysis_rx, db_rx, store_rx)
     }
 
     pub fn analysis_up(&self) -> bool {
@@ -163,13 +159,33 @@ impl AppState {
         }
     }
 
-    pub fn send_wave(&self, pkt: crate::protocol::EcgPacket) {
-        if self.wave_tx.try_send(pkt).is_err() {
+    pub fn send_store(&self, op: StoreOp) {
+        if self.store_tx.try_send(op).is_err() {
             let n = self.dropped_wave.fetch_add(1, Ordering::Relaxed) + 1;
             if n % 1000 == 1 {
-                tracing::warn!("wave 큐 포화 — 누적 {}건 드롭 (디스크 정체)", n);
+                tracing::warn!("store 큐 포화 — 누적 {}건 드롭 (디스크 정체)", n);
             }
         }
+    }
+
+    /// 에뮬레이터 `POST /api/v1/router/status` 보고 본문
+    pub fn status_report(&self) -> serde_json::Value {
+        serde_json::json!({
+            "name": "biomonitor-router",
+            "version": env!("CARGO_PKG_VERSION"),
+            "protocol_version": crate::wire::VERSION,
+            "uptime_s": self.started_at.elapsed().as_secs(),
+            "ingest_connections": self.ingest_conns.load(Ordering::Relaxed),
+            "rx_bytes": self.total_bytes.load(Ordering::Relaxed),
+            "records": self.total_packets.load(Ordering::Relaxed),
+            "patches": self.registry.channel_ids().len(),
+            "lost_packets": self.total_lost_packets.load(Ordering::Relaxed),
+            "store_bytes": crate::patch_store::STORE_BYTES.load(Ordering::Relaxed),
+            "store_patches": crate::patch_store::STORE_PATCHES.load(Ordering::Relaxed),
+            "queue_dropped_store": self.dropped_wave.load(Ordering::Relaxed),
+            "analysis_connected": self.analysis_up(),
+            "gateways": self.gateways.summary(),
+        })
     }
 
     pub fn add_tx_bytes(&self, n: usize) {

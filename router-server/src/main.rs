@@ -13,17 +13,36 @@ async fn main() -> anyhow::Result<()> {
     let cfg = Config::from_env();
     info!("starting router server: {:?}", cfg);
 
-    let (state, analysis_rx, db_rx, wave_rx, wave_reset_rx) = AppState::new(cfg.clone());
+    let (state, analysis_rx, db_rx, store_rx) = AppState::new(cfg.clone());
 
-    // 파형 파일 저장 (채널별 8시간 세그먼트 — 채워지면 다음 파일, 삭제 없음.
-    // 단, 어드민 테스트 > 저장소 리셋 신호가 오면 전체 삭제)
-    tokio::spawn(router_core::wave_store::run_writer(
-        cfg.wave_dir.clone(),
-        cfg.wave_segment_hours,
-        cfg.wave_max_gb,
-        wave_rx,
-        wave_reset_rx,
-    ));
+    // 패치별 레코드 저장 (시간 단위 파일 + 항목 CRC, 닫힌 파일 gzip, 상한 초과 시 오래된 것부터 삭제)
+    // — 전용 OS 스레드 (블로킹 파일 I/O 를 tokio 워커에서 분리)
+    {
+        let root = std::path::PathBuf::from(&cfg.store_dir);
+        let cap = cfg.store_max_gb << 30;
+        std::thread::Builder::new()
+            .name("patch-store".into())
+            .spawn(move || router_core::patch_store::run_writer(root, cap, store_rx))
+            .expect("store thread");
+    }
+
+    // 게이트웨이 표 하우스키핑: NACK 만료·침묵 감지 (1 Hz)
+    {
+        let st = state.clone();
+        tokio::spawn(async move {
+            let mut t = tokio::time::interval(std::time::Duration::from_secs(1));
+            loop {
+                t.tick().await;
+                for gw in st.gateways.housekeeping() {
+                    st.push_event("silent", None, format!("gw {} silent: socket up, no frames for 10 s", gw));
+                }
+            }
+        });
+    }
+
+    // 에뮬레이터 링크: 상태 보고 + EMR 동기화 (ROUTER_EMULATOR_ADDR 설정 시)
+    tokio::spawn(router_core::emu_link::run_reporter(state.clone(), cfg.report_every_s));
+    tokio::spawn(router_core::emu_link::run_emr_sync(state.clone(), cfg.emr_sync_s));
 
     // 입력(ingest) 리스너
     tokio::spawn(ingest::run(state.clone()));

@@ -596,6 +596,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "crc32fast",
  "dashmap",
  "flate2",
  "futures-util",

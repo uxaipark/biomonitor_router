@@ -9,7 +9,7 @@ pub fn now_ms() -> u64 {
 }
 
 /// 환자 메타데이터. 그룹핑 기준 속성을 모두 포함한다.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Patient {
     pub id: String,
     pub name: String,

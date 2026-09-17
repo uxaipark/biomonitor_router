@@ -1,10 +1,22 @@
-use crate::protocol::{AnalysisEvent, InboundMsg};
+//! Ingest: protocol v3 binary TCP listener (one socket per gateway, or several gateways per socket in the
+//! emulator's `shared` mode). Frames are CRC-checked, gateway/patch sequence numbers tracked, NACKs sent back
+//! on the same socket, records stored raw per patch, and the ECG channel is handed to the legacy analysis /
+//! output pipeline as an `EcgPacket` (channel_id = patch id).
+
+use crate::protocol::{AnalysisEvent, EcgPacket, Patient};
 use crate::state::AppState;
-use std::sync::atomic::Ordering;
+use crate::wire::{self, Item};
+use crate::gateways::SeqVerdict;
+use crate::patch_store::StoreOp;
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
+
+static CONN_SEQ: AtomicU64 = AtomicU64::new(1);
 
 /// 소스 IP 허용 여부. 루프백은 항상 허용(로컬 에뮬레이터), 그 외는 허용목록 기준.
 fn source_allowed(state: &AppState, ip: std::net::IpAddr) -> bool {
@@ -17,205 +29,91 @@ fn source_allowed(state: &AppState, ip: std::net::IpAddr) -> bool {
     }
 }
 
-/// 입력 채널 TCP 리스너. 채널(에뮬레이터 연결)당 태스크 하나를 띄운다.
 pub async fn run(state: Arc<AppState>) -> anyhow::Result<()> {
     let listener = TcpListener::bind(&state.cfg.ingest_addr).await?;
-    info!("ingest listening on {}", state.cfg.ingest_addr);
+    info!("ingest (protocol v3) listening on {}", state.cfg.ingest_addr);
     loop {
         let (stream, peer) = listener.accept().await?;
         if !source_allowed(&state, peer.ip()) {
             debug!("ingest connection from {} rejected (not in allowlist)", peer);
-            continue; // stream drop → 즉시 종료
+            continue;
         }
         let st = state.clone();
         tokio::spawn(async move {
-            debug!("ingest connection from {}", peer);
-            if let Err(e) = handle_conn(st, stream, peer.ip()).await {
+            if let Err(e) = handle_conn(st, stream, peer).await {
                 debug!("ingest connection {} closed: {}", peer, e);
             }
         });
     }
 }
 
-/// ECG 패킷 1건 처리 (개별 ecg / 배치에서 풀린 패킷 공용).
-/// raw_line 이 있으면 그대로 분석 서버에 forward, 없으면(배치 출신) ecg 라인으로 재직렬화
-/// — 분석 서버는 개별 ecg 프로토콜만 이해하므로 배치는 라우터가 풀어서 전달한다.
-fn process_ecg(state: &Arc<AppState>, pkt: crate::protocol::EcgPacket, raw_line: Option<&str>) {
-    state.total_packets.fetch_add(1, Ordering::Relaxed);
-    // 파형 파일 저장 (8시간 롤링) — 기록 태스크로 넘겨 핫패스를 막지 않는다
-    state.send_wave(pkt.clone());
-    let lost = state.registry.push_packet(&pkt);
-    if lost > 0 {
-        // seq 갭 = 미전송 구간 (게이트웨이 장애/접속 불량) 패킷 유실
-        state.total_lost_packets.fetch_add(lost, Ordering::Relaxed);
-    }
-    if state.analysis_up() {
-        // 분석 서버가 살아 있으면: 버퍼에 보관된 상태로 forward,
-        // 분석 응답(seq) 도착 시 병합되어 출력된다.
-        let line = match raw_line {
-            Some(l) => l.to_string(),
-            None => {
-                #[derive(serde::Serialize)]
-                struct EcgLine<'a> {
-                    #[serde(rename = "type")]
-                    t: &'static str,
-                    #[serde(flatten)]
-                    pkt: &'a crate::protocol::EcgPacket,
-                }
-                serde_json::to_string(&EcgLine { t: "ecg", pkt: &pkt }).unwrap_or_default()
-            }
-        };
-        state.send_analysis(line);
-    } else {
-        // 패스스루 모드: 분석 없이 즉시 출력 (버퍼 항목은 회수)
-        let taken = state.registry.take_matching(&pkt.channel_id, pkt.seq);
-        state.emit_stream(taken.unwrap_or(pkt), None, Vec::new());
-    }
+/// Per-connection state kept across frames.
+struct Conn {
+    id: u64,
+    addr: String,
+    tx: mpsc::Sender<Vec<u8>>,
 }
 
-async fn handle_conn(
-    state: Arc<AppState>,
-    stream: TcpStream,
-    peer_ip: std::net::IpAddr,
-) -> anyhow::Result<()> {
-    let mut lines = BufReader::new(stream).lines();
-    // 이 연결에서 패킷을 보낸 채널들 (레거시: 채널당 1개 / 배치: 게이트웨이 소속 전체)
-    let mut conn_channels: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // 배치 연결의 게이트웨이 (EOF 시 "아직 이 게이트웨이 소속인 채널"만 해제 처리)
-    let mut conn_gateway: Option<String> = None;
+async fn handle_conn(state: Arc<AppState>, stream: TcpStream, peer: std::net::SocketAddr) -> anyhow::Result<()> {
+    let _ = stream.set_nodelay(true);
+    let (mut rd, mut wr) = stream.into_split();
+    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(64);
+    // Writer task: control frames (NACK) queued by the gateway table go out on this socket.
+    let writer = tokio::spawn(async move {
+        while let Some(frame) = rx.recv().await {
+            if wr.write_all(&frame).await.is_err() {
+                break;
+            }
+        }
+    });
+    let conn = Conn { id: CONN_SEQ.fetch_add(1, Ordering::Relaxed), addr: peer.to_string(), tx };
+    let peer_ip = peer.ip();
     state.ingest_conns.fetch_add(1, Ordering::Relaxed);
     *state.ingest_sources.lock().unwrap().entry(peer_ip).or_insert(0) += 1;
 
+    let mut dec = wire::Decoder::new();
+    let mut items = VecDeque::new();
+    let mut buf = vec![0u8; 64 * 1024];
     loop {
-        // EOF 뿐 아니라 연결 리셋(에러)도 동일하게 종료 처리로 흘려보낸다
-        // (?를 쓰면 조기 리턴되어 아래의 연결해제 정리가 누락된다)
-        let line = match lines.next_line().await {
-            Ok(Some(l)) => l,
-            Ok(None) => break,
-            Err(_) => break,
+        let n = match rd.read(&mut buf).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => n,
         };
-        // 허용목록에서 빠진 소스의 기존 연결은 즉시 끊는다 (선택 변경의 실시간 반영)
         if !source_allowed(&state, peer_ip) {
             debug!("ingest connection {} dropped (allowlist changed)", peer_ip);
             break;
         }
-        state.total_bytes.fetch_add(line.len() as u64 + 1, Ordering::Relaxed);
-        if line.trim().is_empty() {
-            continue;
-        }
-        let msg: InboundMsg = match serde_json::from_str(&line) {
-            Ok(m) => m,
-            Err(e) => {
-                warn!("ingest parse error: {} line={}", e, &line[..line.len().min(120)]);
-                continue;
-            }
-        };
-        match msg {
-            InboundMsg::Meta { channel_id, hospital, patient, .. } => {
-                conn_channels.insert(channel_id.clone());
-                // DB API 로 환자 메타데이터 실시간 push (SQLite 갱신)
-                if let Ok(op) = serde_json::to_string(&serde_json::json!({
-                    "op": "upsert_patient",
-                    "channel_id": &channel_id,
-                    "hospital": &hospital,
-                    "patient": &patient,
-                })) {
-                    state.send_db(op);
+        state.total_bytes.fetch_add(n as u64, Ordering::Relaxed);
+        dec.feed(&buf[..n], &mut items);
+        while let Some(item) = items.pop_front() {
+            match item {
+                Item::BadCrc(hdr) => {
+                    state.gateways.on_corrupt(conn.id, &conn.addr, &conn.tx, &hdr);
+                    state.push_event("bad_crc", None, format!("gw {} seq {}: CRC mismatch ({})", hdr.gw_id, hdr.seq, conn.addr));
                 }
-                state.registry.upsert_meta(&channel_id, patient);
-                // meta 는 그룹핑 기준이므로 수신 즉시 멤버십 재계산 → join/leave 전파
-                state.recompute_channel_groups(&channel_id);
-                if state.analysis_up() {
-                    state.send_analysis(line);
-                }
-            }
-            InboundMsg::Ecg(pkt) => {
-                conn_channels.insert(pkt.channel_id.clone());
-                process_ecg(&state, pkt, Some(&line));
-            }
-            InboundMsg::EcgBatch { gateway_id, ts_ms, space, channels } => {
-                // 게이트웨이 단위 묶음: 채널별 패킷으로 풀어 기존 경로를 태운다.
-                if channels.len() > 16 {
-                    warn!(
-                        "ecg_batch from {} exceeds 16 channels ({}) — 송신측 분할 필요",
-                        gateway_id,
-                        channels.len()
-                    );
-                }
-                conn_gateway = Some(gateway_id.clone());
-                for c in channels {
-                    conn_channels.insert(c.channel_id.clone());
-                    let pkt = crate::protocol::EcgPacket {
-                        channel_id: c.channel_id,
-                        seq: c.seq,
-                        ts_ms: if c.ts_ms > 0 { c.ts_ms } else { ts_ms },
-                        sample_rate: c.sample_rate,
-                        samples: c.samples,
-                        quality: c.quality,
-                        moving: c.moving,
-                        gateway_id: gateway_id.clone(),
-                        space: if c.space.is_empty() { space.clone() } else { c.space },
-                    };
-                    process_ecg(&state, pkt, None);
-                }
-            }
-            InboundMsg::DeviceEvent { channel_id, event, detail, .. } => {
-                conn_channels.insert(channel_id.clone());
-                state.emit_channel_event(
-                    &channel_id,
-                    vec![AnalysisEvent { kind: event, detail }],
-                );
-            }
-            InboundMsg::Appointment { channel_id, hospital, appointment, .. } => {
-                // 예약은 채널 데이터가 아니라 일정 정보 — DB API 로 중계만 한다
-                if let Ok(op) = serde_json::to_string(&serde_json::json!({
-                    "op": "upsert_appointment",
-                    "hospital": &hospital,
-                    "channel_id": &channel_id,
-                    "appointment": &appointment,
-                })) {
-                    state.send_db(op);
-                }
-                let title = appointment.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                let name = appointment.get("patient_name").and_then(|v| v.as_str()).unwrap_or("");
-                let status = appointment.get("status").and_then(|v| v.as_str()).unwrap_or("");
-                let msg = match status {
-                    "reserved" => format!("예약 등록: {} — {}", name, title),
-                    "in_progress" => format!("예약 이동 시작: {} — {}", name, title),
-                    "done" => format!("예약 완료·복귀: {} — {}", name, title),
-                    _ => format!("예약 갱신: {} — {}", name, title),
-                };
-                state.push_event("appointment", Some(channel_id), msg);
-            }
-            InboundMsg::GatewayStatus { ts_ms, known, down } => {
-                // 게이트웨이 상태 보고 (채널 아님 — conn_channel 미설정)
-                *state.gateway_status.lock().unwrap() = (known, down, ts_ms);
-            }
-            InboundMsg::ChannelClose { channel_id, hospital, reason } => {
-                info!("channel {} explicitly closed (reason={})", channel_id, reason);
-                // DB API: 패치 폐기 처리 (퇴원/교체/삭제).
-                // 병원 전환(suspend)은 일시 중단이므로 패치를 폐기하지 않는다 —
-                // DB 에 in_use 로 남아 복귀 시 그대로 복원된다.
-                if reason != "suspend" {
-                    if let Ok(op) = serde_json::to_string(&serde_json::json!({
-                        "op": "retire_patch",
-                        "patch_id": &channel_id,
-                        "hospital": &hospital,
-                    })) {
-                        state.send_db(op);
+                Item::Frame(hdr, payload) => match wire::parse_payload(hdr, &payload) {
+                    Ok(frame) => process_frame(&state, &conn, &frame),
+                    Err(e) => {
+                        wire_inc(&state.gateways.totals.bad_payload);
+                        warn!("gw {} seq {}: payload parse error {:?}", hdr.gw_id, hdr.seq, e);
                     }
-                }
-                state.remove_channel(&channel_id);
-                if state.analysis_up() {
-                    // 분석 서버도 채널 상태를 정리하도록 전달
-                    state.send_analysis(line);
-                }
-                // EOF 시 ingest_disconnected 를 내보내지 않도록 해제
-                conn_channels.remove(&channel_id);
+                },
             }
+        }
+        if dec.buffered() > wire::MAX_PAYLOAD + wire::HEADER_LEN {
+            warn!("ingest {}: buffer overrun, closing", conn.addr);
+            break;
         }
     }
+    // Decoder-level anomalies are folded into the totals when the socket closes.
+    let t = &state.gateways.totals;
+    t.bad_magic.fetch_add(dec.bad_magic, Ordering::Relaxed);
+    t.bad_version.fetch_add(dec.bad_version, Ordering::Relaxed);
+    t.oversize.fetch_add(dec.oversize, Ordering::Relaxed);
+    t.garbage_bytes.fetch_add(dec.garbage_bytes, Ordering::Relaxed);
+    t.resync.fetch_add(dec.resync, Ordering::Relaxed);
 
+    writer.abort();
     state.ingest_conns.fetch_sub(1, Ordering::Relaxed);
     {
         let mut src = state.ingest_sources.lock().unwrap();
@@ -226,25 +124,184 @@ async fn handle_conn(
             }
         }
     }
-
-    // EOF: 입력 소켓이 끊긴 채널을 그룹 구독자에게 알린다.
-    // 배치(게이트웨이) 연결은 여러 채널을 실어 나르므로, 환자 이동으로 이미 다른
-    // 게이트웨이 연결로 옮겨간 채널은 건너뛴다 (현재 게이트웨이가 일치할 때만 해제).
-    for channel_id in conn_channels {
-        if let Some(gw) = &conn_gateway {
-            if state.registry.gateway_of(&channel_id).as_deref() != Some(gw.as_str()) {
-                continue;
-            }
+    // Every gateway that was riding this socket is down; its patches go "disconnected" for subscribers.
+    for gw_id in state.gateways.on_conn_closed(conn.id) {
+        state.push_event("link", None, format!("gw {} disconnected ({})", gw_id, conn.addr));
+        for channel_id in state.registry.channels_of_gateway(&gw_id.to_string()) {
+            state.registry.set_connected(&channel_id, false);
+            state.emit_channel_event(
+                &channel_id,
+                vec![AnalysisEvent { kind: "ingest_disconnected".into(), detail: "gateway socket closed".into() }],
+            );
         }
-        state.registry.set_connected(&channel_id, false);
-        state.emit_channel_event(
-            &channel_id,
-            vec![AnalysisEvent {
-                kind: "ingest_disconnected".into(),
-                detail: "input socket closed".into(),
-            }],
-        );
-        info!("channel {} ingest disconnected", channel_id);
     }
     Ok(())
+}
+
+fn wire_inc(a: &AtomicU64) {
+    a.fetch_add(1, Ordering::Relaxed);
+}
+
+fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) {
+    let hdr = &frame.hdr;
+    if frame.ctrl.is_some() {
+        // Control frames only travel router → gateway; one arriving here is harmless noise.
+        wire_inc(&state.gateways.totals.ctrl_rx);
+        return;
+    }
+    let (verdict, link_changed) = state.gateways.on_frame(conn.id, &conn.addr, &conn.tx, hdr);
+    if link_changed {
+        state.push_event("link", None, format!("gw {} connected ({})", hdr.gw_id, conn.addr));
+    }
+    if verdict == SeqVerdict::Dup {
+        return; // an exact duplicate frame: already stored and forwarded
+    }
+    if let Some(st) = frame.gw_status {
+        state.gateways.on_status(hdr.gw_id, st);
+    }
+    let gw_key = hdr.gw_id.to_string();
+    if let Some(json) = frame.meta_json {
+        match serde_json::from_slice::<serde_json::Value>(json) {
+            Ok(meta) => {
+                let changed = state.gateways.on_meta(hdr.gw_id, &meta);
+                if changed {
+                    state.send_store(StoreOp::Meta { gw_id: hdr.gw_id, json: json.to_vec() });
+                    apply_meta_patches(state, hdr.gw_id, &meta);
+                }
+            }
+            Err(_) => wire_inc(&state.gateways.totals.meta_bad_json),
+        }
+    }
+    if frame.records.is_empty() {
+        return;
+    }
+    let (_gw_name, loc) = state.gateways.location_of(hdr.gw_id).unwrap_or_default();
+    let space = loc.room.clone();
+    for rec in &frame.records {
+        state.total_packets.fetch_add(1, Ordering::Relaxed);
+        state.send_store(StoreOp::Record { ts_ms: hdr.ts_ms, gw_id: hdr.gw_id, raw: rec.raw.to_vec() });
+        let channel_id = rec.patch_id.to_string();
+        // Per-patch packet counter: a gap here = packets lost anywhere between patch and router.
+        // A frame that answers a NACK carries older patch seqs by design: store it, skip the seq check.
+        let pseq = if verdict == SeqVerdict::Recovered {
+            crate::registry::PatchSeq::Ok
+        } else {
+            state.registry.track_patch_seq(&channel_id, rec.seq)
+        };
+        match pseq {
+            crate::registry::PatchSeq::Gap(n) => {
+                wire_inc(&state.gateways.totals.patch_seq_gap);
+                state.gateways.totals.patch_seq_missing.fetch_add(n as u64, Ordering::Relaxed);
+                state.total_lost_packets.fetch_add(n as u64, Ordering::Relaxed);
+            }
+            crate::registry::PatchSeq::Dup => {
+                // The emulator sends pace marks (ch 10) as a second record of the same patch and seq in the
+                // same frame: a continuation, not a duplicate packet. Only a repeated waveform record counts.
+                let has_wave = rec.channels.iter().any(|c| c.ch == wire::CH_ECG);
+                if has_wave {
+                    wire_inc(&state.gateways.totals.patch_seq_dup);
+                } else {
+                    wire_inc(&state.gateways.totals.patch_cont);
+                }
+                continue;
+            }
+            crate::registry::PatchSeq::Reorder => {
+                wire_inc(&state.gateways.totals.patch_seq_reorder);
+                continue;
+            }
+            _ => {}
+        }
+        let Some(ecg) = rec.channels.iter().find(|c| c.ch == wire::CH_ECG && c.dtype == 1) else { continue };
+        let samples: Vec<f32> = ecg
+            .data
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]) as f32 * 0.001)
+            .collect();
+        let fs = state.registry.sample_rate_of(&channel_id).unwrap_or(250);
+        let quality = if rec.flags & wire::R_LEAD_OFF != 0 {
+            "leadoff"
+        } else if rec.flags & wire::R_MOTION != 0 {
+            "noisy"
+        } else {
+            "good"
+        };
+        let pkt = EcgPacket {
+            channel_id: channel_id.clone(),
+            seq: rec.seq as u64,
+            ts_ms: hdr.ts_ms,
+            sample_rate: fs,
+            samples,
+            quality: quality.into(),
+            moving: rec.flags & wire::R_MOTION != 0,
+            gateway_id: gw_key.clone(),
+            space: space.clone(),
+        };
+        state.registry.note_patch(&channel_id, rec.patient_id, rec.flags, rec.battery, rec.rssi);
+        process_ecg(state, pkt);
+    }
+    state.gateways.add_records(hdr.gw_id, frame.records.len());
+}
+
+/// META patches[] → registry rows (patch → patient/channels/location). Names come from the EMR sync.
+fn apply_meta_patches(state: &Arc<AppState>, gw_id: u32, meta: &serde_json::Value) {
+    let Some(patches) = meta.get("patches").and_then(|p| p.as_array()) else { return };
+    let (gw_name, loc) = state.gateways.location_of(gw_id).unwrap_or_default();
+    let gw_key = gw_id.to_string();
+    for p in patches {
+        let Some(patch_id) = p.get("patch_id").and_then(|x| x.as_u64()) else { continue };
+        let channel_id = patch_id.to_string();
+        let patient_id = p.get("patient_id").and_then(|x| x.as_u64()).unwrap_or(0);
+        let profile_id = p.get("profile_id").and_then(|x| x.as_u64()).unwrap_or(0);
+        let mrn = p.get("mrn").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let ecg_fs = p
+            .get("channels")
+            .and_then(|c| c.as_array())
+            .and_then(|a| a.iter().find(|c| c.get("id").and_then(|x| x.as_u64()) == Some(1)))
+            .and_then(|c| c.get("fs").and_then(|x| x.as_u64()))
+            .unwrap_or(250) as u32;
+        let prev = state.registry.patient_of(&channel_id);
+        let patient = Patient {
+            id: patient_id.to_string(),
+            name: prev.as_ref().map(|q| q.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| mrn.clone()),
+            building: loc.building.clone(),
+            floor: loc.floor.to_string(),
+            ward: prev.as_ref().map(|q| q.ward.clone()).unwrap_or_default(),
+            zone: gw_name.clone(),
+            room: loc.room.clone(),
+            doctor: prev.as_ref().map(|q| q.doctor.clone()).unwrap_or_default(),
+            department: prev.as_ref().map(|q| q.department.clone()).unwrap_or_default(),
+            nurse: prev.as_ref().map(|q| q.nurse.clone()).unwrap_or_default(),
+            profile_no: profile_id,
+            sex: prev.as_ref().map(|q| q.sex.clone()).unwrap_or_default(),
+            birth: prev.as_ref().map(|q| q.birth.clone()).unwrap_or_default(),
+            blood: prev.as_ref().map(|q| q.blood.clone()).unwrap_or_default(),
+            conditions: prev.as_ref().map(|q| q.conditions.clone()).unwrap_or_default(),
+        };
+        let changed = prev.as_ref() != Some(&patient);
+        state.registry.upsert_meta(&channel_id, patient);
+        state.registry.set_link(&channel_id, &gw_key, &loc.room, ecg_fs, &mrn, profile_id);
+        if changed {
+            state.recompute_channel_groups(&channel_id);
+        }
+    }
+}
+
+/// ECG 패킷 1건: 분석 서버가 살아 있으면 forward 후 응답(seq)과 병합, 아니면 즉시 패스스루 출력.
+fn process_ecg(state: &Arc<AppState>, pkt: EcgPacket) {
+    state.registry.push_packet(&pkt);
+    if state.analysis_up() {
+        #[derive(serde::Serialize)]
+        struct EcgLine<'a> {
+            #[serde(rename = "type")]
+            t: &'static str,
+            #[serde(flatten)]
+            pkt: &'a EcgPacket,
+        }
+        if let Ok(line) = serde_json::to_string(&EcgLine { t: "ecg", pkt: &pkt }) {
+            state.send_analysis(line);
+        }
+    } else {
+        let taken = state.registry.take_matching(&pkt.channel_id, pkt.seq);
+        state.emit_stream(taken.unwrap_or(pkt), None, Vec::new());
+    }
 }

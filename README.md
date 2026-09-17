@@ -1,115 +1,74 @@
-# ECG 소켓 채널 라우터 (테스트 스택)
+# biomonitor_router — 생체신호 라우터 서버 (protocol v3)
 
-무선 ECG 패치를 착용한 입원 환자를 실시간 모니터링하기 위한 **소켓 기반 채널 라우터 테스트 스택**입니다.
-수백 개 입력 채널(패치)의 파형 스트리밍을 분석 서버 경유로 HR/부정맥 이벤트와 **seq 기준 싱크를 맞춰 병합**하고,
-건물/층/병동/구역/병실/주치의/진료과목/간호사 기준의 **동적 그룹**과 **게이트웨이/채널 단위 구독**으로 브로드캐스팅합니다.
-환자 이동(도보 여정)·예약(검사/진료)·장애 시뮬레이션·파형 파일 보관·환자 리포트까지
-병원 관제에 필요한 흐름 전체를 데모할 수 있습니다.
+`biomonitor_simulator`(에뮬레이터, RP5 #1)가 게이트웨이별 TCP 소켓으로 보내는 **protocol v3 프레임**을 받아
+검증(CRC-32·시퀀스)·재전송 요청(NACK)·패치별 저장·실시간 브로드캐스트(WS)·상태 API 를 제공하는 서버입니다.
+맥에서 개발한 뒤 **1 TB SSD 를 단 RP5 #2** 에 올립니다. 로드맵은 [docs/PLAN.md](docs/PLAN.md).
 
-## 처음 받으신 분을 위한 안내
+## 구성
 
-1. 아래 [빠른 시작](#빠른-시작)으로 전체 스택을 띄웁니다 (6개 서비스가 각자 창으로 열립니다).
-2. 어드민(http://localhost:5174)을 열고 **테스트 > DB 리셋**을 한 번 실행하세요.
-   병원별 SQLite DB(각 200채널 + 패치 재고 + 기본 그룹 10개)가 새로 만들어집니다.
-3. 볼거리 동선:
-   - **중앙관제 > ECG Channel Router Console** — 시스템 카드/이벤트/그룹/채널 테이블
-   - **중앙관제 > ECG Patch Map** — 건축 평면도 위 실시간 환자 위치.
-     우측 미니맵 최상단 **"이동 중" 카드** 클릭 → 동선 타임라인
-   - 파형 모달(환자/게이트웨이 클릭)에서 **파형을 클릭** → 환자 리포트
-     (얼굴/병변/치료 이력/저장 파형 전문 뷰어)
-   - **중앙관제 > 예약 목록 / 타임 로그 / 패치 관리**
-4. 상세 문서:
+| 디렉토리 | 기술 | 상태 |
+|---|---|---|
+| `router-server/` | Rust (tokio/axum) | **P1 완료** — v3 ingest, 게이트웨이 표, NACK, 패치 저장소, 상태 API, 에뮬레이터 링크 |
+| `web/admin`, `web/viewer` | React (Vite) | 레거시 화면 — P2/P3 에서 다채널·도면 JSON 으로 재작성 |
+| `analysis-server/`, `db-api/` | Python | 레거시 목업 — 유지 여부 미정 (P3) |
+| `docs/contract/` | JSON | 에뮬레이터 계약 fixture (discovery / layout / trips) |
+| `docs/legacy/` | | 2026-08 스택 문서·구 에뮬레이터 소스 |
 
-| 문서 | 내용 |
-|---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 시스템 설계: 데이터 흐름, 싱크, 그룹핑, 다병원 DB, 예약, 파형 저장, 장애 시뮬레이션 |
-| [docs/API.md](docs/API.md) | 와이어 프로토콜과 전체 API 레퍼런스 (라우터/에뮬레이터/DB API) |
-| [docs/FRONTEND.md](docs/FRONTEND.md) | 어드민 전 페이지 가이드, 평면도·템플릿 JSON 스키마, 리포트/동선 뷰어 |
+## router-server 동작 (P1)
 
-## 구성 요소
-
-| 디렉토리 | 기술 | 역할 | 포트 |
-|---|---|---|---|
-| `router-server/` | Rust (tokio/axum) | 채널 라우터: ingest, 서큘러 버퍼, 분석 병합, 그룹핑, WS 출력, REST, **파형 파일 저장(8h 세그먼트)**, DB push 중계 | 7000 (ingest), 7300 (WS/API) |
-| `analysis-server/` | Python (stdlib) | 목업 분석: 100ms 지연, HR 산출, 부정맥/해제 이벤트, 지연·스톨·크래시(재기동 15~45초) 시뮬레이션 | 7100 |
-| `emulator/` | Python (stdlib) | ECG 패치 에뮬레이터: **1만 명 프로필 자체 보유**, DB 명단 기반 채널 생성, 게이트웨이/이동/예약/장애 시뮬레이션, 제어 API | 7500 (제어) |
-| `db-api/` | Python (stdlib + sqlite3) | **병원별 SQLite** 영속화: 환자/패치 재고/예약/시계열 메트릭. 라우터가 실시간 push | 7600 (REST), 7601 (ingest) |
-| `web/viewer/` | React (Vite) | 그룹별 실시간 모니터링 (스윕 파형, 자동 밀도) | 5173 |
-| `web/admin/` | React (Vite) | 관제 콘솔 + Patch Map + 동선 타임라인 + 예약 목록 + 패치 관리 + 타임 로그 + 환자 리포트 | 5174 |
-
-**역할 분담 원칙** — ① 정적/영속 정보는 DB(SQLite), ② 에뮬레이터가 만드는 다이내믹 데이터는
-라우터가 ingest 로 받아 DB 로 중계, ③ 고속 시계열(파형)은 라우터가 파일로 직접 보관,
-④ 에뮬레이터는 DB 와 독립 동작 가능하도록 필요한 데이터(프로필 명단)를 자체 보유.
-
-## 요구 사항
-
-- **Rust** (windows-gnu 툴체인) — `router-server/.cargo/config.toml` 이
-  WinLibs mingw(`%USERPROFILE%\.local\mingw64`)의 gcc/dlltool 을 사용하도록 설정됨.
-  ⚠ 재빌드 전 실행 중인 `router-server.exe` 를 먼저 종료해야 함 (파일 잠금)
-- **Python 3.10+** — 서비스는 표준 라이브러리만 사용.
-  (선택) 프로필/얼굴 생성 스크립트만 `pip install python-avatars resvg-py` 필요
-- **Node.js 18+** — `web/viewer`, `web/admin` 에서 `npm install` 1회
-
-## 빠른 시작
-
-**처음 받은 컴퓨터**: 루트의 **`setup-and-run.bat` 더블클릭** 한 번이면 됩니다
-(필수 프로그램 확인 → npm install → 6개 서비스 순차 기동. 실행 정책 설정 불필요).
-라우터는 동봉된 `router-server\bin\router-server.exe` 를 사용하므로 **Rust 설치가 필요 없습니다.**
-
-이미 설치된 환경에서 재기동만 할 때:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\start-all.ps1
+```
+게이트웨이 소켓 ─▶ wire::Decoder (26 B 헤더 + payload + CRC-32) ─▶ ingest
+      ▲                                                        │
+      └── NACK <B kind><I from><I to> (F_CTRL) ◀── gateways ◀──┤ 시퀀스 검사: gap → NACK, 재전송 도착 → recovered
+                                                               ├─▶ patch_store (스레드): patches/<id>/<UTC 시간>.rec, 항목 CRC, gzip, 상한 정리
+                                                               ├─▶ registry (패치 = 채널): META patches[] + 레코드 헤더 + EMR 동기화(이름·병동·의료진)
+                                                               └─▶ ECG 채널 → 분석 링크 / WS stream_batch (레거시 파이프라인, P2 에서 다채널화)
 ```
 
-- 채널은 **DB(SQLite) 명단 기반**으로 생성됩니다. DB 가 비어 있을 때만 `-Channels`(기본 200)개 생성 폴백.
-- 개별 실행 (순서 무관 — 라우터가 분석 서버/DB API 에 자동 재접속):
+* **저장 형식** — `[ts_ms u64][gw_id u32][patient_id u32][seq u32][flags][battery][rssi][n_ch]` + 채널 블록 + `[crc32]`.
+  에뮬레이터 저장소의 파이썬 초안 `router/store.py` 와 바이트 호환(`verify_file()` 로 교차 검증됨).
+  시간 파일이 닫히면 gzip(레벨 3), `ROUTER_STORE_MAX_GB` 초과 시 가장 오래된 시간 파일부터 삭제.
+* **NACK 정책** — 게이트웨이당 0.5 s 에 1회, 같은 seq 최대 3회, 한 번에 200 프레임, 10 s 미응답 → `resend_lost`.
+  CRC 불일치 프레임은 헤더 seq 로 재요청. 복구 프레임의 패치 seq 는 이상으로 세지 않음.
+* **연속 레코드** — 에뮬레이터는 페이스마크(ch 10)를 같은 패치·같은 seq 의 두 번째 레코드로 보냄.
+  라우터는 이를 `continuation_records` 로 세고 중복으로 취급하지 않음(저장은 그대로).
+* **게이트웨이 표** — 소켓·최근 프레임·GW_STATUS·META 위치·패치 수·NACK/복구/이상 카운터, 10 s 침묵 감지, 중복 gw_id 감지.
 
-```powershell
-cd db-api          ; python main.py                                   # DB API (SQLite)
-cd analysis-server ; python main.py                                   # 분석 서버
-cd router-server   ; cargo run --release                              # 라우터
-cd emulator        ; python main.py --hospital seoul-a                # 에뮬레이터
-cd web\viewer      ; npm install ; npm run dev                        # 뷰어   http://localhost:5173
-cd web\admin       ; npm install ; npm run dev                        # 어드민 http://localhost:5174
+### 실행
+
+```bash
+cd router-server
+SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk CC=/Library/Developer/CommandLineTools/usr/bin/cc cargo build --release
+ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STORE_MAX_GB=800 ./target/release/router-server
 ```
 
-## 핵심 기능 요약
+| 환경변수 | 기본 | 의미 |
+|---|---|---|
+| `ROUTER_INGEST_ADDR` | `0.0.0.0:9100` | 게이트웨이 TCP 수신 (에뮬레이터 `transport.target_port`) |
+| `ROUTER_HTTP_ADDR` | `0.0.0.0:7300` | REST + WS |
+| `ROUTER_STORE_DIR` / `ROUTER_STORE_MAX_GB` | `data/store` / `200` | 패치 저장소 루트 / 상한 (0 = 무제한) |
+| `ROUTER_EMULATOR_ADDR` | (없음) | 에뮬레이터 HTTP. 설정 시 5 s 상태 보고(`POST /api/v1/router/status`) + 30 s EMR 동기화 |
+| `ROUTER_ANALYSIS_ADDR` / `ROUTER_DB_ADDR` | `127.0.0.1:7100` / `:7601` | 레거시 분석·DB 링크 (없으면 재시도만) |
 
-- **싱크 병합**: 채널별 서큘러 버퍼(512패킷)에 원본 파형을 보관, 분석 응답의 seq 로 병합.
-  분석 지연 시 500ms 타임아웃 플러시로 파형이 밀리지 않음. 분석 다운 시 패스스루.
-- **동적 그룹핑**: 속성 criteria(키 간 AND, 값 간 OR) + 수동 include/exclude, 저장 즉시 join/leave 전파.
-  기본 `all` 그룹은 붙박이. **DB 리셋 시 실제 분포 기반 기본 그룹 10개 자동 시딩**
-  (병실→구역→담당자→층→병동→진료과→건물 규모 순, 주요 사용자 지정).
-- **병원별 SQLite**: `hospital-<id>.db` 분리, 패치 번호는 병원 프리픽스(SA-/BB-)로 전역 유일.
-  **병원 전환은 재생성이 아니라 일시 중단(suspend)** — 이전 병원 데이터는 DB 에 그대로 보존되고
-  복귀 시 동일 명단이 복원됨.
-- **환자 프로필 1만 명**: 성별/출생 연대별 다빈도 한국 이름, 생년월일/혈액형/병변,
-  **성별·연령 구분 가능한 얼굴 아바타 1만 장**(Avataaars, 시드 고정) — 에뮬레이터 자체 보유.
-- **예약(검사/진료) 시나리오**: 에뮬레이터가 랜덤 예약 생성 → 시간이 되면 검사실 이동 →
-  소요 시간이 정해져 있어 **복귀 예상 시각 추정 가능** → 복귀 기록. 전 과정 DB 연동.
-- **동선 타임라인**: 이동 중/이동 예정/동선 기록 3탭 + 환자 검색. 과거 이력(최근 4구간) +
-  현재 위치 + 예약 일정 칩. 임의 이동(화장실/산책/병문안)은 복귀 예측을 표시하지 않음(근거 없음).
-- **파형 파일 보관**: 라우터가 채널별 **8시간 세그먼트 바이너리 파일**로 저장
-  (8시간이 차면 다음 파일 생성, **삭제 없음**). REST 로 구간 조회(원본/요약).
-- **환자 리포트**: 파형 클릭 → 얼굴/인적사항/병변/치료 이력 + **ECG 모눈(그래프 페이퍼) 전문 뷰어**
-  (개요 클릭=15초 상세, 블록 드래그=구간 전체, 좌우 드래그 팬).
-- **장애 시뮬레이션 (패치/게이트웨이 레벨만)**: 게이트웨이 1~2분 장애 + 동구역 간섭(일부 패치),
-  동시 장애 상한 5%. 분석 엔진 지연/스톨/크래시(다운타임 실측 누적). 전체 네트워크 장애 없음.
+### API (P1 추가분)
 
-## 상태 모델
-
-채널 표시 상태 우선순위: **해제** (소켓 끊김) > **수신중단** (소켓 유지, 3초 이상 무패킷 — 게이트웨이 장애 등)
-> **약신호** > **이동 중** > **정상**. 상태는 항상 색 + 텍스트 라벨로 이중 표기됩니다.
-
-## 부가 도구
-
-| 도구 | 용도 |
+| 경로 | 내용 |
 |---|---|
-| `scripts/start-all.ps1` | 전체 스택 기동 (기존 프로세스 정리 → 6개 서비스 창 → 헬스체크) |
-| `scripts/gen-profiles.py` | 프로필 1만 명 + 얼굴 아바타 1만 장 생성 (`pip install python-avatars resvg-py`) |
-| `scripts/avatar_gen.py` | 아바타 스타일 매핑 모듈 (성별/연령 → Avataaars 조합) |
-| `scripts/update-prompt-log.mjs` | 이 프로젝트의 프롬프트를 `prompt-logs/YYYY-MM-DD.log` 로 추출 |
-| `router-server/groups.json`, `displays.json` | 그룹/디스플레이 설정 영속화 (자동 생성) |
-| `router-server/waves/` | 파형 세그먼트 파일 (자동 생성) |
-| `db-api/hospital-*.db` | 병원별 SQLite (테스트 > DB 리셋으로 재생성) |
+| `GET /api/stats` | 수신 바이트·레코드·유실, 프로세스/시스템 자원, `gateways` 요약(프레임·NACK·복구·이상 카운터) |
+| `GET /api/gateways` · `/api/gateways/summary` | 게이트웨이 표 / 요약 |
+| `GET /api/channels` | 패치(채널) 표: 게이트웨이·공간·환자·MRN·배터리·RSSI·플래그 |
+| `GET /api/patches/{id}` · `/api/patches/{id}/verify` | 저장 인덱스·파일 목록 / 전체 CRC 검증 |
+| `GET /api/wave/{id}?mode=raw|overview&from_ms&to_ms` | 저장 ECG 읽기 (레거시 리포트 뷰어 호환) |
+| `POST /api/wave/reset` | 저장소 전체 삭제 |
+| `GET /api/events` | link / silent / bad_crc / nack 이벤트 링 |
+
+### 검증
+
+* `cargo test` — 프레이밍·CRC 재동기화·제어 프레임·저장 항목 CRC·시간 파일 회전 (6).
+* 파이썬 가짜 게이트웨이 e2e(에뮬레이터 `protocol.py` 프레이밍): 갭 → NACK 6..8 → 복구 3, CRC 손상 → NACK, 중복 gw 소켓, 저장 파일 파이썬 교차 검증, API 뷰 — 19/19.
+* 로컬 에뮬레이터 2000 환자(2390 GW 중 2190 소켓, 초당 약 10k 레코드) 부하: 드롭 0, 라우터 CPU ≈ 11 %, RSS ≈ 130 MB,
+  `network_event` 드릴 → NACK 6 / 복구 6 / 유실 0, `gateway_fault` → 10 s 후 silent 이벤트, 라우터 재시작 후 35 s 내 전 게이트웨이 재접속·저장 이어짐.
+
+## 다음 단계
+
+P2 WS 다채널 출력 + 뷰어 → P3 DB/어드민(도면 JSON 폴리곤) → P4 RP5 #2 배포(1 TB SSD, systemd) → P5 보존·인증. 세부는 [docs/PLAN.md](docs/PLAN.md).

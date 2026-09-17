@@ -18,6 +18,15 @@ pub struct ChannelState {
     pub last_seq: u64,
     pub last_ts_ms: u64,
     pub groups: Vec<String>,
+    /// v3: 패치 자체 패킷 카운터 (갭 = 패치~라우터 사이 어딘가의 유실)
+    pub last_pseq: Option<u32>,
+    pub sample_rate: u32,
+    pub patient_id: u32,
+    pub mrn: String,
+    pub profile_id: u64,
+    pub flags: u8,
+    pub battery: u8,
+    pub rssi: i8,
     /// (수신 시각, 패킷) — 분석 응답 대기 서큘러 버퍼.
     /// 수신 시각은 분석 지연 시 타임아웃 방출(무분석 통과)에 사용된다.
     pub pending: VecDeque<(Instant, EcgPacket)>,
@@ -35,6 +44,14 @@ impl ChannelState {
             last_seq: 0,
             last_ts_ms: 0,
             groups: Vec::new(),
+            last_pseq: None,
+            sample_rate: 250,
+            patient_id: 0,
+            mrn: String::new(),
+            profile_id: 0,
+            flags: 0,
+            battery: 0,
+            rssi: 0,
             pending: VecDeque::new(),
         }
     }
@@ -55,6 +72,22 @@ pub struct ChannelInfo {
     pub last_ts_ms: u64,
     pub patient: Option<Patient>,
     pub groups: Vec<String>,
+    pub patient_id: u32,
+    pub mrn: String,
+    pub profile_id: u64,
+    pub sample_rate: u32,
+    pub flags: u8,
+    pub battery: u8,
+    pub rssi: i8,
+}
+
+/// 패치 시퀀스 판정 (v3 record.seq)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatchSeq {
+    Ok,
+    Gap(u32),
+    Dup,
+    Reorder,
 }
 
 /// 전 채널 레지스트리. DashMap 으로 락 경합을 채널 단위로 분산한다.
@@ -195,6 +228,66 @@ impl Registry {
         self.channels.get(channel_id).and_then(|c| c.patient.clone())
     }
 
+    /// v3 패치 카운터 추적. 연결 직후 첫 패킷은 Ok.
+    pub fn track_patch_seq(&self, channel_id: &str, seq: u32) -> PatchSeq {
+        let mut ch = self
+            .channels
+            .entry(channel_id.to_string())
+            .or_insert_with(ChannelState::new);
+        let Some(last) = ch.last_pseq else {
+            ch.last_pseq = Some(seq);
+            return PatchSeq::Ok;
+        };
+        let d = seq.wrapping_sub(last);
+        if d == 1 {
+            ch.last_pseq = Some(seq);
+            PatchSeq::Ok
+        } else if d == 0 {
+            PatchSeq::Dup
+        } else if d < 1 << 31 {
+            ch.last_pseq = Some(seq);
+            PatchSeq::Gap(d - 1)
+        } else {
+            PatchSeq::Reorder
+        }
+    }
+
+    pub fn sample_rate_of(&self, channel_id: &str) -> Option<u32> {
+        self.channels.get(channel_id).map(|c| c.sample_rate)
+    }
+
+    /// META 의 패치 항목: 게이트웨이/공간/샘플레이트/식별자
+    pub fn set_link(&self, channel_id: &str, gateway_id: &str, space: &str, fs: u32, mrn: &str, profile_id: u64) {
+        let mut ch = self
+            .channels
+            .entry(channel_id.to_string())
+            .or_insert_with(ChannelState::new);
+        ch.gateway_id = gateway_id.to_string();
+        ch.space = space.to_string();
+        ch.sample_rate = fs;
+        ch.mrn = mrn.to_string();
+        ch.profile_id = profile_id;
+        ch.connected = true;
+    }
+
+    /// 레코드 헤더의 패치 상태 (환자번호·플래그·배터리·RSSI)
+    pub fn note_patch(&self, channel_id: &str, patient_id: u32, flags: u8, battery: u8, rssi: i8) {
+        if let Some(mut ch) = self.channels.get_mut(channel_id) {
+            ch.patient_id = patient_id;
+            ch.flags = flags;
+            ch.battery = battery;
+            ch.rssi = rssi;
+        }
+    }
+
+    pub fn channels_of_gateway(&self, gateway_id: &str) -> Vec<String> {
+        self.channels
+            .iter()
+            .filter(|e| e.gateway_id == gateway_id && e.connected)
+            .map(|e| e.key().clone())
+            .collect()
+    }
+
     pub fn channel_ids(&self) -> Vec<String> {
         self.channels.iter().map(|e| e.key().clone()).collect()
     }
@@ -232,6 +325,13 @@ impl Registry {
                 last_ts_ms: e.last_ts_ms,
                 patient: e.patient.clone(),
                 groups: e.groups.clone(),
+                patient_id: e.patient_id,
+                mrn: e.mrn.clone(),
+                profile_id: e.profile_id,
+                sample_rate: e.sample_rate,
+                flags: e.flags,
+                battery: e.battery,
+                rssi: e.rssi,
             })
             .collect();
         v.sort_by(|a, b| a.channel_id.cmp(&b.channel_id));

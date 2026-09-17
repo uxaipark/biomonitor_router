@@ -17,28 +17,34 @@ pub struct Config {
     pub displays_path: String,
     /// 채널별 분석 대기 서큘러 버퍼 크기(패킷 수)
     pub ring_capacity: usize,
-    /// 파형 저장 디렉토리 (채널별 8시간 세그먼트 바이너리 파일)
-    pub wave_dir: String,
-    /// 파형 세그먼트 단위 (시간). 채워지면 다음 파일 생성 — 삭제 없음
-    pub wave_segment_hours: u64,
-    /// 파형 저장소 용량 상한 (GB). 초과 시 오래된 압축 파일부터 삭제
-    pub wave_max_gb: u64,
+    /// 패치별 레코드 저장 루트 (patches/<id>/<hour>.rec[.gz], meta/gw_<id>.json)
+    pub store_dir: String,
+    /// 저장소 용량 상한 (GB). 초과 시 오래된 시간 파일부터 삭제 (0 = 무제한)
+    pub store_max_gb: u64,
+    /// 에뮬레이터 HTTP 주소 (host:port). 상태 보고 + EMR 동기화. None = 비활성
+    pub emulator_addr: Option<String>,
+    /// 상태 보고 주기 (초)
+    pub report_every_s: u64,
+    /// EMR(입원/환자) 동기화 주기 (초)
+    pub emr_sync_s: u64,
 }
 
 impl Config {
     pub fn from_env() -> Self {
         let get = |k: &str, d: &str| env::var(k).unwrap_or_else(|_| d.to_string());
         Self {
-            ingest_addr: get("ROUTER_INGEST_ADDR", "0.0.0.0:7000"),
+            ingest_addr: get("ROUTER_INGEST_ADDR", "0.0.0.0:9100"),
             analysis_addr: get("ROUTER_ANALYSIS_ADDR", "127.0.0.1:7100"),
             db_addr: get("ROUTER_DB_ADDR", "127.0.0.1:7601"),
             http_addr: get("ROUTER_HTTP_ADDR", "0.0.0.0:7300"),
             groups_path: get("ROUTER_GROUPS_PATH", "groups.json"),
             displays_path: get("ROUTER_DISPLAYS_PATH", "displays.json"),
             ring_capacity: get("ROUTER_RING_CAPACITY", "512").parse().unwrap_or(512),
-            wave_dir: get("ROUTER_WAVE_DIR", "waves"),
-            wave_segment_hours: get("ROUTER_WAVE_SEGMENT_H", "8").parse().unwrap_or(8),
-            wave_max_gb: get("ROUTER_WAVE_MAX_GB", "200").parse().unwrap_or(200),
+            store_dir: get("ROUTER_STORE_DIR", "data/store"),
+            store_max_gb: get("ROUTER_STORE_MAX_GB", "200").parse().unwrap_or(200),
+            emulator_addr: env::var("ROUTER_EMULATOR_ADDR").ok().filter(|s| !s.is_empty()),
+            report_every_s: get("ROUTER_REPORT_EVERY_S", "5").parse().unwrap_or(5),
+            emr_sync_s: get("ROUTER_EMR_SYNC_S", "30").parse().unwrap_or(30),
         }
     }
 }

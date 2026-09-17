@@ -23,6 +23,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/displays", get(list_displays))
         .route("/api/displays/{id}", put(set_display))
         .route("/api/gateways", get(gateways))
+        .route("/api/gateways/summary", get(gateways_summary))
+        .route("/api/patches/{id}", get(patch_index))
+        .route("/api/patches/{id}/verify", get(patch_verify))
         .route("/api/channels", get(list_channels))
         .route("/api/wave/{channel_id}/info", get(wave_info))
         .route("/api/wave/{channel_id}", get(wave_read))
@@ -165,6 +168,10 @@ struct Stats {
     disk_free_bytes: u64,
     /// 저장된 파형 파일 전체 용량 (waves/, 30초 주기 집계)
     wave_store_bytes: u64,
+    /// 저장소에 파일이 있는 패치 수
+    store_patches: u64,
+    /// v3 게이트웨이 표 요약 (프레임/레코드/NACK/이상 카운터)
+    gateways: serde_json::Value,
 }
 
 /// (프로세스 working set, 시스템 사용, 시스템 전체) 바이트
@@ -225,8 +232,9 @@ async fn stats(State(state): State<Arc<AppState>>) -> Json<Stats> {
         cpu_percent: crate::sysmon::cpu_percent(),
         disk_total_bytes: disk_total,
         disk_free_bytes: disk_free,
-        wave_store_bytes: crate::wave_store::WAVE_STORE_BYTES
-            .load(std::sync::atomic::Ordering::Relaxed),
+        wave_store_bytes: crate::patch_store::STORE_BYTES.load(Ordering::Relaxed),
+        store_patches: crate::patch_store::STORE_PATCHES.load(Ordering::Relaxed),
+        gateways: state.gateways.summary(),
     })
 }
 
@@ -238,17 +246,47 @@ async fn list_displays(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     Json(state.list_displays())
 }
 
-#[derive(Serialize)]
-struct GatewayStatus {
-    known: u64,
-    down: Vec<String>,
-    updated_ts_ms: u64,
+/// 게이트웨이 표 (v3 ingest 링크 상태·카운터·GW_STATUS·NACK)
+async fn gateways(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(state.gateways.snapshot())
 }
 
-/// 게이트웨이 상태 (에뮬레이터가 데이터 경로로 push 한 최신 보고)
-async fn gateways(State(state): State<Arc<AppState>>) -> Json<GatewayStatus> {
-    let (known, down, ts) = state.gateway_status.lock().unwrap().clone();
-    Json(GatewayStatus { known, down, updated_ts_ms: ts })
+async fn gateways_summary(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(state.gateways.summary())
+}
+
+fn patch_id_of(channel_id: &str) -> Option<u32> {
+    channel_id.trim_start_matches(|c: char| !c.is_ascii_digit()).parse().ok()
+}
+
+/// 패치 저장소 인덱스 (첫/마지막 시각, 레코드·바이트·유실)
+async fn patch_index(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
+    let Some(pid) = patch_id_of(&id) else { return (StatusCode::BAD_REQUEST, "bad patch id").into_response() };
+    let root = std::path::PathBuf::from(&state.cfg.store_dir);
+    let r = tokio::task::spawn_blocking(move || {
+        crate::patch_store::read_index(&root, pid).map(|ix| {
+            let files = crate::patch_store::list_files(&root, pid);
+            serde_json::json!({ "index": ix, "files": files.iter().map(|(k, p, n)| serde_json::json!({"hour": k, "path": p, "bytes": n})).collect::<Vec<_>>() })
+        })
+    })
+    .await
+    .ok()
+    .flatten();
+    match r {
+        Some(v) => Json(v).into_response(),
+        None => (StatusCode::NOT_FOUND, "no stored records").into_response(),
+    }
+}
+
+/// 패치 저장 파일 전체 CRC 검증 (디스크 무결성)
+async fn patch_verify(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
+    let Some(pid) = patch_id_of(&id) else { return (StatusCode::BAD_REQUEST, "bad patch id").into_response() };
+    let root = std::path::PathBuf::from(&state.cfg.store_dir);
+    let r = tokio::task::spawn_blocking(move || crate::patch_store::verify_patch(&root, pid)).await;
+    match r {
+        Ok(v) => Json(v).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "verify failed").into_response(),
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -291,11 +329,15 @@ async fn wave_info(
     State(state): State<Arc<AppState>>,
     Path(channel_id): Path<String>,
 ) -> impl IntoResponse {
-    let dir = state.cfg.wave_dir.clone();
-    let r = tokio::task::spawn_blocking(move || crate::wave_store::info(&dir, &channel_id))
-        .await
-        .ok()
-        .flatten();
+    let root = std::path::PathBuf::from(&state.cfg.store_dir);
+    let r = tokio::task::spawn_blocking(move || {
+        let pid = patch_id_of(&channel_id)?;
+        let ix = crate::patch_store::read_index(&root, pid)?;
+        Some((ix.first_ts_ms, ix.last_ts_ms, ix.bytes))
+    })
+    .await
+    .ok()
+    .flatten();
     match r {
         Some((from, to, bytes)) => Json(serde_json::json!({
             "from_ms": from, "to_ms": to, "bytes": bytes,
@@ -317,12 +359,13 @@ async fn wave_read(
     let from = getn("from_ms", now.saturating_sub(30_000));
     let to = getn("to_ms", now).min(now);
     let mode = q.get("mode").map(String::as_str).unwrap_or("raw");
-    let dir = state.cfg.wave_dir.clone();
+    let root = std::path::PathBuf::from(&state.cfg.store_dir);
+    let Some(pid) = patch_id_of(&channel_id) else { return (StatusCode::BAD_REQUEST, "bad patch id").into_response() };
 
     if mode == "overview" {
         let buckets = getn("buckets", 600) as usize;
         let r = tokio::task::spawn_blocking(move || {
-            crate::wave_store::overview(&dir, &channel_id, from, to, buckets)
+            crate::patch_store::overview(&root, pid, from, to, buckets)
         }).await.unwrap_or_default();
         let pts: Vec<serde_json::Value> = r.into_iter()
             .map(|(t, lo, hi)| serde_json::json!([t, lo, hi]))
@@ -334,9 +377,10 @@ async fn wave_read(
 
     // raw: 과도한 응답 방지를 위해 120초로 제한
     let to = to.min(from + 120_000);
-    let r = tokio::task::spawn_blocking(move || {
-        crate::wave_store::read_range(&dir, &channel_id, from, to)
-    }).await.unwrap_or_default();
+    let sr = state.registry.sample_rate_of(&channel_id).unwrap_or(250);
+    let r: Vec<(u64, u32, Vec<f32>)> = tokio::task::spawn_blocking(move || {
+        crate::patch_store::read_ecg_range(&root, pid, from, to)
+    }).await.unwrap_or_default().into_iter().map(|(ts, _seq, s)| (ts, sr, s)).collect();
     // 레코드 간 seq 갭(미전송 구간)은 세그먼트 분리로 표현
     let mut segments: Vec<serde_json::Value> = Vec::new();
     let mut cur_t0 = 0u64;
@@ -390,9 +434,8 @@ async fn reset_loss(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 /// 파형 저장소 리셋 — 기록 태스크가 핸들을 닫고 저장 파일 전체를 삭제한다.
 /// 삭제 후 유입되는 파형부터 새 파일로 저장이 이어진다 (리포트 과거 구간은 사라짐).
 async fn wave_reset(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let next = *state.wave_reset.borrow() + 1;
-    let _ = state.wave_reset.send(next);
-    state.push_event("wave_reset", None, "파형 저장소 리셋 — 저장 파일 전체 삭제".into());
+    state.send_store(crate::patch_store::StoreOp::Reset);
+    state.push_event("wave_reset", None, "패치 저장소 리셋 — 저장 파일 전체 삭제".into());
     Json(serde_json::json!({"ok": true}))
 }
 
