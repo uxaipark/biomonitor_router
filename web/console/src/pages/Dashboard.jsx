@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import React, { useMemo, useRef } from 'react'
 import { api, usePoll, fmtBytes, fmtNum, fmtDur, fmtTime } from '../api.js'
 import { SEV_LABEL } from '../model.js'
 import { openLive } from '../App.jsx'
@@ -17,14 +17,16 @@ const ANOM_LABEL = {
 export default function Dashboard({ alarms }) {
   const [stats] = usePoll(api.stats, 1000)
   const [events] = usePoll(api.events, 4000)
+  // Per-second rates from consecutive /api/stats snapshots. Computed only when a new snapshot arrives and
+  // kept in a ref, so re-renders caused by the alarm/event polls do not blank the tiles.
   const prev = useRef(null)
-  // per-second rates from consecutive snapshots
-  let rate = null
-  if (stats) {
+  const rateRef = useRef(null)
+  useMemo(() => {
+    if (!stats) return
     const p = prev.current
-    if (p && stats.uptime_s > p.uptime_s) {
+    if (p && p !== stats && stats.uptime_s > p.uptime_s) {
       const dt = stats.uptime_s - p.uptime_s
-      rate = {
+      rateRef.current = {
         frames: (stats.gateways.frames - p.gateways.frames) / dt,
         records: (stats.total_packets - p.total_packets) / dt,
         bytes: (stats.total_bytes - p.total_bytes) / dt,
@@ -32,7 +34,8 @@ export default function Dashboard({ alarms }) {
       }
     }
     if (!p || stats.uptime_s !== p.uptime_s) prev.current = stats
-  }
+  }, [stats])
+  const rate = rateRef.current
   const g = stats?.gateways || {}
   const an = g.anomalies || {}
   const a = alarms?.alarms || []
