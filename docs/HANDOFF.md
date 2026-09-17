@@ -32,6 +32,8 @@
 - [2026-09-18 01:45 RP5] 배포 준비 `deploy/pi/`: `biomonitor-router.service`(User=master, LimitNOFILE 65535), `/etc/biomonitor-router.env`, `99-biomonitor-router.conf`(somaxconn 4096 등), `install.sh`(빌드 → /opt/biomonitor-router, 데이터 /var/lib/biomonitor-router). 아직 설치하지 않음(사용자 결정 대기) — 현재는 `scripts/run-router-pi.sh` 로 백그라운드 실행 중.
 - [2026-09-18 01:45 RP5] 관측: `patch_seq_reorder` 는 엘리베이터/복도 게이트웨이 핸드오버 중 두 게이트웨이가 같은 패치를 겹쳐 보낼 때 생기는 정상 현상(이동 환자 1명에서만, `/api/channels[].pseq_reorder` 로 확인). 재구축 직후 수천 건 폭증은 과도기. 알람 규칙 기본값으로 환자 1,000명 중 활성 알람 약 150건(에뮬레이터 심장질환 비율 70 %) — 임계 조정은 규칙 탭에서.
 
+- [2026-09-18 05:10 RP5] 사용자 결정: 저장 상한 **200 GB**(`ROUTER_STORE_MAX_GB=200`, run 스크립트·deploy env 반영, 라우터 재시작). systemd 설치는 나중에 — 계속 `scripts/run-router-pi.sh` 백그라운드 실행.
+
 ## 4. MAC → RP5#2 전달 사항
 
 - [2026-09-17 23:20 MAC] 처음 설치할 때: `git clone` → `scripts/pi-dev-setup.sh` → `ROUTER_STORE_DIR` 를 SSD 마운트 아래로 두고 실행. systemd 유닛은 P4 에서 `deploy/pi/` 로 만들 예정이니, 그 전에 필요하면 임시로 만들고 여기에 적어 주세요.
