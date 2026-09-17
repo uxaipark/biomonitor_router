@@ -24,7 +24,8 @@ use tracing::{info, warn};
 use crate::wire::{self, CH_ECG};
 
 pub const ENTRY_HDR_LEN: usize = 24;
-const MAX_OPEN: usize = 256;
+/// Open hour-file handles. Must cover the patch count (2,000–2,500 here) or every 1 s flush reopens most files.
+const MAX_OPEN: usize = 4096;
 const FLUSH_EVERY: Duration = Duration::from_secs(1);
 const INDEX_EVERY: Duration = Duration::from_secs(60);
 

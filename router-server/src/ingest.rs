@@ -99,7 +99,12 @@ async fn handle_conn(state: Arc<AppState>, stream: TcpStream, peer: std::net::So
                     state.push_event("bad_crc", None, format!("gw {} seq {}: CRC mismatch ({})", hdr.gw_id, hdr.seq, conn.addr));
                 }
                 Item::Frame(hdr, payload) => match wire::parse_payload(hdr, &payload) {
-                    Ok(frame) => process_frame(&state, &conn, &frame),
+                    Ok(frame) => {
+                        let ops = process_frame(&state, &conn, &frame);
+                        for op in ops {
+                            state.send_store_wait(op).await;
+                        }
+                    }
                     Err(e) => {
                         wire_inc(&state.gateways.totals.bad_payload);
                         warn!("gw {} seq {}: payload parse error {:?}", hdr.gw_id, hdr.seq, e);
@@ -177,19 +182,21 @@ fn set_keepalive(stream: &TcpStream) {
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn set_keepalive(_stream: &TcpStream) {}
 
-fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) {
+/// Returns the store ops for this frame; the caller enqueues them with backpressure (async).
+fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) -> Vec<StoreOp> {
+    let mut ops: Vec<StoreOp> = Vec::with_capacity(frame.records.len() + 1);
     let hdr = &frame.hdr;
     if frame.ctrl.is_some() {
         // Control frames only travel router → gateway; one arriving here is harmless noise.
         wire_inc(&state.gateways.totals.ctrl_rx);
-        return;
+        return ops;
     }
     let (verdict, link_changed) = state.gateways.on_frame(conn.id, &conn.addr, &conn.tx, hdr);
     if link_changed {
         state.push_event("link", None, format!("gw {} connected ({})", hdr.gw_id, conn.addr));
     }
     if verdict == SeqVerdict::Dup {
-        return; // an exact duplicate frame: already stored and forwarded
+        return ops; // an exact duplicate frame: already stored and forwarded
     }
     if let Some(st) = frame.gw_status {
         state.gateways.on_status(hdr.gw_id, st);
@@ -200,7 +207,7 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) {
             Ok(meta) => {
                 let changed = state.gateways.on_meta(hdr.gw_id, &meta);
                 if changed {
-                    state.send_store(StoreOp::Meta { gw_id: hdr.gw_id, json: json.to_vec() });
+                    ops.push(StoreOp::Meta { gw_id: hdr.gw_id, json: json.to_vec() });
                     apply_meta_patches(state, hdr.gw_id, &meta);
                 }
             }
@@ -208,13 +215,13 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) {
         }
     }
     if frame.records.is_empty() {
-        return;
+        return ops;
     }
     let (_gw_name, loc) = state.gateways.location_of(hdr.gw_id).unwrap_or_default();
     let space = loc.room.clone();
     for rec in &frame.records {
         state.total_packets.fetch_add(1, Ordering::Relaxed);
-        state.send_store(StoreOp::Record { ts_ms: hdr.ts_ms, gw_id: hdr.gw_id, raw: rec.raw.to_vec() });
+        ops.push(StoreOp::Record { ts_ms: hdr.ts_ms, gw_id: hdr.gw_id, raw: rec.raw.to_vec() });
         let channel_id = rec.patch_id.to_string();
         // Per-patch packet counter: a gap here = packets lost anywhere between patch and router.
         // A frame that answers a NACK carries older patch seqs by design: store it, skip the seq check.
@@ -304,6 +311,7 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) {
         process_ecg(state, pkt);
     }
     state.gateways.add_records(hdr.gw_id, frame.records.len());
+    ops
 }
 
 /// META patches[] → registry rows (patch → patient/channels/location). Names come from the EMR sync.

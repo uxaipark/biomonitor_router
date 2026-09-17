@@ -109,7 +109,9 @@ impl AppState {
         //  - wave 16384 pkt ≈ ~3MB. 디스크 정체 시 드롭.
         let (analysis_tx, analysis_rx) = mpsc::channel(8192);
         let (db_tx, db_rx) = mpsc::channel(16384);
-        let (store_tx, store_rx) = mpsc::channel(65536);
+        // store 262,144 ops ≈ 25 s of records at 10k/s (~90 MB worst case): absorbs the store-and-forward replay
+        // burst every gateway sends after an emulator restart. Ingest waits up to 200 ms before dropping (backpressure).
+        let (store_tx, store_rx) = mpsc::channel(262_144);
         let displays = std::fs::read_to_string(&cfg.displays_path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -171,11 +173,23 @@ impl AppState {
 
     pub fn send_store(&self, op: StoreOp) {
         if self.store_tx.try_send(op).is_err() {
-            let n = self.dropped_wave.fetch_add(1, Ordering::Relaxed) + 1;
-            self.last_store_drop_ms.store(now_ms(), Ordering::Relaxed);
-            if n % 1000 == 1 {
-                tracing::warn!("store 큐 포화 — 누적 {}건 드롭 (디스크 정체)", n);
-            }
+            self.note_store_drop();
+        }
+    }
+
+    /// Async variant for ingest: wait up to 200 ms for queue space (TCP backpressure toward the gateway) before
+    /// dropping, so a reconnect replay burst is absorbed instead of punched through the queue.
+    pub async fn send_store_wait(&self, op: StoreOp) {
+        if self.store_tx.send_timeout(op, Duration::from_millis(200)).await.is_err() {
+            self.note_store_drop();
+        }
+    }
+
+    fn note_store_drop(&self) {
+        let n = self.dropped_wave.fetch_add(1, Ordering::Relaxed) + 1;
+        self.last_store_drop_ms.store(now_ms(), Ordering::Relaxed);
+        if n % 1000 == 1 {
+            tracing::warn!("store 큐 포화 — 누적 {}건 드롭 (디스크 정체)", n);
         }
     }
 
