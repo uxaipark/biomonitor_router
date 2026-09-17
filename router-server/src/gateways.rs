@@ -17,6 +17,9 @@ const NACK_MAX_RANGE: u32 = 200;
 const NACK_EXPIRE: Duration = Duration::from_secs(10);
 /// A gateway whose socket is up but sent nothing for this long is flagged `silent`.
 const SILENCE: Duration = Duration::from_secs(10);
+/// A seq this far behind the last one (~200 s of frames at 200 ms) is not a late frame but a restarted counter
+/// (emulator/gateway restart): re-base instead of counting every following frame as a reorder.
+pub const SEQ_RESTART_BACK: u32 = 1024;
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct GwLocation {
@@ -55,6 +58,7 @@ pub struct GwEntry {
     pub seq_gap: u64,
     pub seq_dup: u64,
     pub seq_reorder: u64,
+    pub seq_restart: u64,
     pub bad_crc: u64,
     pub silent: bool,
     pending: HashMap<u32, (Instant, u8)>,
@@ -91,6 +95,7 @@ impl GwEntry {
             seq_gap: 0,
             seq_dup: 0,
             seq_reorder: 0,
+            seq_restart: 0,
             bad_crc: 0,
             silent: false,
             pending: HashMap::new(),
@@ -129,6 +134,7 @@ pub struct GwInfo {
     pub seq_gap: u64,
     pub seq_dup: u64,
     pub seq_reorder: u64,
+    pub seq_restart: u64,
     pub bad_crc: u64,
 }
 
@@ -163,10 +169,12 @@ pub struct Totals {
     pub seq_missing: AtomicU64,
     pub seq_dup: AtomicU64,
     pub seq_reorder: AtomicU64,
+    pub seq_restart: AtomicU64,
     pub patch_seq_gap: AtomicU64,
     pub patch_seq_missing: AtomicU64,
     pub patch_seq_dup: AtomicU64,
     pub patch_seq_reorder: AtomicU64,
+    pub patch_seq_restart: AtomicU64,
     /// Same-seq continuation records (pace marks split off by the emulator) — informational, not an anomaly.
     pub patch_cont: AtomicU64,
     pub nack_tx: AtomicU64,
@@ -286,6 +294,12 @@ impl GatewayTable {
             }
             g.last_seq = Some(seq);
             SeqVerdict::Gap(missing)
+        } else if last.wrapping_sub(seq) > SEQ_RESTART_BACK {
+            g.last_seq = Some(seq);
+            g.pending.clear();
+            g.seq_restart += 1;
+            inc!(t, seq_restart);
+            SeqVerdict::Ok
         } else {
             g.seq_reorder += 1;
             inc!(t, seq_reorder);
@@ -455,6 +469,7 @@ impl GatewayTable {
                 seq_gap: g.seq_gap,
                 seq_dup: g.seq_dup,
                 seq_reorder: g.seq_reorder,
+                seq_restart: g.seq_restart,
                 bad_crc: g.bad_crc,
             })
             .collect();
@@ -479,10 +494,12 @@ impl GatewayTable {
             ("seq_missing", &t.seq_missing),
             ("seq_dup", &t.seq_dup),
             ("seq_reorder", &t.seq_reorder),
+            ("seq_restart", &t.seq_restart),
             ("patch_seq_gap", &t.patch_seq_gap),
             ("patch_seq_missing", &t.patch_seq_missing),
             ("patch_seq_dup", &t.patch_seq_dup),
             ("patch_seq_reorder", &t.patch_seq_reorder),
+            ("patch_seq_restart", &t.patch_seq_restart),
             ("meta_bad_json", &t.meta_bad_json),
             ("ctrl_rx", &t.ctrl_rx),
         ] {
@@ -511,5 +528,34 @@ impl GatewayTable {
             "resend_pending": self.resend_pending(), "dup_gw_frames": l(&t.dup_gw),
             "anomalies": anomalies,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hdr(gw_id: u32, seq: u32) -> wire::Header {
+        wire::Header { version: 1, flags: 0, gw_id, seq, ts_ms: 0, n_rec: 0, payload_len: 0 }
+    }
+
+    #[test]
+    fn restarted_gateway_counter_is_rebased_not_reordered_forever() {
+        let t = GatewayTable::new();
+        let (tx, _rx) = mpsc::channel(64);
+        for s in 50_000..50_010 {
+            assert_eq!(t.on_frame(1, "a", &tx, &hdr(7, s)).0, SeqVerdict::Ok);
+        }
+        // A late frame a few seqs back is still a reorder.
+        assert_eq!(t.on_frame(1, "a", &tx, &hdr(7, 50_005)).0, SeqVerdict::Reorder);
+        // The emulator restarts: seq starts over on a new socket.
+        assert_eq!(t.on_frame(2, "b", &tx, &hdr(7, 0)).0, SeqVerdict::Ok);
+        for s in 1..100 {
+            assert_eq!(t.on_frame(2, "b", &tx, &hdr(7, s)).0, SeqVerdict::Ok);
+        }
+        assert_eq!(t.totals.seq_restart.load(Ordering::Relaxed), 1);
+        assert_eq!(t.totals.seq_reorder.load(Ordering::Relaxed), 1);
+        // Gap detection works again after the restart.
+        assert_eq!(t.on_frame(2, "b", &tx, &hdr(7, 103)).0, SeqVerdict::Gap(3));
     }
 }

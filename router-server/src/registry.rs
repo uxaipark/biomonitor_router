@@ -88,6 +88,8 @@ pub enum PatchSeq {
     Gap(u32),
     Dup,
     Reorder,
+    /// 카운터가 크게 뒤로 감(패치/에뮬레이터 재시작): 기준을 다시 잡음
+    Restart,
 }
 
 /// 전 채널 레지스트리. DashMap 으로 락 경합을 채널 단위로 분산한다.
@@ -247,6 +249,9 @@ impl Registry {
         } else if d < 1 << 31 {
             ch.last_pseq = Some(seq);
             PatchSeq::Gap(d - 1)
+        } else if last.wrapping_sub(seq) > crate::gateways::SEQ_RESTART_BACK {
+            ch.last_pseq = Some(seq);
+            PatchSeq::Restart
         } else {
             PatchSeq::Reorder
         }

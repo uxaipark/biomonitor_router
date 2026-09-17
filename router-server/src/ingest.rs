@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpSocket, TcpStream};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
@@ -30,7 +30,13 @@ fn source_allowed(state: &AppState, ip: std::net::IpAddr) -> bool {
 }
 
 pub async fn run(state: Arc<AppState>) -> anyhow::Result<()> {
-    let listener = TcpListener::bind(&state.cfg.ingest_addr).await?;
+    // ~2,200 gateways connect at once after an emulator (re)start: the std default backlog of 128 overflows
+    // into SYN cookies, so listen with a backlog sized for the fleet.
+    let addr: std::net::SocketAddr = state.cfg.ingest_addr.parse()?;
+    let sock = if addr.is_ipv4() { TcpSocket::new_v4()? } else { TcpSocket::new_v6()? };
+    sock.set_reuseaddr(true)?;
+    sock.bind(addr)?;
+    let listener = sock.listen(4096)?;
     info!("ingest (protocol v3) listening on {}", state.cfg.ingest_addr);
     loop {
         let (stream, peer) = listener.accept().await?;
@@ -56,6 +62,7 @@ struct Conn {
 
 async fn handle_conn(state: Arc<AppState>, stream: TcpStream, peer: std::net::SocketAddr) -> anyhow::Result<()> {
     let _ = stream.set_nodelay(true);
+    set_keepalive(&stream);
     let (mut rd, mut wr) = stream.into_split();
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(64);
     // Writer task: control frames (NACK) queued by the gateway table go out on this socket.
@@ -142,6 +149,34 @@ fn wire_inc(a: &AtomicU64) {
     a.fetch_add(1, Ordering::Relaxed);
 }
 
+/// TCP keepalive (idle 30 s, probe every 10 s, 3 probes): a gateway whose host vanished without FIN/RST — the
+/// emulator redeployed, or its route moved to another interface — is closed in ~60 s instead of holding a
+/// half-open socket (and its gateway row) forever. A live but silent gateway still answers the probes.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn set_keepalive(stream: &TcpStream) {
+    use std::os::fd::AsRawFd;
+    let fd = stream.as_raw_fd();
+    #[cfg(target_os = "linux")]
+    let idle_opt = libc::TCP_KEEPIDLE;
+    #[cfg(target_os = "macos")]
+    let idle_opt = libc::TCP_KEEPALIVE;
+    for (level, opt, val) in [
+        (libc::SOL_SOCKET, libc::SO_KEEPALIVE, 1),
+        (libc::IPPROTO_TCP, idle_opt, 30),
+        (libc::IPPROTO_TCP, libc::TCP_KEEPINTVL, 10),
+        (libc::IPPROTO_TCP, libc::TCP_KEEPCNT, 3),
+    ] {
+        let v: libc::c_int = val;
+        // SAFETY: fd is a live socket owned by `stream`; the option value is a c_int of the declared size.
+        unsafe {
+            libc::setsockopt(fd, level, opt, &v as *const _ as *const libc::c_void, std::mem::size_of::<libc::c_int>() as libc::socklen_t);
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn set_keepalive(_stream: &TcpStream) {}
+
 fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) {
     let hdr = &frame.hdr;
     if frame.ctrl.is_some() {
@@ -205,6 +240,7 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) {
                 }
                 continue;
             }
+            crate::registry::PatchSeq::Restart => wire_inc(&state.gateways.totals.patch_seq_restart),
             crate::registry::PatchSeq::Reorder => {
                 wire_inc(&state.gateways.totals.patch_seq_reorder);
                 continue;
