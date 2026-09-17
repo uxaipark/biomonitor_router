@@ -218,6 +218,26 @@ impl Registry {
         self.channels.remove(channel_id).map(|(_, v)| v)
     }
 
+    /// 연결이 끊긴 지 `max_age_ms` 넘은 행을 지운다 (에뮬레이터 재구축 뒤 남는 옛 패치 번호 정리).
+    /// 반환: 지운 채널 ID.
+    pub fn prune_disconnected(&self, max_age_ms: u64) -> Vec<String> {
+        let now = crate::protocol::now_ms();
+        let dead: Vec<String> = self
+            .channels
+            .iter()
+            .filter(|e| !e.connected && now.saturating_sub(e.last_ts_ms) > max_age_ms)
+            .map(|e| e.key().clone())
+            .collect();
+        for id in &dead {
+            self.channels.remove(id);
+        }
+        dead
+    }
+
+    pub fn connected_count(&self) -> usize {
+        self.channels.iter().filter(|e| e.connected).count()
+    }
+
     /// 연결이 끊긴(해제) 채널 ID 목록 — 레지스트리 정리(prune)용
     pub fn disconnected_ids(&self) -> Vec<String> {
         self.channels

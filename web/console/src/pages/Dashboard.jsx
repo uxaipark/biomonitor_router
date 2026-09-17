@@ -49,7 +49,7 @@ export default function Dashboard({ alarms }) {
     <div className="page">
       <section className="tiles">
         <Tile label="게이트웨이 연결" value={`${fmtNum(g.connected)} / ${fmtNum(g.gateways)}`} sub={`다운 ${g.down ?? 0} · 무응답 ${g.silent ?? 0} · 저하 ${g.degraded ?? 0}`} cls={g.down || g.silent ? 'warn' : ''} />
-        <Tile label="패치 (환자)" value={fmtNum(stats?.channel_count)} sub={`저장 중 ${fmtNum(stats?.store_patches)}`} />
+        <Tile label="패치 (환자)" value={fmtNum(stats?.channels_connected ?? stats?.channel_count)} sub={`전체 행 ${fmtNum(stats?.channel_count)} · 저장 중 ${fmtNum(stats?.store_patches)}`} />
         <Tile label="수신" value={rate ? `${fmtNum(Math.round(rate.frames))} fr/s` : '—'} sub={rate ? `${fmtNum(Math.round(rate.records))} rec/s · ${fmtBytes(rate.bytes)}/s` : ''} />
         <Tile label="송신 (WS·분석)" value={rate ? `${fmtBytes(rate.tx)}/s` : '—'} sub={`누적 ${fmtBytes(stats?.total_tx_bytes)}`} />
         <Tile label="유실 레코드" value={fmtNum(stats?.total_lost_packets)} sub={`NACK ${fmtNum(g.nack_tx)} · 복구 ${fmtNum(g.recovered)} · 재전송 실패 ${fmtNum(g.resend_lost)}`} cls={g.resend_lost ? 'warn' : ''} />

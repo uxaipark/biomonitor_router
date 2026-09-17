@@ -31,10 +31,22 @@ async fn main() -> anyhow::Result<()> {
         let st = state.clone();
         tokio::spawn(async move {
             let mut t = tokio::time::interval(std::time::Duration::from_secs(1));
+            let mut n: u64 = 0;
             loop {
                 t.tick().await;
                 for gw in st.gateways.housekeeping() {
                     st.push_event("silent", None, format!("gw {} silent: socket up, no frames for 10 s", gw));
+                }
+                // 옛 패치 행 정리: 15분 넘게 끊긴 채널 (에뮬레이터 재구축·패치 교체 뒤 남는 번호)
+                n += 1;
+                if n % 60 == 0 {
+                    let dead = st.registry.prune_disconnected(15 * 60 * 1000);
+                    if !dead.is_empty() {
+                        for id in &dead {
+                            st.remove_channel(id);
+                        }
+                        st.push_event("registry_prune", None, format!("끊긴 지 15분 넘은 패치 {}개 정리", dead.len()));
+                    }
                 }
             }
         });

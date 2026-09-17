@@ -150,7 +150,9 @@ async fn emu_discovery(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 struct Health {
     ok: bool,
     analysis_connected: bool,
+    /// 레지스트리 행 수 (끊긴 행 포함) / 현재 연결된 패치 수
     channel_count: usize,
+    channels_connected: usize,
 }
 
 async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
@@ -158,6 +160,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
         ok: true,
         analysis_connected: state.analysis_up(),
         channel_count: state.registry.channel_ids().len(),
+        channels_connected: state.registry.connected_count(),
     })
 }
 
