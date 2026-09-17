@@ -47,7 +47,41 @@ fn default_quality() -> String {
     "good".to_string()
 }
 
-/// ECG 스트림 패킷 (에뮬레이터 → 라우터, 라우터 → 분석 서버 forward)
+/// 1 Hz 수치 채널의 최신 값 (있는 것만; 0 = 무효 판독은 None).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Vitals {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hr: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temp: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resp: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spo2: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub glucose: Option<f32>,
+}
+
+impl Vitals {
+    pub fn is_empty(&self) -> bool {
+        self.hr.is_none() && self.temp.is_none() && self.resp.is_none() && self.spo2.is_none() && self.glucose.is_none()
+    }
+}
+
+/// 파형 블록 하나의 레이아웃 — WS 블롭(i16, 리틀엔디언)에서 `n × axes` 값을 차지한다.
+/// 물리값 = raw × scale (ecg mV, accel g, ppg/resp_wave a.u.).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WaveBlock {
+    pub ch: u8,
+    pub key: String,
+    pub fs: u32,
+    pub axes: u8,
+    pub n: u16,
+    pub scale: f32,
+}
+
+/// 패치 스트림 패킷 (v3 레코드 1건 = 200 ms 번들). `samples` 는 ECG(mV, f32) 로 분석 서버 forward 용,
+/// `wave_i16` 은 전 파형 채널의 원본 i16 을 `waves` 순서로 이어 붙인 것으로 WS 블롭이 된다.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EcgPacket {
     pub channel_id: String,
@@ -65,6 +99,21 @@ pub struct EcgPacket {
     /// 현재 머무는 공간 (병실 호수 / 복도 / 화장실 / 검사실)
     #[serde(default)]
     pub space: String,
+    #[serde(default)]
+    pub flags: u8,
+    #[serde(default)]
+    pub battery: u8,
+    #[serde(default)]
+    pub rssi: i8,
+    #[serde(default, skip_serializing_if = "Vitals::is_empty")]
+    pub vitals: Vitals,
+    /// 페이스메이커 스파이크 마크: bits 0-13 = 이 번들 ECG 블록 내 샘플 오프셋, bits 14-15 = 챔버
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pace: Vec<u16>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub waves: Vec<WaveBlock>,
+    #[serde(skip)]
+    pub wave_i16: Vec<i16>,
 }
 
 /// 게이트웨이 배치(ecg_batch) 안의 채널 항목.
@@ -202,6 +251,16 @@ pub enum OutMsg {
         moving: bool,
         gateway_id: String,
         space: String,
+        flags: u8,
+        battery: u8,
+        rssi: i8,
+        #[serde(skip_serializing_if = "Vitals::is_empty")]
+        vitals: Vitals,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        pace: Vec<u16>,
+        /// 블롭 레이아웃 (v2 프레임): 이 항목의 i16 값 수 = Σ n × axes
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        waves: Vec<WaveBlock>,
         /// 5초(25패킷)당 1회만 포함 — 프런트는 last-known 유지
         #[serde(skip_serializing_if = "Option::is_none")]
         patient: Option<Patient>,

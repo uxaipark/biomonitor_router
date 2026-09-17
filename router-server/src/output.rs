@@ -132,11 +132,12 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
 
 /// 모인 stream 패킷들을 바이너리 stream_batch 프레임 하나로 전송.
 ///
-/// 프레임 포맷 (리틀엔디언):
-///   [u8 0xB1][u32 header_len][header JSON][i16 샘플 블롭]
-///   header = {"type":"stream_batch","counts":[n,...],"items":[<stream 메타>...]}
-/// items 의 samples 는 비어 있고, 실제 샘플은 블롭에 items 순서로 이어진다
-/// (i16 = 원본 ×1000, µV 해상도 — JSON float 대비 ~4× 절감).
+/// 프레임 포맷 v2 (리틀엔디언):
+///   [u8 0xB2][u32 header_len][header JSON][i16 블롭]
+///   header = {"type":"stream_batch","v":2,"counts":[n,...],"items":[<stream 메타>...]}
+/// counts[i] = 항목 i 가 블롭에서 차지하는 i16 값 수 (= Σ waves[].n × axes). 블롭은 items 순서로 이어지며
+/// 항목 안에서는 items[i].waves 순서로 블록이 놓인다 (가속도는 x,y,z 인터리브). 물리값 = raw × waves[].scale.
+/// v1(0xB1) 은 ECG 단일 블록이었다 — 뷰어는 첫 바이트로 구분한다.
 async fn flush_streams(
     state: &Arc<AppState>,
     tx: &mut (impl SinkExt<Message> + Unpin),
@@ -151,7 +152,7 @@ async fn flush_streams(
         .collect();
     let json_total: usize = buf.iter().map(|e| e.json.len() + 1).sum();
     let mut header = String::with_capacity(json_total + counts.len() * 4 + 48);
-    header.push_str("{\"type\":\"stream_batch\",\"counts\":[");
+    header.push_str("{\"type\":\"stream_batch\",\"v\":2,\"counts\":[");
     for (i, n) in counts.iter().enumerate() {
         if i > 0 {
             header.push(',');
@@ -168,7 +169,7 @@ async fn flush_streams(
     header.push_str("]}");
     let blob_len: usize = counts.iter().sum::<usize>() * 2;
     let mut frame = Vec::with_capacity(5 + header.len() + blob_len);
-    frame.push(0xB1);
+    frame.push(0xB2);
     frame.extend_from_slice(&(header.len() as u32).to_le_bytes());
     frame.extend_from_slice(header.as_bytes());
     for env in buf.iter() {

@@ -3,7 +3,7 @@
 //! on the same socket, records stored raw per patch, and the ECG channel is handed to the legacy analysis /
 //! output pipeline as an `EcgPacket` (channel_id = patch id).
 
-use crate::protocol::{AnalysisEvent, EcgPacket, Patient};
+use crate::protocol::{AnalysisEvent, EcgPacket, Patient, Vitals, WaveBlock};
 use crate::state::AppState;
 use crate::wire::{self, Item};
 use crate::gateways::SeqVerdict;
@@ -235,10 +235,10 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) {
                 let has_wave = rec.channels.iter().any(|c| c.ch == wire::CH_ECG);
                 if has_wave {
                     wire_inc(&state.gateways.totals.patch_seq_dup);
-                } else {
-                    wire_inc(&state.gateways.totals.patch_cont);
+                    continue;
                 }
-                continue;
+                wire_inc(&state.gateways.totals.patch_cont);
+                // fall through: the continuation streams as a marks-only packet of the same seq
             }
             crate::registry::PatchSeq::Restart => wire_inc(&state.gateways.totals.patch_seq_restart),
             crate::registry::PatchSeq::Reorder => {
@@ -247,32 +247,60 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) {
             }
             _ => {}
         }
-        let Some(ecg) = rec.channels.iter().find(|c| c.ch == wire::CH_ECG && c.dtype == 1) else { continue };
-        let samples: Vec<f32> = ecg
-            .data
-            .chunks_exact(2)
-            .map(|b| i16::from_le_bytes([b[0], b[1]]) as f32 * 0.001)
-            .collect();
-        let fs = state.registry.sample_rate_of(&channel_id).unwrap_or(250);
-        let quality = if rec.flags & wire::R_LEAD_OFF != 0 {
-            "leadoff"
-        } else if rec.flags & wire::R_MOTION != 0 {
-            "noisy"
-        } else {
-            "good"
-        };
-        let pkt = EcgPacket {
+        let bundle_ms = state.registry.bundle_ms_of(&channel_id).unwrap_or(200).max(1) as u32;
+        let mut pkt = EcgPacket {
             channel_id: channel_id.clone(),
             seq: rec.seq as u64,
             ts_ms: hdr.ts_ms,
-            sample_rate: fs,
-            samples,
-            quality: quality.into(),
+            sample_rate: state.registry.sample_rate_of(&channel_id).unwrap_or(250),
+            samples: Vec::new(),
+            quality: if rec.flags & wire::R_LEAD_OFF != 0 {
+                "leadoff"
+            } else if rec.flags & wire::R_MOTION != 0 {
+                "noisy"
+            } else {
+                "good"
+            }
+            .into(),
             moving: rec.flags & wire::R_MOTION != 0,
             gateway_id: gw_key.clone(),
             space: space.clone(),
+            flags: rec.flags,
+            battery: rec.battery,
+            rssi: rec.rssi,
+            vitals: Vitals::default(),
+            pace: Vec::new(),
+            waves: Vec::new(),
+            wave_i16: Vec::new(),
         };
+        for c in &rec.channels {
+            let i16s = || c.data.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]]));
+            let u16s = || c.data.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]]));
+            match (c.ch, c.dtype) {
+                (ch, 1) if wire::wave_info(ch).is_some() => {
+                    let (key, scale) = wire::wave_info(ch).unwrap();
+                    let axes = wire::axes(ch) as u8;
+                    if ch == wire::CH_ECG {
+                        pkt.samples = i16s().map(|v| v as f32 * scale).collect();
+                        pkt.sample_rate = (c.n as u32 * 1000) / bundle_ms;
+                    }
+                    pkt.waves.push(WaveBlock { ch, key: key.to_string(), fs: (c.n as u32 * 1000) / bundle_ms, axes, n: c.n, scale });
+                    pkt.wave_i16.extend(i16s());
+                }
+                // 1 Hz numerics: 0 = invalid / no reading
+                (wire::CH_HR, 2) => pkt.vitals.hr = c.data.first().copied().filter(|v| *v > 0),
+                (wire::CH_RESP, 2) => pkt.vitals.resp = c.data.first().copied().filter(|v| *v > 0),
+                (wire::CH_SPO2, 2) => pkt.vitals.spo2 = c.data.first().copied().filter(|v| *v > 0),
+                (wire::CH_TEMP, 1) => pkt.vitals.temp = i16s().next().filter(|v| *v != 0).map(|v| v as f32 * 0.01),
+                (wire::CH_GLUCOSE, 3) => pkt.vitals.glucose = u16s().next().filter(|v| *v != 0).map(|v| v as f32 * 0.1),
+                (wire::CH_PACE, 3) => pkt.pace = u16s().collect(),
+                _ => {}
+            }
+        }
         state.registry.note_patch(&channel_id, rec.patient_id, rec.flags, rec.battery, rec.rssi);
+        if pkt.waves.is_empty() && pkt.vitals.is_empty() && pkt.pace.is_empty() {
+            continue;
+        }
         process_ecg(state, pkt);
     }
     state.gateways.add_records(hdr.gw_id, frame.records.len());
@@ -295,6 +323,12 @@ fn apply_meta_patches(state: &Arc<AppState>, gw_id: u32, meta: &serde_json::Valu
             .and_then(|a| a.iter().find(|c| c.get("id").and_then(|x| x.as_u64()) == Some(1)))
             .and_then(|c| c.get("fs").and_then(|x| x.as_u64()))
             .unwrap_or(250) as u32;
+        let bundle_ms = meta.get("bundle_ms").and_then(|x| x.as_u64()).unwrap_or(200) as u32;
+        let keys: Vec<String> = p
+            .get("channels")
+            .and_then(|c| c.as_array())
+            .map(|a| a.iter().filter_map(|c| c.get("key").and_then(|x| x.as_str()).map(String::from)).collect())
+            .unwrap_or_default();
         let prev = state.registry.patient_of(&channel_id);
         let patient = Patient {
             id: patient_id.to_string(),
@@ -316,6 +350,7 @@ fn apply_meta_patches(state: &Arc<AppState>, gw_id: u32, meta: &serde_json::Valu
         let changed = prev.as_ref() != Some(&patient);
         state.registry.upsert_meta(&channel_id, patient);
         state.registry.set_link(&channel_id, &gw_key, &loc.room, ecg_fs, &mrn, profile_id);
+        state.registry.set_stream_layout(&channel_id, bundle_ms, keys);
         if changed {
             state.recompute_channel_groups(&channel_id);
         }

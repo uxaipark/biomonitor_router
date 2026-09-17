@@ -34,7 +34,26 @@ pub const R_CHARGING: u8 = 0x20;
 pub const R_NEW_PATCH: u8 = 0x40;
 
 pub const CH_ECG: u8 = 1;
+pub const CH_HR: u8 = 2;
+pub const CH_TEMP: u8 = 3;
+pub const CH_RESP: u8 = 4;
+pub const CH_SPO2: u8 = 5;
+pub const CH_GLUCOSE: u8 = 6;
 pub const CH_ACCEL: u8 = 7;
+pub const CH_PPG: u8 = 8;
+pub const CH_RESP_WAVE: u8 = 9;
+pub const CH_PACE: u8 = 10;
+
+/// Waveform channels (int16 samples): key and physical scale from the emulator's channel table.
+pub fn wave_info(ch: u8) -> Option<(&'static str, f32)> {
+    match ch {
+        CH_ECG => Some(("ecg", 0.001)),
+        CH_ACCEL => Some(("accel", 0.001)),
+        CH_PPG => Some(("ppg", 0.001)),
+        CH_RESP_WAVE => Some(("resp_wave", 0.001)),
+        _ => None,
+    }
+}
 
 /// Bytes per sample for a dtype code (1 int16, 2 uint8, 3 uint16, 4 int8, 5 float32); 0 = unknown.
 pub fn item_size(dtype: u8) -> usize {

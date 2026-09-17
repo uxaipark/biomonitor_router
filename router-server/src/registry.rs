@@ -1,4 +1,4 @@
-use crate::protocol::{EcgPacket, Patient};
+use crate::protocol::{EcgPacket, Patient, Vitals};
 use dashmap::DashMap;
 use serde::Serialize;
 use std::collections::VecDeque;
@@ -27,6 +27,15 @@ pub struct ChannelState {
     pub flags: u8,
     pub battery: u8,
     pub rssi: i8,
+    /// META bundle_ms — 파형 블록의 n 으로 채널별 fs 를 셈한다
+    pub bundle_ms: u32,
+    /// META patches[].channels[].key 목록 (이 패치가 보내는 채널)
+    pub channel_keys: Vec<String>,
+    /// 1 Hz 수치의 최신값과 그 수신 시각 (알람·표 표시용; 값은 다음 판독까지 유지)
+    pub vitals: Vitals,
+    pub vitals_ts_ms: u64,
+    /// 패치 seq 역전 판정 횟수 (진단용)
+    pub pseq_reorder: u64,
     /// (수신 시각, 패킷) — 분석 응답 대기 서큘러 버퍼.
     /// 수신 시각은 분석 지연 시 타임아웃 방출(무분석 통과)에 사용된다.
     pub pending: VecDeque<(Instant, EcgPacket)>,
@@ -52,6 +61,11 @@ impl ChannelState {
             flags: 0,
             battery: 0,
             rssi: 0,
+            bundle_ms: 200,
+            channel_keys: Vec::new(),
+            vitals: Vitals::default(),
+            vitals_ts_ms: 0,
+            pseq_reorder: 0,
             pending: VecDeque::new(),
         }
     }
@@ -79,6 +93,10 @@ pub struct ChannelInfo {
     pub flags: u8,
     pub battery: u8,
     pub rssi: i8,
+    pub channels: Vec<String>,
+    pub vitals: Vitals,
+    pub vitals_ts_ms: u64,
+    pub pseq_reorder: u64,
 }
 
 /// 패치 시퀀스 판정 (v3 record.seq)
@@ -137,6 +155,15 @@ impl Registry {
         }
         ch.last_seq = pkt.seq;
         ch.last_ts_ms = pkt.ts_ms;
+        if !pkt.vitals.is_empty() {
+            let v = &pkt.vitals;
+            if v.hr.is_some() { ch.vitals.hr = v.hr; }
+            if v.temp.is_some() { ch.vitals.temp = v.temp; }
+            if v.resp.is_some() { ch.vitals.resp = v.resp; }
+            if v.spo2.is_some() { ch.vitals.spo2 = v.spo2; }
+            if v.glucose.is_some() { ch.vitals.glucose = v.glucose; }
+            ch.vitals_ts_ms = pkt.ts_ms;
+        }
         if ch.pending.len() >= self.ring_capacity {
             ch.pending.pop_front();
         }
@@ -253,8 +280,26 @@ impl Registry {
             ch.last_pseq = Some(seq);
             PatchSeq::Restart
         } else {
+            ch.pseq_reorder += 1;
             PatchSeq::Reorder
         }
+    }
+
+    pub fn bundle_ms_of(&self, channel_id: &str) -> Option<u32> {
+        self.channels.get(channel_id).map(|c| c.bundle_ms)
+    }
+
+    /// META 의 번들 주기와 채널 키 목록
+    pub fn set_stream_layout(&self, channel_id: &str, bundle_ms: u32, keys: Vec<String>) {
+        if let Some(mut ch) = self.channels.get_mut(channel_id) {
+            ch.bundle_ms = bundle_ms;
+            ch.channel_keys = keys;
+        }
+    }
+
+    /// 최신 수치·플래그 스냅샷 (알람 엔진용)
+    pub fn vitals_of(&self, channel_id: &str) -> Option<(Vitals, u64, u8, u8)> {
+        self.channels.get(channel_id).map(|c| (c.vitals.clone(), c.vitals_ts_ms, c.flags, c.battery))
     }
 
     pub fn sample_rate_of(&self, channel_id: &str) -> Option<u32> {
@@ -337,6 +382,10 @@ impl Registry {
                 flags: e.flags,
                 battery: e.battery,
                 rssi: e.rssi,
+                channels: e.channel_keys.clone(),
+                vitals: e.vitals.clone(),
+                vitals_ts_ms: e.vitals_ts_ms,
+                pseq_reorder: e.pseq_reorder,
             })
             .collect();
         v.sort_by(|a, b| a.channel_id.cmp(&b.channel_id));

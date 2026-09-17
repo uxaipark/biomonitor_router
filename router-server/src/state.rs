@@ -305,11 +305,8 @@ impl AppState {
             None
         };
         let gateway_id = pkt.gateway_id.clone();
-        let samples_i16: Vec<i16> = pkt
-            .samples
-            .iter()
-            .map(|v| (v * 1000.0).round().clamp(-32768.0, 32767.0) as i16)
-            .collect();
+        // 블롭 = 전 파형 채널의 원본 i16 (waves 레이아웃 순). 파형 없는 패킷(수치/페이스마크만)은 빈 블롭.
+        let samples_i16 = pkt.wave_i16;
         let msg = OutMsg::Stream {
             group_ids: groups.clone(),
             channel_id: pkt.channel_id,
@@ -323,6 +320,12 @@ impl AppState {
             moving: pkt.moving,
             gateway_id: gateway_id.clone(),
             space: pkt.space,
+            flags: pkt.flags,
+            battery: pkt.battery,
+            rssi: pkt.rssi,
+            vitals: pkt.vitals,
+            pace: pkt.pace,
+            waves: pkt.waves,
             patient,
         };
         let gw = if gateway_id.is_empty() { None } else { Some(gateway_id) };
