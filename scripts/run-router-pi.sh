@@ -10,6 +10,11 @@ export ROUTER_HTTP_ADDR=${ROUTER_HTTP_ADDR:-0.0.0.0:7300}
 export ROUTER_STORE_DIR=${ROUTER_STORE_DIR:-$PWD/data/store}
 export ROUTER_STORE_MAX_GB=${ROUTER_STORE_MAX_GB:-20}
 export ROUTER_EMULATOR_ADDR=${ROUTER_EMULATOR_ADDR:-192.168.0.125:5445}
+export ROUTER_WEB_DIR=${ROUTER_WEB_DIR:-$PWD/web/console/dist}
+export ROUTER_GROUPS_PATH=${ROUTER_GROUPS_PATH:-$PWD/data/groups.json}
+export ROUTER_DISPLAYS_PATH=${ROUTER_DISPLAYS_PATH:-$PWD/data/displays.json}
+[ -e data/groups.json ] || cp router-server/groups.json data/groups.json
+[ -e data/displays.json ] || cp router-server/displays.json data/displays.json
 export RUST_LOG=${RUST_LOG:-info}
 setsid nohup router-server/target/release/router-server > data/router.log 2>&1 < /dev/null &
 for _ in $(seq 1 30); do curl -sf "http://127.0.0.1:${ROUTER_HTTP_ADDR##*:}/api/health" >/dev/null && { echo "router-server up ($ROUTER_HTTP_ADDR)"; exit 0; }; sleep 1; done

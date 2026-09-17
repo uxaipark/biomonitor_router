@@ -27,6 +27,11 @@
 - [2026-09-18 00:35 RP5] 재시작 판정 보완: 에뮬레이터가 짧은 간격(직전 실행 약 150 s, 게이트웨이 seq ≈ 750)으로 다시 재시작하자 새 seq 가 1024 기준 안쪽이라 150 s 가량 전 프레임이 다시 `Reorder` 로 집계됨. **새 소켓의 첫 프레임이 이전 seq 보다 뒤면 거리와 무관하게 재시작**으로 보도록 수정(SAF 재생은 이전 seq 뒤로 이어지므로 영향 없음). 라우터 재시작 후 71 s: 연결 389(에뮬레이터 환자 500명 규모), 이상 카운터 0.
 - [2026-09-18 00:35 RP5] 실시간 소통은 에뮬레이터 채팅 채널을 씀(Mac 이탈 후 체제, 에뮬레이터 측 seq 12~15). RP5-2 는 이름 `rp5-2` 로 `ws://192.168.0.125:5445/ws/chat` 에 상시 접속. 상태 API 포트는 7300.
 
+- [2026-09-18 01:45 RP5] P2 완료 + 알람 + 웹 콘솔 (커밋 참조). 라우터 WS 는 이제 v2 프레임(0xB2): items[].waves 레이아웃 + i16 블롭(ECG·가속도·PPG·호흡파형), items[].vitals(hr/temp/resp/spo2/glucose), pace, flags/battery/rssi. 뷰어는 첫 바이트로 v1/v2 구분. 알람: `alarms.rs`(수치 임계 10 s 지속·전극 탈락 30 s·배터리·패치 15 s 무응답·GW 다운/무응답/저하·저장 백프레셔), REST `/api/alarms*`, WS 의사 그룹 `alarms`, 상태 보고에 `alarms` 요약 포함. 에뮬레이터 EMR 프록시 `/api/emr/*`, `/api/emu/status|discovery`(TTL 캐시; 에뮬레이터에 CORS 가 없어 브라우저는 라우터만 봄).
+- [2026-09-18 01:45 RP5] 웹 콘솔 `web/console`(React/Vite, 의존성 react 만): 대시보드(초당 프레임/바이트 = /api/stats 차분)·환자 표(1,000~2,500행, 검색/정렬/필터, 행 클릭 → 상세 모달: 전 파형·가속도·EMR 프로필·저장 인덱스·알람)·실시간 그리드(병동/GW 선택, 최대 48장, subscribe_channels 합집합)·병원 지도(에뮬레이터 layout JSON 폴리곤 + 게이트웨이 상태 + 환자 점 + 알람 색)·게이트웨이 표·알람(확인/이력/규칙 편집)·이벤트. `npm run build` 산출물을 라우터가 `/` 로 서빙(`ROUTER_WEB_DIR`). **브라우저 실검증은 못 함** — 이 장비의 headless chromium 이 http 페이지 로드를 시작조차 못 함(네트워크 이벤트 0, file:// 만 됨). 대신 `npm run smoke`(react-dom/server 로 전 페이지 렌더) 통과. 사용자가 http://192.168.0.209:7300/ 를 열어 보는 단계.
+- [2026-09-18 01:45 RP5] 배포 준비 `deploy/pi/`: `biomonitor-router.service`(User=master, LimitNOFILE 65535), `/etc/biomonitor-router.env`, `99-biomonitor-router.conf`(somaxconn 4096 등), `install.sh`(빌드 → /opt/biomonitor-router, 데이터 /var/lib/biomonitor-router). 아직 설치하지 않음(사용자 결정 대기) — 현재는 `scripts/run-router-pi.sh` 로 백그라운드 실행 중.
+- [2026-09-18 01:45 RP5] 관측: `patch_seq_reorder` 는 엘리베이터/복도 게이트웨이 핸드오버 중 두 게이트웨이가 같은 패치를 겹쳐 보낼 때 생기는 정상 현상(이동 환자 1명에서만, `/api/channels[].pseq_reorder` 로 확인). 재구축 직후 수천 건 폭증은 과도기. 알람 규칙 기본값으로 환자 1,000명 중 활성 알람 약 150건(에뮬레이터 심장질환 비율 70 %) — 임계 조정은 규칙 탭에서.
+
 ## 4. MAC → RP5#2 전달 사항
 
 - [2026-09-17 23:20 MAC] 처음 설치할 때: `git clone` → `scripts/pi-dev-setup.sh` → `ROUTER_STORE_DIR` 를 SSD 마운트 아래로 두고 실행. systemd 유닛은 P4 에서 `deploy/pi/` 로 만들 예정이니, 그 전에 필요하면 임시로 만들고 여기에 적어 주세요.

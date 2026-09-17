@@ -96,7 +96,7 @@ async fn emr_get(state: &Arc<AppState>, path: &str, ttl_ms: u64) -> axum::respon
     if ttl_ms > 0 {
         if let Some((exp, body)) = state.emr_cache.lock().unwrap().get(path).cloned() {
             if exp > now {
-                return json_body(body);
+                return body_with_type(body, ctype_of(path));
             }
         }
     }
@@ -108,20 +108,26 @@ async fn emr_get(state: &Arc<AppState>, path: &str, ttl_ms: u64) -> axum::respon
                 c.retain(|_, (exp, _)| *exp > now);
                 c.insert(path.to_string(), (now + ttl_ms, body.clone()));
             }
-            json_body(body)
+            body_with_type(body, ctype_of(path))
         }
         Ok((code, body)) => (StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_GATEWAY), body).into_response(),
         Err(e) => (StatusCode::BAD_GATEWAY, format!("emulator unreachable: {e}")).into_response(),
     }
 }
 
-fn json_body(body: Arc<String>) -> axum::response::Response {
-    ([(axum::http::header::CONTENT_TYPE, "application/json; charset=utf-8")], body.as_str().to_owned()).into_response()
+/// The emulator serves avatars as SVG; everything else on /api/v1 is JSON.
+fn ctype_of(path: &str) -> &'static str {
+    if path.split('?').next().unwrap_or("").ends_with(".svg") { "image/svg+xml" } else { "application/json; charset=utf-8" }
+}
+
+fn body_with_type(body: Arc<String>, ctype: &'static str) -> axum::response::Response {
+    ([(axum::http::header::CONTENT_TYPE, ctype)], body.as_str().to_owned()).into_response()
 }
 
 async fn emr_proxy(State(state): State<Arc<AppState>>, Path(path): Path<String>, axum::extract::RawQuery(q): axum::extract::RawQuery) -> impl IntoResponse {
     let ttl = match path.split('/').next().unwrap_or("") {
         "layout" | "hospital" | "floors" | "wards" | "rooms" | "beds" | "staff" => 300_000,
+        _ if path.ends_with(".svg") => 3_600_000,
         "gateways" | "admissions" | "patients" | "patches" | "devices" | "trips" | "schedules" => 10_000,
         _ => 3_000,
     };

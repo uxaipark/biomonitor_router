@@ -47,7 +47,8 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 | `ROUTER_INGEST_ADDR` | `0.0.0.0:9100` | 게이트웨이 TCP 수신 (에뮬레이터 `transport.target_port`) |
 | `ROUTER_HTTP_ADDR` | `0.0.0.0:7300` | REST + WS |
 | `ROUTER_STORE_DIR` / `ROUTER_STORE_MAX_GB` | `data/store` / `200` | 패치 저장소 루트 / 상한 (0 = 무제한) |
-| `ROUTER_EMULATOR_ADDR` | (없음) | 에뮬레이터 HTTP. 설정 시 5 s 상태 보고(`POST /api/v1/router/status`) + 30 s EMR 동기화 |
+| `ROUTER_EMULATOR_ADDR` | (없음) | 에뮬레이터 HTTP. 설정 시 5 s 상태 보고(`POST /api/v1/router/status`) + 30 s EMR 동기화 + `/api/emr/*` 프록시 |
+| `ROUTER_WEB_DIR` | `../web/console/dist` | 웹 콘솔(vite build) 정적 디렉터리. `/` 로 서빙, 없으면 API 만 |
 | `ROUTER_ANALYSIS_ADDR` / `ROUTER_DB_ADDR` | `127.0.0.1:7100` / `:7601` | 레거시 분석·DB 링크 (없으면 재시도만) |
 
 ### API (P1 추가분)
@@ -60,7 +61,10 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 | `GET /api/patches/{id}` · `/api/patches/{id}/verify` | 저장 인덱스·파일 목록 / 전체 CRC 검증 |
 | `GET /api/wave/{id}?mode=raw|overview&from_ms&to_ms` | 저장 ECG 읽기 (레거시 리포트 뷰어 호환) |
 | `POST /api/wave/reset` | 저장소 전체 삭제 |
-| `GET /api/events` | link / silent / bad_crc / nack 이벤트 링 |
+| `GET /api/events` | link / silent / bad_crc / nack / alarm 이벤트 링 |
+| `GET /api/alarms` · `/api/alarms/history` · `POST /api/alarms/{id}/ack` · `GET/PUT /api/alarms/rules` | 알람 엔진 (P2 추가): 활성/이력/확인/규칙 |
+| `GET /api/emr/{path}` · `/api/emu/status` · `/api/emu/discovery` | 에뮬레이터 EMR/상태 프록시 (TTL 캐시) |
+| `WS /ws` | `subscribe`/`subscribe_channels`/`subscribe_gateway` + 의사 그룹 `alarms`. 스트림은 바이너리 `stream_batch` v2 (0xB2): items[].waves 레이아웃 + i16 블롭 |
 
 ### 검증
 
@@ -79,6 +83,17 @@ cd ~/biomonitor_router && scripts/pi-dev-setup.sh      # apt → rustup(stable) 
 절차와 문제 해결은 [docs/RP5-DEV.md](docs/RP5-DEV.md), 에이전트 간 인수인계는 [docs/HANDOFF.md](docs/HANDOFF.md)·[CLAUDE.md](CLAUDE.md).
 빌드 산출물(`target/`)·데이터(`data/`)·`node_modules/`는 커밋하지 않으므로 클론 후 빌드가 필요하다.
 Rust 는 `router-server/rust-toolchain.toml`(stable) 로 고정되고, Linux 자원 지표는 `/proc` 로 수집된다.
+
+## 웹 콘솔 (`web/console`)
+
+```bash
+cd web/console && npm install && npm run build     # → dist/, 라우터가 / 로 서빙
+npm run dev                                         # 개발 서버 5175 (API/WS 는 7300 으로 프록시)
+npm run smoke                                       # react-dom/server 로 전 페이지 렌더 스모크
+```
+
+대시보드 · 환자 표 · 실시간 파형(병동/게이트웨이 선택, 최대 48장) · 병원 지도(에뮬레이터 도면 JSON) · 게이트웨이 · 알람(확인/이력/규칙) · 이벤트.
+RP5 서비스 설치는 `sudo deploy/pi/install.sh` (systemd 유닛 + sysctl + `/etc/biomonitor-router.env`).
 
 ## 다음 단계
 

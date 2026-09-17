@@ -1,0 +1,21 @@
+# Biomonitor router (RP5#2). Install: sudo deploy/pi/install.sh  — data under /var/lib/biomonitor-router.
+[Unit]
+Description=Biomonitor router (protocol v3 ingest, patch store, alarms, web console)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=master
+WorkingDirectory=/opt/biomonitor-router
+EnvironmentFile=/etc/biomonitor-router.env
+ExecStart=/opt/biomonitor-router/router-server
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+# ~2,400 gateway sockets + store + WS clients; keep the process off the OOM killer's shortlist
+OOMScoreAdjust=-500
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target
