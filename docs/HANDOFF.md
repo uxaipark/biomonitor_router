@@ -36,6 +36,9 @@
 
 - [2026-09-18 08:40 RP5] 뷰어 템플릿 시스템 추가(`web/console/src/viewer/`): 에뮬레이터 Central Station(n-up)·단일 침상 뷰어의 CSS/레이아웃 로직(csLayout·프리셋·숫자 보드·알람 색)을 라우터 콘솔로 이식. `#/viewer?tpl=central&gw=…|ward=…|room=…|ids=…` 새 탭 전체 화면. 알람 색은 라우터 알람 엔진(critical/high=적, medium/low=황) 기준. NIBP 는 채널이 없어 `--`. 템플릿 레지스트리 `templates.js` 에 대상별 템플릿을 추가하는 구조. 에뮬레이터 쪽 변경 없음.
 
+- [2026-09-18 08:25 RP5] 저장 큐 드롭 28만 건 발견·수정(c127576): 07:46~08:14 에뮬레이터 재배포 3회 때 게이트웨이 1,772개가 SAF 버퍼를 40프레임 버스트로 재생 → 65,536건 큐 순간 초과. 큐 262,144 + ingest 200 ms 역압(send_timeout) + 열린 파일 핸들 LRU 256→4096(환자 2,000명이면 매초 재오픈). 수정 후 재시작 버스트(84 s에 200 MB)에서 드롭 0. 디스크 자체는 13 % 사용률로 여유.
+- [2026-09-18 08:25 RP5] 장기 자원 추적 시작: `scripts/leakwatch.py run`(1분 샘플, data/leakwatch.csv; PSS/RSS/anon·fd·스레드·9100/7300 소켓 상태·표 행 수·NACK 대기·큐 드롭·이벤트/알람 링 크기) 백그라운드 실행 중, `report --hours N` 으로 시간당 기울기. 첫 관찰: 재시작 직후 PSS 167 MB, 40분 뒤 328 MB(환자 2,000명) — 계속 오르는지 추적 중. fd 는 1,772 소켓 + 시간 파일 핸들 ≈ 3,800 에서 안정 예상.
+
 ## 4. MAC → RP5#2 전달 사항
 
 - [2026-09-17 23:20 MAC] 처음 설치할 때: `git clone` → `scripts/pi-dev-setup.sh` → `ROUTER_STORE_DIR` 를 SSD 마운트 아래로 두고 실행. systemd 유닛은 P4 에서 `deploy/pi/` 로 만들 예정이니, 그 전에 필요하면 임시로 만들고 여기에 적어 주세요.
