@@ -260,7 +260,9 @@ struct Stats {
     /// 분석 링크 연결 해제 누적 다운타임 (ms)
     downtime_ms: u64,
     analysis_connected: bool,
+    /// 레지스트리 행 수 (끊긴 행 포함) / 현재 연결된 패치 수
     channel_count: usize,
+    channels_connected: usize,
     /// 큐 포화로 드롭된 건수 (analysis / db / wave) — 정상 운영에선 0
     queue_dropped_analysis: u64,
     queue_dropped_db: u64,
@@ -332,6 +334,7 @@ async fn stats(State(state): State<Arc<AppState>>) -> Json<Stats> {
         downtime_ms: state.downtime_ms(),
         analysis_connected: state.analysis_up(),
         channel_count: state.registry.channel_ids().len(),
+        channels_connected: state.registry.connected_count(),
         queue_dropped_analysis: state.dropped_analysis.load(Ordering::Relaxed),
         queue_dropped_db: state.dropped_db.load(Ordering::Relaxed),
         queue_dropped_wave: state.dropped_wave.load(Ordering::Relaxed),
