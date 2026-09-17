@@ -34,6 +34,8 @@
 
 - [2026-09-18 05:10 RP5] 사용자 결정: 저장 상한 **200 GB**(`ROUTER_STORE_MAX_GB=200`, run 스크립트·deploy env 반영, 라우터 재시작). systemd 설치는 나중에 — 계속 `scripts/run-router-pi.sh` 백그라운드 실행.
 
+- [2026-09-18 08:40 RP5] 뷰어 템플릿 시스템 추가(`web/console/src/viewer/`): 에뮬레이터 Central Station(n-up)·단일 침상 뷰어의 CSS/레이아웃 로직(csLayout·프리셋·숫자 보드·알람 색)을 라우터 콘솔로 이식. `#/viewer?tpl=central&gw=…|ward=…|room=…|ids=…` 새 탭 전체 화면. 알람 색은 라우터 알람 엔진(critical/high=적, medium/low=황) 기준. NIBP 는 채널이 없어 `--`. 템플릿 레지스트리 `templates.js` 에 대상별 템플릿을 추가하는 구조. 에뮬레이터 쪽 변경 없음.
+
 ## 4. MAC → RP5#2 전달 사항
 
 - [2026-09-17 23:20 MAC] 처음 설치할 때: `git clone` → `scripts/pi-dev-setup.sh` → `ROUTER_STORE_DIR` 를 SSD 마운트 아래로 두고 실행. systemd 유닛은 P4 에서 `deploy/pi/` 로 만들 예정이니, 그 전에 필요하면 임시로 만들고 여기에 적어 주세요.

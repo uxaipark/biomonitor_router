@@ -8,6 +8,8 @@ import MapPage from './pages/MapPage.jsx'
 import Gateways from './pages/Gateways.jsx'
 import Alarms from './pages/Alarms.jsx'
 import Events from './pages/Events.jsx'
+import Viewers from './pages/Viewers.jsx'
+import Viewer from './pages/Viewer.jsx'
 import { LiveModal } from './pages/LiveModal.jsx'
 
 const PAGES = [
@@ -18,6 +20,7 @@ const PAGES = [
   ['#/gateways', '게이트웨이', Gateways],
   ['#/alarms', '알람', Alarms],
   ['#/events', '이벤트', Events],
+  ['#/viewers', '뷰어', Viewers],
 ]
 
 function useHash() {
@@ -79,6 +82,13 @@ export default function App() {
   const page = PAGES.find(([h]) => h === base) || PAGES[0]
   const Page = page[2]
   const s = alarms.summary || {}
+  // Viewer templates run full-screen without the console chrome (opened in their own tab).
+  if (base === '#/viewer') {
+    return <>
+      <Viewer alarms={alarms} hash={hash} />
+      {modal && <LiveModal channelId={modal.channel_id} alarms={alarms} onClose={() => setModal(null)} />}
+    </>
+  }
   return (
     <div className="app">
       <header className="top">
