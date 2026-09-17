@@ -201,9 +201,68 @@ pub fn memory_stats_native() -> (u64, u64, u64) {
     {
         mac::memory_stats()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        linux::memory_stats()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         (0, 0, 0)
+    }
+}
+
+/// Linux (RP5): /proc 기반 수집
+#[cfg(target_os = "linux")]
+mod linux {
+    fn meminfo_kb(key: &str, text: &str) -> u64 {
+        text.lines()
+            .find(|l| l.starts_with(key))
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0)
+    }
+
+    /// (프로세스 RSS, 시스템 사용, 시스템 전체)
+    pub fn memory_stats() -> (u64, u64, u64) {
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(4096) as u64;
+        let rss = std::fs::read_to_string("/proc/self/statm")
+            .ok()
+            .and_then(|s| s.split_whitespace().nth(1).and_then(|v| v.parse::<u64>().ok()))
+            .unwrap_or(0)
+            * page;
+        let mi = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
+        let total = meminfo_kb("MemTotal:", &mi) * 1024;
+        let avail = meminfo_kb("MemAvailable:", &mi) * 1024;
+        (rss, total.saturating_sub(avail), total)
+    }
+
+    /// (busy ticks, total ticks) — /proc/stat 첫 줄
+    pub fn cpu_ticks() -> Option<(u64, u64)> {
+        let s = std::fs::read_to_string("/proc/stat").ok()?;
+        let line = s.lines().next()?;
+        let v: Vec<u64> = line.split_whitespace().skip(1).filter_map(|x| x.parse().ok()).collect();
+        if v.len() < 4 {
+            return None;
+        }
+        let total: u64 = v.iter().sum();
+        let idle = v[3] + v.get(4).copied().unwrap_or(0);
+        Some((total - idle, total))
+    }
+
+    /// (전체, 여유) 바이트 — 저장소 루트(`ROUTER_STORE_DIR`)가 있는 파일시스템
+    pub fn disk_stats() -> (u64, u64) {
+        let mut path = std::env::var("ROUTER_STORE_DIR").unwrap_or_else(|_| ".".into());
+        if !std::path::Path::new(&path).exists() {
+            path = ".".into();
+        }
+        let Ok(c) = std::ffi::CString::new(path) else { return (0, 0) };
+        let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+        if unsafe { libc::statvfs(c.as_ptr(), &mut st) } == 0 {
+            let fr = st.f_frsize as u64;
+            ((st.f_blocks as u64) * fr, (st.f_bavail as u64) * fr)
+        } else {
+            (0, 0)
+        }
     }
 }
 
@@ -220,6 +279,22 @@ pub async fn run_cpu_sampler() {
                 let total = ck.saturating_sub(pk) + cu.saturating_sub(pu);
                 if total > 0 {
                     let busy = total.saturating_sub(idle);
+                    CPU_PERMILLE.store(busy * 1000 / total, Ordering::Relaxed);
+                }
+            }
+            prev = cur;
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut prev = linux::cpu_ticks();
+        loop {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let cur = linux::cpu_ticks();
+            if let (Some((pb, pt)), Some((cb, ct))) = (prev, cur) {
+                let busy = cb.wrapping_sub(pb);
+                let total = ct.wrapping_sub(pt);
+                if total > 0 && total < u64::MAX / 1000 {
                     CPU_PERMILLE.store(busy * 1000 / total, Ordering::Relaxed);
                 }
             }
@@ -263,7 +338,11 @@ pub fn disk_stats() -> (u64, u64) {
     {
         mac::disk_stats()
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        linux::disk_stats()
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         (0, 0)
     }

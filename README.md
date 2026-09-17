@@ -69,6 +69,17 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 * 로컬 에뮬레이터 2000 환자(2390 GW 중 2190 소켓, 초당 약 10k 레코드) 부하: 드롭 0, 라우터 CPU ≈ 11 %, RSS ≈ 130 MB,
   `network_event` 드릴 → NACK 6 / 복구 6 / 유실 0, `gateway_fault` → 10 s 후 silent 이벤트, 라우터 재시작 후 35 s 내 전 게이트웨이 재접속·저장 이어짐.
 
+## 다른 장비(RP5#2)에서 이어 개발하기
+
+```bash
+git clone https://github.com/uxaipark/biomonitor_router.git ~/biomonitor_router
+cd ~/biomonitor_router && scripts/pi-dev-setup.sh      # apt → rustup(stable) → Node 20 → cargo build --release → cargo test
+```
+
+절차와 문제 해결은 [docs/RP5-DEV.md](docs/RP5-DEV.md), 에이전트 간 인수인계는 [docs/HANDOFF.md](docs/HANDOFF.md)·[CLAUDE.md](CLAUDE.md).
+빌드 산출물(`target/`)·데이터(`data/`)·`node_modules/`는 커밋하지 않으므로 클론 후 빌드가 필요하다.
+Rust 는 `router-server/rust-toolchain.toml`(stable) 로 고정되고, Linux 자원 지표는 `/proc` 로 수집된다.
+
 ## 다음 단계
 
 P2 WS 다채널 출력 + 뷰어 → P3 DB/어드민(도면 JSON 폴리곤) → P4 RP5 #2 배포(1 TB SSD, systemd) → P5 보존·인증. 세부는 [docs/PLAN.md](docs/PLAN.md).
