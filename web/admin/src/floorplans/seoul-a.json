@@ -1,0 +1,521 @@
+{
+  "id": "seoul-a",
+  "name": "서울 A 병원",
+  "order": 1,
+  "_comment": "병원 평면도 정의 (실제 병동 슬래브형 도면 참조). 이 파일을 교체하면 Patch Map 도면이 바뀐다. {b}=건물, {f}=층 치환. type: room|zone|corridor|open|stairs(사선 해치)|elevator(크로스 해치)|station(간호스테이션, 진회색)|entrance. match 는 환자 배치 판정 규칙.",
+  "viewBox": {
+    "w": 1400,
+    "h": 760
+  },
+  "buildings": [
+    "A",
+    "B"
+  ],
+  "floors": [
+    15,
+    14,
+    13,
+    12,
+    11,
+    10,
+    9,
+    8,
+    7,
+    6,
+    5,
+    4,
+    3,
+    2,
+    1
+  ],
+  "plans": {
+    "1": {
+      "spaces": [
+        {
+          "id": "lobby",
+          "type": "open",
+          "label": "로비",
+          "rect": {
+            "x": 520,
+            "y": 10,
+            "w": 870,
+            "h": 740
+          }
+        },
+        {
+          "id": "reception",
+          "type": "room",
+          "label": "접수 · 원무",
+          "rect": {
+            "x": 10,
+            "y": 10,
+            "w": 510,
+            "h": 200
+          },
+          "door": "E"
+        },
+        {
+          "id": "exam",
+          "type": "room",
+          "label": "검사실",
+          "gw": "GW-{b}1-EXAM",
+          "match": {
+            "kind": "EXAM"
+          },
+          "rect": {
+            "x": 10,
+            "y": 210,
+            "w": 510,
+            "h": 540
+          },
+          "door": "E"
+        },
+        {
+          "id": "ev-1",
+          "type": "elevator",
+          "label": "EV",
+          "rect": {
+            "x": 620,
+            "y": 300,
+            "w": 80,
+            "h": 160
+          }
+        },
+        {
+          "id": "ev-2",
+          "type": "elevator",
+          "label": "EV",
+          "rect": {
+            "x": 700,
+            "y": 300,
+            "w": 80,
+            "h": 160
+          }
+        },
+        {
+          "id": "stairs-r",
+          "type": "stairs",
+          "label": "계단",
+          "rect": {
+            "x": 1304,
+            "y": 195,
+            "w": 80,
+            "h": 130
+          }
+        },
+        {
+          "id": "disp-lobby",
+          "type": "display",
+          "label": "로비 대기실 모니터",
+          "display": "DISP-{b}1-LOBBY",
+          "rect": {
+            "x": 860,
+            "y": 130,
+            "w": 110,
+            "h": 32
+          }
+        },
+        {
+          "id": "entrance",
+          "type": "entrance",
+          "label": "주출입구",
+          "rect": {
+            "x": 940,
+            "y": 750,
+            "w": 100,
+            "h": 0
+          }
+        }
+      ]
+    },
+    "default": {
+      "spaces": [
+        {
+          "id": "corridor",
+          "type": "corridor",
+          "rect": {
+            "x": 10,
+            "y": 280,
+            "w": 1380,
+            "h": 200
+          }
+        },
+        {
+          "id": "hall-z1",
+          "type": "zone",
+          "label": "복도 Z1",
+          "gw": "GW-{b}{f}-Z1-HALL",
+          "match": {
+            "kind": "HALL",
+            "zone": "Z1"
+          },
+          "rect": {
+            "x": 212,
+            "y": 280,
+            "w": 100,
+            "h": 200
+          }
+        },
+        {
+          "id": "hall-z1b",
+          "type": "zone",
+          "label": "복도",
+          "gw": null,
+          "rect": {
+            "x": 442,
+            "y": 280,
+            "w": 166,
+            "h": 200
+          }
+        },
+        {
+          "id": "hall-z2",
+          "type": "zone",
+          "label": "복도 Z2",
+          "gw": "GW-{b}{f}-Z2-HALL",
+          "match": {
+            "kind": "HALL",
+            "zone": "Z2"
+          },
+          "rect": {
+            "x": 792,
+            "y": 280,
+            "w": 166,
+            "h": 200
+          }
+        },
+        {
+          "id": "room-01",
+          "type": "room",
+          "label": "{f}01호",
+          "gw": "GW-{b}{f}-{f}01",
+          "match": {
+            "kind": "ROOM",
+            "room": "{f}01"
+          },
+          "rect": {
+            "x": 10,
+            "y": 10,
+            "w": 230,
+            "h": 270
+          },
+          "door": "S"
+        },
+        {
+          "id": "room-02",
+          "type": "room",
+          "label": "{f}02호",
+          "gw": "GW-{b}{f}-{f}02",
+          "match": {
+            "kind": "ROOM",
+            "room": "{f}02"
+          },
+          "rect": {
+            "x": 240,
+            "y": 10,
+            "w": 230,
+            "h": 270
+          },
+          "door": "S"
+        },
+        {
+          "id": "room-03",
+          "type": "room",
+          "label": "{f}03호",
+          "gw": "GW-{b}{f}-{f}03",
+          "match": {
+            "kind": "ROOM",
+            "room": "{f}03"
+          },
+          "rect": {
+            "x": 470,
+            "y": 10,
+            "w": 230,
+            "h": 270
+          },
+          "door": "S"
+        },
+        {
+          "id": "room-04",
+          "type": "room",
+          "label": "{f}04호",
+          "gw": "GW-{b}{f}-{f}04",
+          "match": {
+            "kind": "ROOM",
+            "room": "{f}04"
+          },
+          "rect": {
+            "x": 700,
+            "y": 10,
+            "w": 230,
+            "h": 270
+          },
+          "door": "S"
+        },
+        {
+          "id": "room-05",
+          "type": "room",
+          "label": "{f}05호",
+          "gw": "GW-{b}{f}-{f}05",
+          "match": {
+            "kind": "ROOM",
+            "room": "{f}05"
+          },
+          "rect": {
+            "x": 930,
+            "y": 10,
+            "w": 230,
+            "h": 270
+          },
+          "door": "S"
+        },
+        {
+          "id": "room-06",
+          "type": "room",
+          "label": "{f}06호",
+          "gw": "GW-{b}{f}-{f}06",
+          "match": {
+            "kind": "ROOM",
+            "room": "{f}06"
+          },
+          "rect": {
+            "x": 1160,
+            "y": 10,
+            "w": 230,
+            "h": 270
+          },
+          "door": "S"
+        },
+        {
+          "id": "room-07",
+          "type": "room",
+          "label": "{f}07호",
+          "gw": "GW-{b}{f}-{f}07",
+          "match": {
+            "kind": "ROOM",
+            "room": "{f}07"
+          },
+          "rect": {
+            "x": 10,
+            "y": 480,
+            "w": 230,
+            "h": 270
+          },
+          "door": "N"
+        },
+        {
+          "id": "room-08",
+          "type": "room",
+          "label": "{f}08호",
+          "gw": "GW-{b}{f}-{f}08",
+          "match": {
+            "kind": "ROOM",
+            "room": "{f}08"
+          },
+          "rect": {
+            "x": 240,
+            "y": 480,
+            "w": 230,
+            "h": 270
+          },
+          "door": "N"
+        },
+        {
+          "id": "room-09",
+          "type": "room",
+          "label": "{f}09호",
+          "gw": "GW-{b}{f}-{f}09",
+          "match": {
+            "kind": "ROOM",
+            "room": "{f}09"
+          },
+          "rect": {
+            "x": 470,
+            "y": 480,
+            "w": 230,
+            "h": 270
+          },
+          "door": "N"
+        },
+        {
+          "id": "room-10",
+          "type": "room",
+          "label": "{f}10호",
+          "gw": "GW-{b}{f}-{f}10",
+          "match": {
+            "kind": "ROOM",
+            "room": "{f}10"
+          },
+          "rect": {
+            "x": 700,
+            "y": 480,
+            "w": 230,
+            "h": 270
+          },
+          "door": "N"
+        },
+        {
+          "id": "room-11",
+          "type": "room",
+          "label": "{f}11호",
+          "gw": "GW-{b}{f}-{f}11",
+          "match": {
+            "kind": "ROOM",
+            "room": "{f}11"
+          },
+          "rect": {
+            "x": 930,
+            "y": 480,
+            "w": 230,
+            "h": 270
+          },
+          "door": "N"
+        },
+        {
+          "id": "room-12",
+          "type": "room",
+          "label": "{f}12호",
+          "gw": "GW-{b}{f}-{f}12",
+          "match": {
+            "kind": "ROOM",
+            "room": "{f}12"
+          },
+          "rect": {
+            "x": 1160,
+            "y": 480,
+            "w": 230,
+            "h": 270
+          },
+          "door": "N"
+        },
+        {
+          "id": "stairs-l",
+          "type": "stairs",
+          "label": "계단",
+          "rect": {
+            "x": 16,
+            "y": 300,
+            "w": 80,
+            "h": 160
+          }
+        },
+        {
+          "id": "wc-z1",
+          "type": "room",
+          "label": "화장실",
+          "gw": "GW-{b}{f}-Z1-WC",
+          "match": {
+            "kind": "WC",
+            "zone": "Z1"
+          },
+          "rect": {
+            "x": 120,
+            "y": 300,
+            "w": 80,
+            "h": 160
+          },
+          "door": "E",
+          "compact": true
+        },
+        {
+          "id": "station-1",
+          "type": "station",
+          "label": "간호스테이션 Z1",
+          "rect": {
+            "x": 322,
+            "y": 310,
+            "w": 110,
+            "h": 140
+          }
+        },
+        {
+          "id": "disp-st1",
+          "type": "display",
+          "label": "센트럴 모니터 (Z1 스테이션)",
+          "display": "DISP-{b}{f}-ST",
+          "rect": {
+            "x": 330,
+            "y": 268,
+            "w": 94,
+            "h": 26
+          }
+        },
+        {
+          "id": "ev-1",
+          "type": "elevator",
+          "label": "EV",
+          "rect": {
+            "x": 620,
+            "y": 300,
+            "w": 80,
+            "h": 160
+          }
+        },
+        {
+          "id": "ev-2",
+          "type": "elevator",
+          "label": "EV",
+          "rect": {
+            "x": 700,
+            "y": 300,
+            "w": 80,
+            "h": 160
+          }
+        },
+        {
+          "id": "station-2",
+          "type": "station",
+          "label": "간호스테이션 Z2",
+          "rect": {
+            "x": 968,
+            "y": 310,
+            "w": 110,
+            "h": 140
+          }
+        },
+        {
+          "id": "disp-st2",
+          "type": "display",
+          "label": "센트럴 모니터 (Z2 스테이션)",
+          "display": "DISP-{b}{f}-Z2",
+          "rect": {
+            "x": 976,
+            "y": 268,
+            "w": 94,
+            "h": 26
+          }
+        },
+        {
+          "id": "wc-z2",
+          "type": "room",
+          "label": "화장실",
+          "gw": "GW-{b}{f}-Z2-WC",
+          "match": {
+            "kind": "WC",
+            "zone": "Z2"
+          },
+          "rect": {
+            "x": 1200,
+            "y": 300,
+            "w": 80,
+            "h": 160
+          },
+          "door": "W",
+          "compact": true
+        },
+        {
+          "id": "stairs-r",
+          "type": "stairs",
+          "label": "계단",
+          "rect": {
+            "x": 1304,
+            "y": 300,
+            "w": 80,
+            "h": 160
+          }
+        }
+      ]
+    }
+  },
+  "bedsPerRoom": 6
+}

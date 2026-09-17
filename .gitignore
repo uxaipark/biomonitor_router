@@ -1,0 +1,23 @@
+node_modules/
+target/
+dist/
+waves/
+logs/
+__pycache__/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+router-server/bin/
+prompt-logs/
+
+# biomonitor_router
+router-server/target/
+router-server/waves/
+router-server/bin/
+web/*/node_modules/
+web/*/dist/
+logs/
+*.pid
+.DS_Store
+data/

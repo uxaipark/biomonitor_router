@@ -1,0 +1,157 @@
+[
+  {
+    "id": "all",
+    "name": "전체 채널",
+    "description": "",
+    "owner": "중앙관제",
+    "criteria": {},
+    "include": [],
+    "exclude": []
+  },
+  {
+    "id": "bld-b",
+    "name": "B동 전체",
+    "description": "B동 전체 재원 환자 (건물 단위)",
+    "owner": "로비 전광판",
+    "criteria": {
+      "building": [
+        "B"
+      ]
+    },
+    "include": [],
+    "exclude": []
+  },
+  {
+    "id": "dept-cardiology",
+    "name": "순환기내과",
+    "description": "순환기내과 소속 환자",
+    "owner": "Dr.홍민지",
+    "criteria": {
+      "department": [
+        "Cardiology"
+      ]
+    },
+    "include": [],
+    "exclude": []
+  },
+  {
+    "id": "dept-internalmedicine",
+    "name": "내과",
+    "description": "내과 소속 환자",
+    "owner": "Dr.황선영",
+    "criteria": {
+      "department": [
+        "InternalMedicine"
+      ]
+    },
+    "include": [],
+    "exclude": []
+  },
+  {
+    "id": "doctor-top",
+    "name": "주치의 Dr.황선영 담당",
+    "description": "주치의 Dr.황선영 담당 환자",
+    "owner": "Dr.황선영",
+    "criteria": {
+      "doctor": [
+        "Dr.황선영"
+      ]
+    },
+    "include": [],
+    "exclude": []
+  },
+  {
+    "id": "floor-b2",
+    "name": "B동 2층",
+    "description": "B동 2층 전체 재원 환자",
+    "owner": "B2 전광판",
+    "criteria": {
+      "floor": [
+        "2"
+      ],
+      "building": [
+        "B"
+      ]
+    },
+    "include": [],
+    "exclude": []
+  },
+  {
+    "id": "floors-watch",
+    "name": "통합 관찰 층",
+    "description": "B동 2·3층 통합 모니터링 (복수 층)",
+    "owner": "중앙관제",
+    "criteria": {
+      "floor": [
+        "2",
+        "3"
+      ],
+      "building": [
+        "B"
+      ]
+    },
+    "include": [],
+    "exclude": []
+  },
+  {
+    "id": "nurse-top",
+    "name": "간호사 N.정규현 담당",
+    "description": "담당 간호사 N.정규현 배정 환자",
+    "owner": "N.정규현",
+    "criteria": {
+      "nurse": [
+        "N.정규현"
+      ]
+    },
+    "include": [],
+    "exclude": []
+  },
+  {
+    "id": "room-b210",
+    "name": "병실 B동 210호",
+    "description": "B동 210호 재원 환자 (병실 단위 집중 관찰)",
+    "owner": "N.남경미",
+    "criteria": {
+      "room": [
+        "210"
+      ],
+      "building": [
+        "B"
+      ]
+    },
+    "include": [],
+    "exclude": []
+  },
+  {
+    "id": "ward-w1",
+    "name": "병동 W1",
+    "description": "W1 병동 재원 환자 (층 밴드)",
+    "owner": "수간호사",
+    "criteria": {
+      "ward": [
+        "W1"
+      ]
+    },
+    "include": [],
+    "exclude": []
+  },
+  {
+    "id": "zone-b2z2",
+    "name": "구역 B2 Z2",
+    "description": "B동 2층 Z2 구역 (간호 구역 단위)",
+    "owner": "N.남경미",
+    "criteria": {
+      "floor": [
+        "2"
+      ],
+      "building": [
+        "B"
+      ],
+      "zone": [
+        "Z2"
+      ]
+    },
+    "include": [],
+    "exclude": []
+  }
+]
