@@ -26,12 +26,15 @@ export default function Dashboard({ alarms }) {
     const p = prev.current
     if (p && p !== stats && stats.uptime_s > p.uptime_s) {
       const dt = stats.uptime_s - p.uptime_s
-      rateRef.current = {
+      const fresh = {
         frames: (stats.gateways.frames - p.gateways.frames) / dt,
         records: (stats.total_packets - p.total_packets) / dt,
         bytes: (stats.total_bytes - p.total_bytes) / dt,
         tx: (stats.total_tx_bytes - p.total_tx_bytes) / dt,
       }
+      // light smoothing (≈3 s window) so the tiles do not jump every second
+      const old = rateRef.current
+      rateRef.current = old ? Object.fromEntries(Object.entries(fresh).map(([k, v]) => [k, old[k] + (v - old[k]) * 0.4])) : fresh
     }
     if (!p || stats.uptime_s !== p.uptime_s) prev.current = stats
   }, [stats])
