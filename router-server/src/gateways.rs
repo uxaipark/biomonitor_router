@@ -18,7 +18,8 @@ const NACK_EXPIRE: Duration = Duration::from_secs(10);
 /// A gateway whose socket is up but sent nothing for this long is flagged `silent`.
 const SILENCE: Duration = Duration::from_secs(10);
 /// A seq this far behind the last one (~200 s of frames at 200 ms) is not a late frame but a restarted counter
-/// (emulator/gateway restart): re-base instead of counting every following frame as a reorder.
+/// (emulator/gateway restart): re-base instead of counting every following frame as a reorder. A seq behind the
+/// last one on the first frame of a new socket is treated the same way regardless of distance.
 pub const SEQ_RESTART_BACK: u32 = 1024;
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -234,6 +235,7 @@ impl GatewayTable {
         inc!(t, frames);
         let mut g = self.gws.entry(hdr.gw_id).or_insert_with(|| GwEntry::new(hdr.gw_id));
         let mut link_changed = false;
+        let new_conn = g.conn != Some(conn);
         if g.conn.is_none() {
             link_changed = true;
         } else if g.conn != Some(conn) && g.connected {
@@ -258,11 +260,11 @@ impl GatewayTable {
             g.keepalive += 1;
             inc!(t, keepalive);
         }
-        let verdict = self.track_seq(&mut g, hdr.seq);
+        let verdict = self.track_seq(&mut g, hdr.seq, new_conn);
         (verdict, link_changed)
     }
 
-    fn track_seq(&self, g: &mut GwEntry, seq: u32) -> SeqVerdict {
+    fn track_seq(&self, g: &mut GwEntry, seq: u32, new_conn: bool) -> SeqVerdict {
         let t = &self.totals;
         if g.pending.remove(&seq).is_some() {
             g.recovered += 1;
@@ -294,7 +296,9 @@ impl GatewayTable {
             }
             g.last_seq = Some(seq);
             SeqVerdict::Gap(missing)
-        } else if last.wrapping_sub(seq) > SEQ_RESTART_BACK {
+        } else if new_conn || last.wrapping_sub(seq) > SEQ_RESTART_BACK {
+            // Behind on the first frame of a new socket = the sender restarted (store-and-forward replay after a
+            // reconnect continues *after* the last seq), however short its previous run was.
             g.last_seq = Some(seq);
             g.pending.clear();
             g.seq_restart += 1;
@@ -557,5 +561,12 @@ mod tests {
         assert_eq!(t.totals.seq_reorder.load(Ordering::Relaxed), 1);
         // Gap detection works again after the restart.
         assert_eq!(t.on_frame(2, "b", &tx, &hdr(7, 103)).0, SeqVerdict::Gap(3));
+        // A second restart after a short run (only ~100 seqs back) on a new socket is also a restart.
+        assert_eq!(t.on_frame(3, "c", &tx, &hdr(7, 0)).0, SeqVerdict::Ok);
+        assert_eq!(t.on_frame(3, "c", &tx, &hdr(7, 1)).0, SeqVerdict::Ok);
+        assert_eq!(t.totals.seq_restart.load(Ordering::Relaxed), 2);
+        // Store-and-forward replay after a reconnect continues after the last seq: an ordinary gap/ok.
+        assert_eq!(t.on_frame(4, "d", &tx, &hdr(7, 2)).0, SeqVerdict::Ok);
+        assert_eq!(t.totals.seq_reorder.load(Ordering::Relaxed), 1);
     }
 }
