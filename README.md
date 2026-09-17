@@ -2,7 +2,7 @@
 
 `biomonitor_simulator`(에뮬레이터, RP5 #1)가 게이트웨이별 TCP 소켓으로 보내는 **protocol v3 프레임**을 받아
 검증(CRC-32·시퀀스)·재전송 요청(NACK)·패치별 저장·실시간 브로드캐스트(WS)·상태 API 를 제공하는 서버입니다.
-맥에서 개발한 뒤 **1 TB SSD 를 단 RP5 #2** 에 올립니다. 로드맵은 [docs/PLAN.md](docs/PLAN.md).
+맥에서 개발한 뒤 **1 TB SSD 를 단 RP5 #2** 에 올립니다. 로드맵은 [docs/PLAN.md](docs/PLAN.md), **설계 문서는 [docs/DESIGN.md](docs/DESIGN.md)**.
 
 ## 구성
 
@@ -12,7 +12,7 @@
 | `web/admin`, `web/viewer` | React (Vite) | 레거시 화면 — P2/P3 에서 다채널·도면 JSON 으로 재작성 |
 | `analysis-server/`, `db-api/` | Python | 레거시 목업 — 유지 여부 미정 (P3) |
 | `docs/contract/` | JSON | 에뮬레이터 계약 fixture (discovery / layout / trips) |
-| `docs/legacy/` | | 2026-08 스택 문서·구 에뮬레이터 소스 |
+| `docs/legacy/` | | 2026-08 스택 문서(ARCHITECTURE·API·FRONTEND)·구 에뮬레이터 소스 |
 
 ## router-server 동작 (P1)
 

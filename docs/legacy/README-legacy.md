@@ -22,9 +22,9 @@
 
 | 문서 | 내용 |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 시스템 설계: 데이터 흐름, 싱크, 그룹핑, 다병원 DB, 예약, 파형 저장, 장애 시뮬레이션 |
-| [docs/API.md](docs/API.md) | 와이어 프로토콜과 전체 API 레퍼런스 (라우터/에뮬레이터/DB API) |
-| [docs/FRONTEND.md](docs/FRONTEND.md) | 어드민 전 페이지 가이드, 평면도·템플릿 JSON 스키마, 리포트/동선 뷰어 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 시스템 설계: 데이터 흐름, 싱크, 그룹핑, 다병원 DB, 예약, 파형 저장, 장애 시뮬레이션 |
+| [API.md](API.md) | 와이어 프로토콜과 전체 API 레퍼런스 (라우터/에뮬레이터/DB API) |
+| [FRONTEND.md](FRONTEND.md) | 어드민 전 페이지 가이드, 평면도·템플릿 JSON 스키마, 리포트/동선 뷰어 |
 
 ## 구성 요소
 
