@@ -367,8 +367,9 @@ fn apply_meta_patches(state: &Arc<AppState>, gw_id: u32, meta: &serde_json::Valu
 
 /// ECG 패킷 1건: 분석 서버가 살아 있으면 forward 후 응답(seq)과 병합, 아니면 즉시 패스스루 출력.
 fn process_ecg(state: &Arc<AppState>, pkt: EcgPacket) {
-    state.registry.push_packet(&pkt);
-    if state.analysis_up() {
+    let analysis = state.analysis_up();
+    state.registry.push_packet(&pkt, analysis);
+    if analysis {
         #[derive(serde::Serialize)]
         struct EcgLine<'a> {
             #[serde(rename = "type")]

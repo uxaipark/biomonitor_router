@@ -136,7 +136,9 @@ impl Registry {
     /// ECG 패킷 수신: 상태 갱신 + 서큘러 버퍼에 보관.
     /// 버퍼가 가득 차면 가장 오래된 패킷부터 폐기한다.
     /// 반환값: seq 갭으로 감지한 유실 패킷 수 (에뮬레이터가 미전송 구간의 seq 를 스킵)
-    pub fn push_packet(&self, pkt: &EcgPacket) -> u64 {
+    /// `keep`: park the packet in the analysis-merge buffer (only while an analysis server is connected —
+    /// in passthrough mode nothing ever takes it out, so keeping it would just grow to ring_capacity per channel).
+    pub fn push_packet(&self, pkt: &EcgPacket, keep: bool) -> u64 {
         let mut ch = self
             .channels
             .entry(pkt.channel_id.clone())
@@ -164,10 +166,14 @@ impl Registry {
             if v.glucose.is_some() { ch.vitals.glucose = v.glucose; }
             ch.vitals_ts_ms = pkt.ts_ms;
         }
-        if ch.pending.len() >= self.ring_capacity {
-            ch.pending.pop_front();
+        if keep {
+            if ch.pending.len() >= self.ring_capacity {
+                ch.pending.pop_front();
+            }
+            ch.pending.push_back((Instant::now(), pkt.clone()));
+        } else if !ch.pending.is_empty() {
+            ch.pending.clear();
         }
-        ch.pending.push_back((Instant::now(), pkt.clone()));
         lost
     }
 
@@ -180,6 +186,10 @@ impl Registry {
                 ch.pending.pop_front();
             } else if front.seq == seq {
                 return ch.pending.pop_front().map(|(_, p)| p);
+            } else if front.seq > seq + 1024 {
+                // the patch counter restarted (emulator restart): everything parked is from the old run
+                ch.pending.clear();
+                return None;
             } else {
                 return None;
             }

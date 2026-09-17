@@ -267,6 +267,8 @@ struct Stats {
     queue_dropped_analysis: u64,
     queue_dropped_db: u64,
     queue_dropped_wave: u64,
+    /// 저장 큐에 대기 중인 op 수 (상한 262,144; 0 근처가 정상)
+    store_queue: usize,
     /// 라우터 프로세스 메모리 (working set)
     mem_process_bytes: u64,
     /// 시스템 물리 메모리 사용량/전체
@@ -338,6 +340,7 @@ async fn stats(State(state): State<Arc<AppState>>) -> Json<Stats> {
         queue_dropped_analysis: state.dropped_analysis.load(Ordering::Relaxed),
         queue_dropped_db: state.dropped_db.load(Ordering::Relaxed),
         queue_dropped_wave: state.dropped_wave.load(Ordering::Relaxed),
+        store_queue: state.store_tx.max_capacity() - state.store_tx.capacity(),
         mem_process_bytes: mem_process,
         mem_sys_used_bytes: mem_used,
         mem_sys_total_bytes: mem_total,
