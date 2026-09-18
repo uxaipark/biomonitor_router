@@ -42,8 +42,111 @@ pub static STORE_PATCHES: AtomicU64 = AtomicU64::new(0);
 pub static STORE_BUFS: AtomicU64 = AtomicU64::new(0);
 pub static STORE_OPEN: AtomicU64 = AtomicU64::new(0);
 pub static STORE_BUFFERED: AtomicU64 = AtomicU64::new(0);
+/// Ops queued from the batcher to the file writer thread but not yet written.
+pub static STORE_WRITER_BACKLOG: AtomicU64 = AtomicU64::new(0);
 /// Live per-patch index (updated by the writer thread on every flush) so the API does not wait for index.json.
 pub static LIVE_INDEX: std::sync::LazyLock<dashmap::DashMap<u32, PatchIndex>> = std::sync::LazyLock::new(dashmap::DashMap::new);
+
+/// Work handed from the batcher (queue drain, buffers, index) to the file writer thread. File I/O on the SD card
+/// is slow (2,000 appends ≈ 0.3–7 s) and must never block the drain: the writer owns every file handle.
+enum WriteOp {
+    Append { pid: u32, hour: String, bytes: Vec<u8> },
+    /// The hour file `hour` of `pid` is complete: close it and hand it to gzip.
+    Close { pid: u32, hour: String },
+    Index { pid: u32, json: String },
+    /// Reply once everything queued before this op is on disk.
+    Sync(std::sync::mpsc::Sender<()>),
+    /// Drop every handle (store reset).
+    Reset,
+}
+
+fn file_writer(root: PathBuf, rx: std::sync::mpsc::Receiver<WriteOp>, gzip_tx: std::sync::mpsc::Sender<PathBuf>) {
+    // pid → (hour, handle, last used)
+    let mut open: HashMap<u32, (String, File, Instant)> = HashMap::new();
+    let mut last_evict = Instant::now();
+    while let Ok(first) = rx.recv() {
+        let t0 = Instant::now();
+        let (mut n_ops, mut n_bytes) = (0usize, 0usize);
+        let mut ops = vec![first];
+        while let Ok(op) = rx.try_recv() {
+            ops.push(op);
+        }
+        for op in ops {
+            match op {
+                WriteOp::Append { pid, hour, bytes } => {
+                    STORE_WRITER_BACKLOG.fetch_sub(1, Ordering::Relaxed);
+                    n_ops += 1;
+                    let reopen = open.get(&pid).map(|(h, _, _)| *h != hour).unwrap_or(true);
+                    if reopen {
+                        open.remove(&pid);
+                        let dir = patch_dir(&root, pid);
+                        if fs::create_dir_all(&dir).is_err() {
+                            continue;
+                        }
+                        match OpenOptions::new().create(true).append(true).open(dir.join(format!("{hour}.rec"))) {
+                            Ok(f) => {
+                                open.insert(pid, (hour.clone(), f, Instant::now()));
+                            }
+                            Err(e) => {
+                                warn!("store: open patch {} failed: {}", pid, e);
+                                continue;
+                            }
+                        }
+                    }
+                    if let Some((_, f, used)) = open.get_mut(&pid) {
+                        match f.write_all(&bytes) {
+                            Ok(()) => {
+                                STORE_BYTES.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+                                n_bytes += bytes.len();
+                            }
+                            Err(e) => warn!("store: write patch {} failed: {}", pid, e),
+                        }
+                        *used = Instant::now();
+                    }
+                }
+                WriteOp::Close { pid, hour } => {
+                    if open.get(&pid).map(|(h, _, _)| *h == hour).unwrap_or(false) {
+                        open.remove(&pid);
+                    }
+                    let _ = gzip_tx.send(patch_dir(&root, pid).join(format!("{hour}.rec")));
+                }
+                WriteOp::Index { pid, json } => {
+                    STORE_WRITER_BACKLOG.fetch_sub(1, Ordering::Relaxed);
+                    n_ops += 1;
+                    let dir = patch_dir(&root, pid);
+                    let tmp = dir.join("index.json.tmp");
+                    if fs::create_dir_all(&dir).and_then(|_| fs::write(&tmp, json)).and_then(|_| fs::rename(&tmp, dir.join("index.json"))).is_err() {
+                        warn!("store: index write for patch {} failed", pid);
+                    }
+                }
+                WriteOp::Sync(ack) => {
+                    let _ = ack.send(());
+                }
+                WriteOp::Reset => open.clear(),
+            }
+        }
+        // Idle handles (a retired patch) close after 5 min; the LRU cap protects the fd limit. A closed current-hour
+        // file simply reopens in append mode on the next batch.
+        if last_evict.elapsed() >= Duration::from_secs(30) || open.len() > MAX_OPEN {
+            last_evict = Instant::now();
+            let now = Instant::now();
+            let mut drop_ids: Vec<u32> = open.iter().filter(|(_, (_, _, u))| now.duration_since(*u) > Duration::from_secs(300)).map(|(p, _)| *p).collect();
+            if open.len() - drop_ids.len() > MAX_OPEN {
+                let mut by_age: Vec<(Instant, u32)> = open.iter().map(|(p, (_, _, u))| (*u, *p)).collect();
+                by_age.sort();
+                drop_ids.extend(by_age.into_iter().take(open.len() - MAX_OPEN / 2).map(|(_, p)| p));
+            }
+            for p in drop_ids {
+                open.remove(&p);
+            }
+        }
+        STORE_OPEN.store(open.len() as u64, Ordering::Relaxed);
+        let dt = t0.elapsed();
+        if dt > Duration::from_millis(1500) {
+            warn!("store: slow write batch {} ms ({} ops, {} KB, backlog {})", dt.as_millis(), n_ops, n_bytes / 1024, STORE_WRITER_BACKLOG.load(Ordering::Relaxed));
+        }
+    }
+}
 
 /// Work sent to the writer thread.
 pub enum StoreOp {
@@ -74,7 +177,6 @@ pub struct PatchIndex {
 struct PatchBuf {
     buf: Vec<u8>,
     hour: String,
-    file: Option<File>,
     last_used: Instant,
     index: PatchIndex,
     index_written: Instant,
@@ -85,7 +187,9 @@ pub struct PatchStore {
     root: PathBuf,
     max_bytes: u64,
     patches: HashMap<u32, PatchBuf>,
-    open: usize,
+    write_tx: std::sync::mpsc::Sender<WriteOp>,
+    /// Append/Close ops produced by hour rollovers between flushes (sent first, so per-patch order holds).
+    rollover: Vec<WriteOp>,
     last_flush: Instant,
     last_scan: Instant,
     meta_seen: HashMap<u32, u64>,
@@ -332,12 +436,21 @@ impl PatchStore {
             .name("store-gzip".into())
             .spawn(move || gzip_worker(gzip_rx))
             .expect("gzip thread");
+        let (write_tx, write_rx) = std::sync::mpsc::channel::<WriteOp>();
+        {
+            let (root, gz) = (root.clone(), gzip_tx.clone());
+            std::thread::Builder::new()
+                .name("store-write".into())
+                .spawn(move || file_writer(root, write_rx, gz))
+                .expect("store write thread");
+        }
         // Hour files left open by a previous run are compressed now.
         let store = Self {
             root,
             max_bytes,
             patches: HashMap::new(),
-            open: 0,
+            write_tx,
+            rollover: Vec::new(),
             last_flush: Instant::now(),
             last_scan: Instant::now(),
             meta_seen: HashMap::new(),
@@ -399,7 +512,6 @@ impl PatchStore {
             PatchBuf {
                 buf: Vec::with_capacity(8192),
                 hour: String::new(),
-                file: None,
                 last_used: Instant::now(),
                 index,
                 index_written: Instant::now(),
@@ -407,16 +519,14 @@ impl PatchStore {
             }
         });
         if pb.hour != key {
-            // Hour rollover: flush what belongs to the old file first (records are appended in arrival order).
-            if !pb.buf.is_empty() {
-                Self::write_buf(&root, patch_id, pb, &mut self.open);
-            }
-            if let Some(f) = pb.file.take() {
-                drop(f);
-                self.open = self.open.saturating_sub(1);
-                if !pb.hour.is_empty() {
-                    let _ = self.gzip_tx.send(patch_dir(&root, patch_id).join(format!("{}.rec", pb.hour)));
+            // Hour rollover: what belongs to the old file goes out first (records are appended in arrival order),
+            // then the old file is closed and compressed by the writer.
+            if !pb.hour.is_empty() {
+                if !pb.buf.is_empty() {
+                    STORE_WRITER_BACKLOG.fetch_add(1, Ordering::Relaxed);
+                    self.rollover.push(WriteOp::Append { pid: patch_id, hour: pb.hour.clone(), bytes: std::mem::take(&mut pb.buf) });
                 }
+                self.rollover.push(WriteOp::Close { pid: patch_id, hour: pb.hour.clone() });
             }
             pb.hour = key;
             pb.index.files += 1;
@@ -443,131 +553,68 @@ impl PatchStore {
         pb.last_used = Instant::now();
     }
 
-    fn write_buf(root: &Path, patch_id: u32, pb: &mut PatchBuf, open: &mut usize) {
-        if pb.buf.is_empty() {
-            return;
-        }
-        if pb.file.is_none() {
-            let dir = patch_dir(root, patch_id);
-            if fs::create_dir_all(&dir).is_err() {
-                return;
-            }
-            match OpenOptions::new().create(true).append(true).open(dir.join(format!("{}.rec", pb.hour))) {
-                Ok(f) => {
-                    pb.file = Some(f);
-                    *open += 1;
-                }
-                Err(e) => {
-                    warn!("store: open patch {} failed: {}", patch_id, e);
-                    pb.buf.clear();
-                    return;
-                }
-            }
-        }
-        if let Some(f) = pb.file.as_mut() {
-            match f.write_all(&pb.buf) {
-                Ok(()) => {
-                    STORE_BYTES.fetch_add(pb.buf.len() as u64, Ordering::Relaxed);
-                }
-                Err(e) => warn!("store: write patch {} failed: {}", patch_id, e),
-            }
-        }
-        pb.buf.clear();
-        // A replay burst can grow a patch buffer to hundreds of KB; keep the steady-state capacity small
-        // (≈1.5 KB/s per patch) so 2,000+ buffers do not pin tens of MB.
-        if pb.buf.capacity() > 32 * 1024 {
-            pb.buf.shrink_to(16 * 1024);
-        }
-    }
-
-    /// Write buffered entries, rotate index files, evict idle handles, prune over the cap.
+    /// Hand buffered entries to the writer thread, refresh the live index, queue index.json writes, drop retired
+    /// patch buffers, rescan / prune. Cheap: no file I/O happens here.
     pub fn flush(&mut self, force: bool) {
-        let t0 = Instant::now();
-        self.last_flush = t0;
-        let mut n_files = 0usize;
-        let root = self.root.clone();
-        let mut open = self.open;
         let now = Instant::now();
-        // index.json writes are spread over flushes (≤ INDEX_PER_FLUSH each): after a restart every patch's index
-        // comes due at the same second, and 2,000 small write+rename pairs stall the writer for seconds on SD.
+        self.last_flush = now;
+        for op in self.rollover.drain(..) {
+            let _ = self.write_tx.send(op);
+        }
         let mut index_writes = 0usize;
+        let mut gone: Vec<u32> = Vec::new();
+        let mut buffered = 0u64;
         for (pid, pb) in self.patches.iter_mut() {
             if !pb.buf.is_empty() {
-                n_files += 1;
+                let bytes = std::mem::replace(&mut pb.buf, Vec::with_capacity(8192));
+                STORE_WRITER_BACKLOG.fetch_add(1, Ordering::Relaxed);
+                let _ = self.write_tx.send(WriteOp::Append { pid: *pid, hour: pb.hour.clone(), bytes });
             }
-            Self::write_buf(&root, *pid, pb, &mut open);
+            buffered += pb.buf.capacity() as u64;
             if pb.index_dirty {
                 LIVE_INDEX.insert(*pid, pb.index.clone());
             }
             if pb.index_dirty && (force || (index_writes < INDEX_PER_FLUSH && now.duration_since(pb.index_written) >= INDEX_EVERY)) {
-                index_writes += 1;
-                if let Ok(s) = serde_json::to_string(&pb.index) {
-                    let dir = patch_dir(&root, *pid);
-                    let tmp = dir.join("index.json.tmp");
-                    if fs::write(&tmp, s).and_then(|_| fs::rename(&tmp, dir.join("index.json"))).is_ok() {
-                        pb.index_dirty = false;
-                        pb.index_written = now;
-                    }
+                if let Ok(json) = serde_json::to_string(&pb.index) {
+                    index_writes += 1;
+                    STORE_WRITER_BACKLOG.fetch_add(1, Ordering::Relaxed);
+                    let _ = self.write_tx.send(WriteOp::Index { pid: *pid, json });
+                    pb.index_dirty = false;
+                    pb.index_written = now;
                 }
             }
-        }
-        let t_write = t0.elapsed();
-        // Idle handles close every flush (a retired patch must not hold a file forever); patches silent for
-        // 15 min drop their buffer entirely (the registry prunes them on the same clock).
-        let mut gone: Vec<u32> = Vec::new();
-        for (pid, pb) in self.patches.iter_mut() {
-            let idle = now.duration_since(pb.last_used);
-            if pb.file.is_some() && idle > Duration::from_secs(300) {
-                pb.file = None;
-                open -= 1;
-            }
-            if pb.file.is_none() && pb.buf.is_empty() && !pb.index_dirty && idle > Duration::from_secs(900) {
+            // a patch silent for 15 min (discharged / replaced) drops its buffer; its last hour file gets compressed
+            if pb.buf.is_empty() && !pb.index_dirty && now.duration_since(pb.last_used) > Duration::from_secs(900) {
                 gone.push(*pid);
             }
         }
         for pid in gone {
-            self.patches.remove(&pid);
+            if let Some(pb) = self.patches.remove(&pid) {
+                let _ = self.write_tx.send(WriteOp::Close { pid, hour: pb.hour });
+            }
             LIVE_INDEX.remove(&pid);
         }
-        // LRU: keep at most MAX_OPEN handles; close the least recently used.
-        if open > MAX_OPEN || force {
-            let mut by_age: Vec<(Instant, u32)> =
-                self.patches.iter().filter(|(_, p)| p.file.is_some()).map(|(k, p)| (p.last_used, *k)).collect();
-            by_age.sort();
-            let excess = open.saturating_sub(MAX_OPEN / 2);
-            for (i, (t, pid)) in by_age.into_iter().enumerate() {
-                if i < excess || force || now.duration_since(t) > Duration::from_secs(300) {
-                    if let Some(pb) = self.patches.get_mut(&pid) {
-                        if pb.file.take().is_some() {
-                            open -= 1;
-                        }
-                    }
-                }
-            }
-        }
-        self.open = open;
         STORE_BUFS.store(self.patches.len() as u64, Ordering::Relaxed);
-        STORE_OPEN.store(open as u64, Ordering::Relaxed);
-        STORE_BUFFERED.store(self.patches.values().map(|p| p.buf.capacity() as u64).sum(), Ordering::Relaxed);
-        let t_evict = t0.elapsed();
-        let mut scanned = false;
+        STORE_BUFFERED.store(buffered, Ordering::Relaxed);
+        if force {
+            self.wait_writer();
+        }
         if self.last_scan.elapsed() >= Duration::from_secs(600) {
             self.last_scan = Instant::now();
             let (total, patches) = scan_bytes(&self.root);
             STORE_BYTES.store(total, Ordering::Relaxed);
             STORE_PATCHES.store(patches, Ordering::Relaxed);
-            scanned = true;
         }
         if self.max_bytes > 0 && STORE_BYTES.load(Ordering::Relaxed) > self.max_bytes {
             self.prune();
         }
-        let total = t0.elapsed();
-        if total > Duration::from_millis(300) {
-            warn!(
-                "store: slow flush {} ms (write {} ms / {} files, {} index, evict {} ms, scan {}, prune {})",
-                total.as_millis(), t_write.as_millis(), n_files, index_writes, (t_evict - t_write).as_millis(), scanned,
-                self.max_bytes > 0 && STORE_BYTES.load(Ordering::Relaxed) > self.max_bytes
-            );
+    }
+
+    /// Block until the writer has flushed everything queued so far (shutdown, reset, tests).
+    fn wait_writer(&self) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        if self.write_tx.send(WriteOp::Sync(tx)).is_ok() {
+            let _ = rx.recv();
         }
     }
 
@@ -624,7 +671,9 @@ impl PatchStore {
 
     fn reset(&mut self) {
         self.patches.clear();
-        self.open = 0;
+        self.rollover.clear();
+        let _ = self.write_tx.send(WriteOp::Reset);
+        self.wait_writer();
         self.meta_seen.clear();
         LIVE_INDEX.clear();
         let _ = fs::remove_dir_all(self.root.join("patches"));
