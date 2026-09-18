@@ -177,3 +177,23 @@ svg.plan { width: 100%; height: 100%; background: var(--panel); border: 1px soli
 .prow:hover { background: var(--panel2); }
 .prow .vit { color: var(--muted); font-size: 12px; width: 100%; }
 .prow.sev-critical { border-left: 3px solid var(--sev-critical); } .prow.sev-high { border-left: 3px solid var(--sev-high); } .prow.sev-medium { border-left: 3px solid var(--sev-medium); }
+
+/* custom dropdown (Dropdown.jsx) */
+.dd { position: relative; display: inline-block; min-width: 200px; }
+.dd-btn { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; }
+.dd-btn .dd-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-btn .dd-val small { color: var(--muted); }
+.dd-ph { color: var(--muted); }
+.dd-caret { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid var(--muted); flex: none; }
+.dd.open .dd-caret { transform: rotate(180deg); }
+.dd-menu { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; min-width: 100%; max-width: 420px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.35); padding: 6px; }
+.dd-filter { width: 100%; min-width: 0; margin-bottom: 6px; }
+.dd-menu ul { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow: auto; outline: none; }
+.dd-item { display: flex; justify-content: space-between; gap: 12px; padding: 6px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.dd-item.hi { background: var(--panel2); }
+.dd-item.on { background: var(--accent); color: #fff; }
+.dd-item.on .dd-count { color: rgba(255,255,255,.85); }
+.dd-item.disabled { opacity: .45; cursor: default; }
+.dd-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.dd-group { padding: 6px 10px 2px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.dd-empty { padding: 8px 10px; color: var(--muted); }

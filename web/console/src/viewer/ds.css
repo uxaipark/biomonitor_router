@@ -196,3 +196,16 @@
 .tpl-card h4{margin:0;font-size:15px}
 .tpl-card .aud{color:var(--muted);font-size:12px}
 .tpl-card .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}
+
+/* custom dropdown inside the Modernist screens (n-up selector) */
+.ds .dd { min-width: 0; }
+.ds .dd .dd-btn { min-height: 0; height: 100%; padding: 4px 10px; border: 0; border-left: 1px solid var(--color-divider); border-radius: 0; background: transparent; color: var(--color-text); font-family: var(--font-heading); font-weight: 800; font-size: 12px; min-width: 150px; cursor: pointer; }
+.ds .dd .dd-caret { border-top-color: var(--color-text); opacity: .7; }
+.ds .dd .dd-ph { color: var(--color-text); opacity: .7; }
+.ds .dd-menu { left: auto; right: 0; min-width: 230px; background: #111; border: 1px solid var(--color-divider); border-radius: 0; color: var(--color-text); box-shadow: 0 12px 32px rgba(0,0,0,.6); padding: 4px 0; }
+.ds .dd-menu ul { max-height: 60vh; }
+.ds .dd-item { min-height: 34px; padding: 6px 12px; border-radius: 0; font-family: var(--font-heading); font-weight: 600; font-size: 13px; }
+.ds .dd-item.hi { background: #222; }
+.ds .dd-item.on { background: var(--color-accent); color: #fff; }
+.ds .dd-group { color: var(--color-text); opacity: .55; font-family: var(--font-body); }
+.ds .dd-count { opacity: .7; }

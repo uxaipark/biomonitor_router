@@ -4,6 +4,7 @@ import { CS_C, CS_TH, CS_PRESETS, LIMITS, BAT_LOW, csLayout, monAlarm, shortAlar
 import { latest } from '../ws.js'
 import { alarmIndex } from '../model.js'
 import BedViewer from './BedViewer.jsx'
+import Dropdown from '../Dropdown.jsx'
 
 const BELL = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /></svg>
 const BELL_OFF = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /><path d="M18.63 13A17.89 17.89 0 0 1 18 8" /><path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14" /><path d="M18 8a6 6 0 0 0-9.33-5" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
@@ -132,12 +133,14 @@ export default function CentralStation({ rows, alarms, unit, onClose }) {
         <div className="cs-legend">{[['ECG / HR', CS_C.hr], ['SpO₂', CS_C.spo2], ['RR', CS_C.rr], ['NIBP', CS_C.nibp], ['Temp', CS_C.temp], ['GLU', CS_C.gl]].map(([l, c]) => <span key={l} style={{ color: c }}><i style={{ background: c }} />{l}</span>)}</div>
         <div className="cs-right">
           <span className="cs-presets">
-            <button className={'btn ' + (!preset ? 'on' : '')} onClick={() => { setPreset(null); setPage(0) }} title="자동 배치 (48명 초과 시 숫자만)">Auto</button>
-            <select className="cs-sel" value={preset ? preset.id : ''} onChange={(e) => { setPreset(CS_PRESETS.find((x) => x.id === e.target.value) || null); setPage(0) }} title="n-up 격자 (열×행)">
-              <option value="" disabled hidden>n-up…</option>
-              <optgroup label="파형 + 수치">{CS_PRESETS.filter((x) => x.c && !x.numeric).map((x) => <option key={x.id} value={x.id}>{x.c * x.r}-up · {x.c}×{x.r}</option>)}</optgroup>
-              <optgroup label="숫자 전용 보드">{CS_PRESETS.filter((x) => x.numeric).map((x) => <option key={x.id} value={x.id}>{x.c * x.r}-up · {x.c}×{x.r} · 숫자만</option>)}</optgroup>
-            </select>
+            <button className={'btn ' + (!preset ? 'on' : '')} onClick={() => { setPreset(null); setPage(0) }} title="자동 배치 (48명 초과 시 숫자만)">Auto{!preset && <small> {n}명</small>}</button>
+            <Dropdown className="csdd" searchable={false} value={preset ? preset.id : ''} placeholder="n-up…"
+              options={[
+                ...CS_PRESETS.filter((x) => x.c && !x.numeric).map((x) => ({ value: x.id, label: `${x.c * x.r}-up · ${x.c}×${x.r}`, group: '파형 + 수치' })),
+                ...CS_PRESETS.filter((x) => x.numeric).map((x) => ({ value: x.id, label: `${x.c * x.r}-up · ${x.c}×${x.r} · 숫자만`, group: '숫자 전용 보드' })),
+              ]}
+              renderValue={(o) => `${o.label}${n ? ` (${n}명)` : ''}`}
+              onChange={(v) => { setPreset(CS_PRESETS.find((x) => x.id === v) || null); setPage(0) }} />
           </span>
           {pages > 1 && <span className="cs-pager"><button className="btn btn-secondary" onClick={() => setPage(Math.max(0, cur - 1))}>‹</button><span>{cur + 1} / {pages}</span><button className="btn btn-secondary" onClick={() => setPage(Math.min(pages - 1, cur + 1))}>›</button></span>}
           <span className={'cs-alarms' + (nAlarms ? (silenced ? ' is-muted' : '') : ' ds-none')}>{nAlarms} alarm{nAlarms === 1 ? '' : 's'}{silenced ? ' · silenced' : ''}</span>
