@@ -467,6 +467,11 @@ impl PatchStore {
             }
         }
         pb.buf.clear();
+        // A replay burst can grow a patch buffer to hundreds of KB; keep the steady-state capacity small
+        // (≈1.5 KB/s per patch) so 2,000+ buffers do not pin tens of MB.
+        if pb.buf.capacity() > 32 * 1024 {
+            pb.buf.shrink_to(8 * 1024);
+        }
     }
 
     /// Write buffered entries, rotate index files, evict idle handles, prune over the cap.
