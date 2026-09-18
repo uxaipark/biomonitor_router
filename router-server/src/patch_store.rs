@@ -502,7 +502,24 @@ impl PatchStore {
                 }
             }
         }
-        // LRU: keep at most MAX_OPEN handles; close the least recently used (and anything idle > 5 min).
+        // Idle handles close every flush (a retired patch must not hold a file forever); patches silent for
+        // 15 min drop their buffer entirely (the registry prunes them on the same clock).
+        let mut gone: Vec<u32> = Vec::new();
+        for (pid, pb) in self.patches.iter_mut() {
+            let idle = now.duration_since(pb.last_used);
+            if pb.file.is_some() && idle > Duration::from_secs(300) {
+                pb.file = None;
+                open -= 1;
+            }
+            if pb.file.is_none() && pb.buf.is_empty() && !pb.index_dirty && idle > Duration::from_secs(900) {
+                gone.push(*pid);
+            }
+        }
+        for pid in gone {
+            self.patches.remove(&pid);
+            LIVE_INDEX.remove(&pid);
+        }
+        // LRU: keep at most MAX_OPEN handles; close the least recently used.
         if open > MAX_OPEN || force {
             let mut by_age: Vec<(Instant, u32)> =
                 self.patches.iter().filter(|(_, p)| p.file.is_some()).map(|(k, p)| (p.last_used, *k)).collect();
