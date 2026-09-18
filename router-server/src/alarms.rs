@@ -161,6 +161,11 @@ impl AlarmBook {
         false
     }
 
+    pub fn sizes(&self) -> serde_json::Value {
+        let b = self.inner.lock().unwrap();
+        serde_json::json!({"active": b.active.len(), "pending": b.pending.len(), "last_seen": b.last_seen.len(), "history": b.history.len()})
+    }
+
     /// Counts by severity for the status report / dashboard.
     pub fn summary(&self) -> serde_json::Value {
         let b = self.inner.lock().unwrap();

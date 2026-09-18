@@ -244,6 +244,11 @@ impl Registry {
         dead
     }
 
+    /// Sum of parked analysis-merge packets over all channels (debug/sizes).
+    pub fn pending_total(&self) -> usize {
+        self.channels.iter().map(|c| c.pending.len()).sum()
+    }
+
     pub fn connected_count(&self) -> usize {
         self.channels.iter().filter(|e| e.connected).count()
     }

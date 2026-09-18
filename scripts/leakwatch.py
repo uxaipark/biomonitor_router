@@ -11,7 +11,8 @@ FIELDS = ["ts", "uptime_s", "pid", "pss_mb", "rss_mb", "anon_mb", "fds", "thread
           "in_estab", "in_close_wait", "in_fin_wait", "in_other", "in_peers",
           "ws_estab", "ws_close_wait", "listen_9100_backlog",
           "gw_rows", "gw_conn", "ch_rows", "ch_conn", "ingest_conns", "resend_pending", "store_mb", "queue_drop", "store_queue",
-          "events", "alarms_active", "alarm_hist", "rx_mb", "cpu_pct", "sys_avail_mb"]
+          "events", "alarms_active", "alarm_hist", "rx_mb", "cpu_pct", "sys_avail_mb",
+          "reg_pending", "store_bufs", "store_buffered_mb", "alarm_pending", "alarm_last_seen", "emr_cache_mb", "live_index"]
 
 
 def router_pid():
@@ -72,6 +73,7 @@ def sample():
     al = api("/api/alarms") or {}
     hist = api("/api/alarms/history?limit=500") or []
     ev = api("/api/events") or []
+    dbg = api("/api/debug/sizes") or {}
     sm = smaps(pid) if pid else {}
     s9100, s7300 = sockets(9100), sockets(7300)
     avail = 0
@@ -97,7 +99,9 @@ def sample():
                 ingest_conns=st.get("ingest_connections", 0), resend_pending=g.get("resend_pending", 0),
                 store_mb=round(st.get("wave_store_bytes", 0) / 2**20), queue_drop=st.get("queue_dropped_wave", 0), store_queue=st.get("store_queue", 0),
                 events=len(ev), alarms_active=(al.get("summary") or {}).get("active", 0), alarm_hist=len(hist),
-                rx_mb=round(st.get("total_bytes", 0) / 2**20), cpu_pct=round(st.get("cpu_percent", 0), 1), sys_avail_mb=round(avail))
+                rx_mb=round(st.get("total_bytes", 0) / 2**20), cpu_pct=round(st.get("cpu_percent", 0), 1), sys_avail_mb=round(avail),
+                reg_pending=dbg.get("registry_pending_packets", 0), store_bufs=dbg.get("store_patch_bufs", 0), store_buffered_mb=round(dbg.get("store_buffered_bytes", 0) / 2**20, 1),
+                alarm_pending=(dbg.get("alarms") or {}).get("pending", 0), alarm_last_seen=(dbg.get("alarms") or {}).get("last_seen", 0), emr_cache_mb=round(dbg.get("emr_cache_bytes", 0) / 2**20, 1), live_index=dbg.get("live_index_rows", 0))
 
 
 def run(args):
@@ -140,7 +144,7 @@ def report(args):
     print(f"{'metric':22} {'first':>10} {'last':>10} {'delta':>10} {'slope/h':>10}  verdict")
     checks = [("pss_mb", 5, "MB"), ("rss_mb", 5, "MB"), ("anon_mb", 5, "MB"), ("fds", 20, ""), ("threads", 2, ""),
               ("in_estab", 20, ""), ("in_close_wait", 1, ""), ("in_fin_wait", 5, ""), ("in_other", 5, ""), ("ws_estab", 3, ""), ("ws_close_wait", 1, ""),
-              ("gw_rows", 20, ""), ("ch_rows", 50, ""), ("resend_pending", 20, ""), ("store_queue", 1000, ""), ("events", 0, ""), ("alarm_hist", 0, ""), ("queue_drop", 1, "")]
+              ("gw_rows", 20, ""), ("ch_rows", 50, ""), ("resend_pending", 20, ""), ("store_queue", 1000, ""), ("reg_pending", 100, ""), ("store_bufs", 50, ""), ("store_buffered_mb", 5, ""), ("alarm_pending", 100, ""), ("alarm_last_seen", 100, ""), ("emr_cache_mb", 5, ""), ("live_index", 50, ""), ("events", 0, ""), ("alarm_hist", 0, ""), ("queue_drop", 1, "")]
     for k, tol, unit in checks:
         s = slope_per_hour(win, k); d = last[k] - first[k]
         if k in ("events", "alarm_hist"):

@@ -1,5 +1,10 @@
 use router_core::{admin_api, analysis_link, config::Config, db_link, ingest, state::AppState};
 use tracing::info;
+
+// glibc malloc fragments under ~10k short-lived allocations/s across the tokio workers (PSS grew ~100 MB/h);
+// mimalloc keeps the heap compact.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]

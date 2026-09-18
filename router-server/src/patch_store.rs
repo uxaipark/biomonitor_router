@@ -32,6 +32,10 @@ const INDEX_EVERY: Duration = Duration::from_secs(60);
 /// Total bytes on disk (rec + rec.gz), maintained incrementally and rescanned every 10 minutes.
 pub static STORE_BYTES: AtomicU64 = AtomicU64::new(0);
 pub static STORE_PATCHES: AtomicU64 = AtomicU64::new(0);
+/// Debug gauges set by the writer thread each flush: patch buffers held, open file handles, bytes buffered.
+pub static STORE_BUFS: AtomicU64 = AtomicU64::new(0);
+pub static STORE_OPEN: AtomicU64 = AtomicU64::new(0);
+pub static STORE_BUFFERED: AtomicU64 = AtomicU64::new(0);
 /// Live per-patch index (updated by the writer thread on every flush) so the API does not wait for index.json.
 pub static LIVE_INDEX: std::sync::LazyLock<dashmap::DashMap<u32, PatchIndex>> = std::sync::LazyLock::new(dashmap::DashMap::new);
 
@@ -504,6 +508,9 @@ impl PatchStore {
             }
         }
         self.open = open;
+        STORE_BUFS.store(self.patches.len() as u64, Ordering::Relaxed);
+        STORE_OPEN.store(open as u64, Ordering::Relaxed);
+        STORE_BUFFERED.store(self.patches.values().map(|p| p.buf.capacity() as u64).sum(), Ordering::Relaxed);
         if self.last_scan.elapsed() >= Duration::from_secs(600) {
             self.last_scan = Instant::now();
             let (total, patches) = scan_bytes(&self.root);

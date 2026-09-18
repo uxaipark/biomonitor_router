@@ -7,6 +7,7 @@ use axum::response::IntoResponse;
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde::Serialize;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 
@@ -37,6 +38,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/ingest/sources", get(ingest_sources))
         .route("/api/ingest/allow", put(set_ingest_allow))
         .route("/ws", get(output::ws_handler))
+        .route("/api/debug/sizes", get(debug_sizes))
         .route("/api/alarms", get(alarms_active))
         .route("/api/alarms/history", get(alarms_history))
         .route("/api/alarms/rules", get(alarm_rules).put(set_alarm_rules))
@@ -53,6 +55,32 @@ pub fn router(state: Arc<AppState>) -> Router {
 fn spa(dir: &str) -> tower_http::services::ServeDir<tower_http::services::ServeFile> {
     let index = std::path::Path::new(dir).join("index.html");
     tower_http::services::ServeDir::new(dir).fallback(tower_http::services::ServeFile::new(index))
+}
+
+/// Sizes of every in-memory structure that could grow (leak hunting). Cheap; safe to poll each minute.
+async fn debug_sizes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let (emr_n, emr_bytes) = {
+        let c = state.emr_cache.lock().unwrap();
+        (c.len(), c.values().map(|(_, b)| b.len()).sum::<usize>())
+    };
+    Json(serde_json::json!({
+        "registry_rows": state.registry.channel_ids().len(),
+        "registry_connected": state.registry.connected_count(),
+        "registry_pending_packets": state.registry.pending_total(),
+        "gateway_rows": state.gateways.len(),
+        "gateway_resend_pending": state.gateways.resend_pending(),
+        "alarms": state.alarms.sizes(),
+        "events": state.events.lock().unwrap().len(),
+        "emr_cache_entries": emr_n, "emr_cache_bytes": emr_bytes,
+        "store_queue": state.store_tx.max_capacity() - state.store_tx.capacity(),
+        "store_patch_bufs": crate::patch_store::STORE_BUFS.load(Ordering::Relaxed),
+        "store_open_files": crate::patch_store::STORE_OPEN.load(Ordering::Relaxed),
+        "store_buffered_bytes": crate::patch_store::STORE_BUFFERED.load(Ordering::Relaxed),
+        "live_index_rows": crate::patch_store::LIVE_INDEX.len(),
+        "ws_subscribers": state.out_tx.receiver_count(),
+        "ingest_sources": state.ingest_sources.lock().unwrap().len(),
+        "displays": state.displays.lock().unwrap().len(),
+    }))
 }
 
 async fn alarms_active(State(state): State<Arc<AppState>>) -> impl IntoResponse {
