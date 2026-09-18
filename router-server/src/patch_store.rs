@@ -478,7 +478,9 @@ impl PatchStore {
 
     /// Write buffered entries, rotate index files, evict idle handles, prune over the cap.
     pub fn flush(&mut self, force: bool) {
-        self.last_flush = Instant::now();
+        let t0 = Instant::now();
+        self.last_flush = t0;
+        let mut n_files = 0usize;
         let root = self.root.clone();
         let mut open = self.open;
         let now = Instant::now();
@@ -486,6 +488,9 @@ impl PatchStore {
         // comes due at the same second, and 2,000 small write+rename pairs stall the writer for seconds on SD.
         let mut index_writes = 0usize;
         for (pid, pb) in self.patches.iter_mut() {
+            if !pb.buf.is_empty() {
+                n_files += 1;
+            }
             Self::write_buf(&root, *pid, pb, &mut open);
             if pb.index_dirty {
                 LIVE_INDEX.insert(*pid, pb.index.clone());
@@ -502,6 +507,7 @@ impl PatchStore {
                 }
             }
         }
+        let t_write = t0.elapsed();
         // Idle handles close every flush (a retired patch must not hold a file forever); patches silent for
         // 15 min drop their buffer entirely (the registry prunes them on the same clock).
         let mut gone: Vec<u32> = Vec::new();
@@ -539,14 +545,25 @@ impl PatchStore {
         STORE_BUFS.store(self.patches.len() as u64, Ordering::Relaxed);
         STORE_OPEN.store(open as u64, Ordering::Relaxed);
         STORE_BUFFERED.store(self.patches.values().map(|p| p.buf.capacity() as u64).sum(), Ordering::Relaxed);
+        let t_evict = t0.elapsed();
+        let mut scanned = false;
         if self.last_scan.elapsed() >= Duration::from_secs(600) {
             self.last_scan = Instant::now();
             let (total, patches) = scan_bytes(&self.root);
             STORE_BYTES.store(total, Ordering::Relaxed);
             STORE_PATCHES.store(patches, Ordering::Relaxed);
+            scanned = true;
         }
         if self.max_bytes > 0 && STORE_BYTES.load(Ordering::Relaxed) > self.max_bytes {
             self.prune();
+        }
+        let total = t0.elapsed();
+        if total > Duration::from_millis(300) {
+            warn!(
+                "store: slow flush {} ms (write {} ms / {} files, {} index, evict {} ms, scan {}, prune {})",
+                total.as_millis(), t_write.as_millis(), n_files, index_writes, (t_evict - t_write).as_millis(), scanned,
+                self.max_bytes > 0 && STORE_BYTES.load(Ordering::Relaxed) > self.max_bytes
+            );
         }
     }
 
