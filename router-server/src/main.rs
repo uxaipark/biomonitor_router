@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
                         for id in &dead {
                             st.remove_channel(id);
                         }
-                        st.push_event("registry_prune", None, format!("끊긴 지 15분 넘은 패치 {}개 정리", dead.len()));
+                        st.push_event("registry_prune", None, format!("15분 넘게 레코드 없는 패치 {}개 정리 (퇴원·교체)", dead.len()));
                     }
                 }
             }

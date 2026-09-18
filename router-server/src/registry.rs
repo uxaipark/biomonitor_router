@@ -235,7 +235,9 @@ impl Registry {
         let dead: Vec<String> = self
             .channels
             .iter()
-            .filter(|e| !e.connected && now.saturating_sub(e.last_ts_ms) > max_age_ms)
+            // A discharged / replaced patch stops sending but its gateway socket stays up, so the row still says
+            // connected: judge by the last record instead of the socket.
+            .filter(|e| e.last_ts_ms > 0 && now.saturating_sub(e.last_ts_ms) > max_age_ms)
             .map(|e| e.key().clone())
             .collect();
         for id in &dead {
