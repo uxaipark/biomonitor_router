@@ -357,6 +357,10 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
         }
     }
     b.pending.retain(|k, _| present.contains(k));
+    // last_seen only matters for clear hysteresis of active alarms; drop entries of conditions that vanished
+    // before ever raising, or the map grows with every (kind, subject) pair ever observed.
+    let active_keys: std::collections::HashSet<(String, String)> = b.active.keys().cloned().collect();
+    b.last_seen.retain(|k, _| present.contains(k) || active_keys.contains(k));
     let gone: Vec<(String, String)> = b
         .active
         .keys()
