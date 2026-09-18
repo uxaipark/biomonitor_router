@@ -26,10 +26,13 @@ use crate::wire::{self, CH_ECG};
 pub const ENTRY_HDR_LEN: usize = 24;
 /// Open hour-file handles. Must cover the patch count (2,000–2,500 here) or every 1 s flush reopens most files.
 const MAX_OPEN: usize = 4096;
-const FLUSH_EVERY: Duration = Duration::from_secs(1);
-const INDEX_EVERY: Duration = Duration::from_secs(60);
-/// index.json writes per 1 s flush (2,000 patches → each index lands within ~20 s of coming due).
-const INDEX_PER_FLUSH: usize = 100;
+/// Records are appended once per flush: 2 s halves the write() calls (2,000 patches → 1,000/s) at ~3 KB each,
+/// which the SD card sustains without stalling; the crash-loss window is those 2 s.
+const FLUSH_EVERY: Duration = Duration::from_secs(2);
+/// On-disk index.json is only for restart recovery (the API reads LIVE_INDEX): every 10 min per patch, ≤ 10 per
+/// flush — a write+rename pair costs 20–40 ms on the SD card, so 100 per flush stalled the writer for seconds.
+const INDEX_EVERY: Duration = Duration::from_secs(600);
+const INDEX_PER_FLUSH: usize = 10;
 
 /// Total bytes on disk (rec + rec.gz), maintained incrementally and rescanned every 10 minutes.
 pub static STORE_BYTES: AtomicU64 = AtomicU64::new(0);
