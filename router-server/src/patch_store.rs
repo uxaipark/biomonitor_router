@@ -26,9 +26,10 @@ use crate::wire::{self, CH_ECG};
 pub const ENTRY_HDR_LEN: usize = 24;
 /// Open hour-file handles. Must cover the patch count (2,000–2,500 here) or every 1 s flush reopens most files.
 const MAX_OPEN: usize = 4096;
-/// Records are appended once per flush: 2 s halves the write() calls (2,000 patches → 1,000/s) at ~3 KB each,
-/// which the SD card sustains without stalling; the crash-loss window is those 2 s.
-const FLUSH_EVERY: Duration = Duration::from_secs(2);
+/// Records are appended once per flush. Measured on the SD card: 2,000 separate file appends take 0.3–7 s
+/// (random writes + ext4 journal), so the flush period sets the write() rate: 5 s → 400/s at ~7 KB each.
+/// The crash-loss window is those 5 s (the emulator resends nothing after a router crash anyway).
+const FLUSH_EVERY: Duration = Duration::from_secs(5);
 /// On-disk index.json is only for restart recovery (the API reads LIVE_INDEX): every 10 min per patch, ≤ 10 per
 /// flush — a write+rename pair costs 20–40 ms on the SD card, so 100 per flush stalled the writer for seconds.
 const INDEX_EVERY: Duration = Duration::from_secs(600);
@@ -474,8 +475,8 @@ impl PatchStore {
         pb.buf.clear();
         // A replay burst can grow a patch buffer to hundreds of KB; keep the steady-state capacity small
         // (≈1.5 KB/s per patch) so 2,000+ buffers do not pin tens of MB.
-        if pb.buf.capacity() > 8 * 1024 {
-            pb.buf.shrink_to(4 * 1024);
+        if pb.buf.capacity() > 32 * 1024 {
+            pb.buf.shrink_to(16 * 1024);
         }
     }
 
