@@ -28,6 +28,8 @@ pub const ENTRY_HDR_LEN: usize = 24;
 const MAX_OPEN: usize = 4096;
 const FLUSH_EVERY: Duration = Duration::from_secs(1);
 const INDEX_EVERY: Duration = Duration::from_secs(60);
+/// index.json writes per 1 s flush (2,000 patches → each index lands within ~20 s of coming due).
+const INDEX_PER_FLUSH: usize = 100;
 
 /// Total bytes on disk (rec + rec.gz), maintained incrementally and rescanned every 10 minutes.
 pub static STORE_BYTES: AtomicU64 = AtomicU64::new(0);
@@ -469,8 +471,8 @@ impl PatchStore {
         pb.buf.clear();
         // A replay burst can grow a patch buffer to hundreds of KB; keep the steady-state capacity small
         // (≈1.5 KB/s per patch) so 2,000+ buffers do not pin tens of MB.
-        if pb.buf.capacity() > 32 * 1024 {
-            pb.buf.shrink_to(8 * 1024);
+        if pb.buf.capacity() > 8 * 1024 {
+            pb.buf.shrink_to(4 * 1024);
         }
     }
 
@@ -480,12 +482,16 @@ impl PatchStore {
         let root = self.root.clone();
         let mut open = self.open;
         let now = Instant::now();
+        // index.json writes are spread over flushes (≤ INDEX_PER_FLUSH each): after a restart every patch's index
+        // comes due at the same second, and 2,000 small write+rename pairs stall the writer for seconds on SD.
+        let mut index_writes = 0usize;
         for (pid, pb) in self.patches.iter_mut() {
             Self::write_buf(&root, *pid, pb, &mut open);
             if pb.index_dirty {
                 LIVE_INDEX.insert(*pid, pb.index.clone());
             }
-            if pb.index_dirty && (force || now.duration_since(pb.index_written) >= INDEX_EVERY) {
+            if pb.index_dirty && (force || (index_writes < INDEX_PER_FLUSH && now.duration_since(pb.index_written) >= INDEX_EVERY)) {
+                index_writes += 1;
                 if let Ok(s) = serde_json::to_string(&pb.index) {
                     let dir = patch_dir(&root, *pid);
                     let tmp = dir.join("index.json.tmp");
