@@ -253,3 +253,21 @@ svg.plan { width: 100%; height: 100%; background: var(--panel); border: 1px soli
 .dd-count { color: var(--muted); font-variant-numeric: tabular-nums; }
 .dd-group { padding: 6px 10px 2px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .dd-empty { padding: 8px 10px; color: var(--muted); }
+
+/* viewer picker: category list + group editor */
+.vw-table td.lbl { font-size: 15px; width: 40%; }
+.vw-table td.lbl small { display: block; color: var(--muted); font-size: 12px; }
+.vw-table td.acts { white-space: nowrap; width: 1%; text-align: right; } /* shrink-to-fit: buttons sit at the right edge on every row */
+.vw-table td.acts button { margin: 0 0 0 4px; font-size: 12.5px; padding: 3px 9px; }
+.vw-table td.acts button.tpl-default { border-color: var(--accent); }
+.grp-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px; }
+@media (max-width: 900px) { .grp-cols { grid-template-columns: 1fr; } }
+.grp-col h4 { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
+.grp-list { max-height: 46vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.grp-list .row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.grp-list .row:last-child { border-bottom: 0; }
+.grp-list .row .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grp-list .row .who small { color: var(--muted); margin-left: 6px; }
+.grp-list .row button { padding: 1px 8px; font-size: 12px; }
+.grp-form { display: grid; grid-template-columns: 90px 1fr; gap: 6px 10px; align-items: center; }
+.grp-form input { min-width: 0; width: 100%; }
