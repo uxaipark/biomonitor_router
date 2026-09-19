@@ -66,7 +66,8 @@ def main():
             if time.time() - all_rows[-1]["ts"] > 900:
                 alert("csv", "leakwatch sampler silent for 15 min (is `scripts/leakwatch.py run` alive?)")
             same = [r for r in all_rows if r["pid"] == pid]
-            w30 = [r for r in same if r["ts"] >= all_rows[-1]["ts"] - 1800]
+            # only samples taken after the 15-min startup ramp count towards drift slopes
+            w30 = [r for r in same if r["ts"] >= all_rows[-1]["ts"] - 1800 and r.get("uptime_s", 0) >= 900]
             w10 = [r for r in same if r["ts"] >= all_rows[-1]["ts"] - 600]
             # drift checks only once the router has warmed up: the first ~15 min after a start are a ramp
             # (buffers, index, allocator arenas) and read as a false +20..30 MB/h slope
