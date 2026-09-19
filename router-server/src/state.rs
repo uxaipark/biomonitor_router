@@ -318,6 +318,10 @@ impl AppState {
     /// 샘플은 JSON 에 싣지 않고 i16(×1000, µV) 으로 양자화해 envelope 에 별도 보관 —
     /// WS 세션이 바이너리 stream_batch 프레임의 샘플 블롭으로 내보낸다 (~4× 절감).
     pub fn emit_stream(&self, pkt: EcgPacket, hr: Option<f32>, events: Vec<AnalysisEvent>) {
+        // No WS session: skip the JSON/blob work entirely (10k packets/s otherwise serialised for nobody).
+        if self.out_tx.receiver_count() == 0 {
+            return;
+        }
         let groups = self.registry.groups_of(&pkt.channel_id);
         if groups.is_empty() {
             return;

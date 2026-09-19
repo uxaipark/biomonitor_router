@@ -190,23 +190,20 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
     let rules = state.alarms.rules();
     let mut seen: Vec<Observed> = Vec::new();
 
-    for ch in state.registry.snapshot() {
+    state.registry.for_each(|channel_id, ch| {
         if !ch.connected {
-            continue;
+            return;
         }
-        let (pname, room) = ch
-            .patient
-            .as_ref()
-            .map(|p| (p.name.clone(), if p.room.is_empty() { ch.space.clone() } else { p.room.clone() }))
-            .unwrap_or_else(|| (String::new(), ch.space.clone()));
+        let pname = ch.patient.as_ref().map(|p| p.name.as_str()).unwrap_or("");
+        let room = ch.patient.as_ref().map(|p| if p.room.is_empty() { ch.space.as_str() } else { p.room.as_str() }).unwrap_or(ch.space.as_str());
         let base = |kind: &'static str, sev: Severity, value: String, msg: String, sustain: u64| Observed {
             kind,
             severity: sev,
-            channel_id: ch.channel_id.clone(),
+            channel_id: channel_id.to_string(),
             gateway_id: ch.gateway_id.clone(),
             patient_id: ch.patient_id,
-            patient_name: pname.clone(),
-            room: room.clone(),
+            patient_name: pname.to_string(),
+            room: room.to_string(),
             value,
             message: msg,
             sustain,
@@ -215,7 +212,7 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
         if ch.last_ts_ms > 0 && now.saturating_sub(ch.last_ts_ms) > rules.patch_silent_s * 1000 {
             let s = now.saturating_sub(ch.last_ts_ms) / 1000;
             seen.push(base("patch_silent", Severity::Medium, format!("{s}s"), format!("패치 수신 중단 {s}초"), 0));
-            continue;
+            return;
         }
         let lead_off = ch.flags & crate::wire::R_LEAD_OFF != 0;
         if lead_off {
@@ -230,7 +227,7 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
         // Vitals are only trusted while fresh (< 5 s) and the electrodes are on.
         let fresh = ch.vitals_ts_ms > 0 && now.saturating_sub(ch.vitals_ts_ms) < 5000;
         if !fresh || lead_off {
-            continue;
+            return;
         }
         let v = &ch.vitals;
         if let Some(hr) = v.hr {
@@ -265,9 +262,9 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
                 seen.push(base("resp_high", Severity::High, format!("{r} brpm"), format!("빈호흡 {r} brpm"), rules.sustain_s));
             }
         }
-    }
+    });
 
-    for gw in state.gateways.snapshot() {
+    state.gateways.for_each(|gw| {
         let subject = gw.gw_id.to_string();
         let mk = |kind: &'static str, sev: Severity, value: String, msg: String| Observed {
             kind,
@@ -282,9 +279,8 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
             sustain: 0,
         };
         if !gw.connected {
-            // Only gateways that carried patches matter; an idle row that never had patches is noise.
-            if gw.patches > 0 {
-                seen.push(mk("gateway_down", Severity::High, "disconnected".into(), format!("게이트웨이 {} 연결 끊김 ({}명)", gw.name, gw.patches)));
+            if !gw.patches.is_empty() {
+                seen.push(mk("gateway_down", Severity::High, "disconnected".into(), format!("게이트웨이 {} 연결 끊김 ({}명)", gw.name, gw.patches.len())));
             }
         } else if gw.silent {
             seen.push(mk("gateway_silent", Severity::High, "silent".into(), format!("게이트웨이 {} 무응답 (소켓 유지, 프레임 없음)", gw.name)));
@@ -295,7 +291,7 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
                 seen.push(mk("gateway_degraded", Severity::Low, format!("cpu {}% net {}%", st.cpu, st.net), format!("게이트웨이 {} 성능 저하", gw.name)));
             }
         }
-    }
+    });
 
     let store_dropped = state.dropped_wave.load(Ordering::Relaxed);
     if store_dropped > 0 && now.saturating_sub(state.last_store_drop_ms.load(Ordering::Relaxed)) < 60_000 {

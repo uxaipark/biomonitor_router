@@ -177,6 +177,42 @@ impl Registry {
         lost
     }
 
+    /// Per-record state update without building a stream packet (nobody is listening: no analysis server,
+    /// no WS session). Same effect on the row as `push_packet(_, false)`.
+    pub fn note_record(&self, channel_id: &str, seq: u64, ts_ms: u64, flags: u8, vitals: &Vitals, gateway_id: &str, space: &str) {
+        let mut ch = self.channels.entry(channel_id.to_string()).or_insert_with(ChannelState::new);
+        ch.connected = true;
+        let q = if flags & crate::wire::R_LEAD_OFF != 0 { "leadoff" } else if flags & crate::wire::R_MOTION != 0 { "noisy" } else { "good" };
+        if ch.quality != q {
+            ch.quality = q.to_string();
+        }
+        ch.moving = flags & crate::wire::R_MOTION != 0;
+        if !gateway_id.is_empty() && ch.gateway_id != gateway_id {
+            ch.gateway_id = gateway_id.to_string();
+            ch.space = space.to_string();
+        }
+        ch.last_seq = seq;
+        ch.last_ts_ms = ts_ms;
+        if !vitals.is_empty() {
+            if vitals.hr.is_some() { ch.vitals.hr = vitals.hr; }
+            if vitals.temp.is_some() { ch.vitals.temp = vitals.temp; }
+            if vitals.resp.is_some() { ch.vitals.resp = vitals.resp; }
+            if vitals.spo2.is_some() { ch.vitals.spo2 = vitals.spo2; }
+            if vitals.glucose.is_some() { ch.vitals.glucose = vitals.glucose; }
+            ch.vitals_ts_ms = ts_ms;
+        }
+        if !ch.pending.is_empty() {
+            ch.pending.clear();
+        }
+    }
+
+    /// Visit every row by reference (alarm engine): no per-row clones.
+    pub fn for_each(&self, mut f: impl FnMut(&str, &ChannelState)) {
+        for e in self.channels.iter() {
+            f(e.key(), e.value());
+        }
+    }
+
     /// 분석 결과 seq 에 해당하는 원본 패킷을 꺼낸다.
     /// seq 보다 오래된 항목(응답 유실분)은 함께 폐기해 버퍼 밀림을 방지한다.
     pub fn take_matching(&self, channel_id: &str, seq: u64) -> Option<EcgPacket> {

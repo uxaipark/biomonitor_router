@@ -148,10 +148,48 @@ fn file_writer(root: PathBuf, rx: std::sync::mpsc::Receiver<WriteOp>, gzip_tx: s
     }
 }
 
+/// All records of one frame in a single buffer: `[u32 len][raw]…` — one allocation and one queue op per frame
+/// instead of one per record.
+pub struct StoreBatch {
+    pub ts_ms: u64,
+    pub gw_id: u32,
+    buf: Vec<u8>,
+}
+
+impl StoreBatch {
+    pub fn new(ts_ms: u64, gw_id: u32, n_hint: usize) -> Self {
+        Self { ts_ms, gw_id, buf: Vec::with_capacity(n_hint * 200) }
+    }
+    pub fn push(&mut self, raw: &[u8]) {
+        self.buf.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        self.buf.extend_from_slice(raw);
+    }
+    pub fn is_empty(&self) -> bool {
+        self.buf.is_empty()
+    }
+    pub fn records(&self) -> impl Iterator<Item = &[u8]> {
+        let mut off = 0usize;
+        std::iter::from_fn(move || {
+            if off + 4 > self.buf.len() {
+                return None;
+            }
+            let n = u32::from_le_bytes(self.buf[off..off + 4].try_into().unwrap()) as usize;
+            off += 4;
+            if off + n > self.buf.len() {
+                return None;
+            }
+            let r = &self.buf[off..off + n];
+            off += n;
+            Some(r)
+        })
+    }
+}
+
 /// Work sent to the writer thread.
 pub enum StoreOp {
     /// `raw` = record bytes as received: `[patch_id u32]` + the rest (patient_id, seq, flags, battery, rssi, n_ch, blocks).
     Record { ts_ms: u64, gw_id: u32, raw: Vec<u8> },
+    Batch(StoreBatch),
     Meta { gw_id: u32, json: Vec<u8> },
     /// Flush everything and write every index (shutdown / test).
     Flush,
@@ -481,6 +519,11 @@ impl PatchStore {
     pub fn handle(&mut self, op: StoreOp) {
         match op {
             StoreOp::Record { ts_ms, gw_id, raw } => self.record(ts_ms, gw_id, &raw),
+            StoreOp::Batch(b) => {
+                for raw in b.records() {
+                    self.record(b.ts_ms, b.gw_id, raw);
+                }
+            }
             StoreOp::Meta { gw_id, json } => self.meta(gw_id, &json),
             StoreOp::Flush => self.flush(true),
             StoreOp::Reset => self.reset(),

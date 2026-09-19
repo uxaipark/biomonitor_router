@@ -413,6 +413,11 @@ impl GatewayTable {
         out
     }
 
+    /// Room of a gateway (one String clone per frame instead of name + location).
+    pub fn room_of(&self, gw_id: u32) -> Option<String> {
+        self.gws.get(&gw_id).map(|g| g.location.room.clone())
+    }
+
     pub fn location_of(&self, gw_id: u32) -> Option<(String, GwLocation)> {
         self.gws.get(&gw_id).map(|g| (g.name.clone(), g.location.clone()))
     }
@@ -439,6 +444,13 @@ impl GatewayTable {
 
     pub fn resend_pending(&self) -> usize {
         self.gws.iter().map(|g| g.pending.len()).sum()
+    }
+
+    /// Visit every gateway by reference (alarm engine).
+    pub fn for_each(&self, mut f: impl FnMut(&GwEntry)) {
+        for e in self.gws.iter() {
+            f(e.value());
+        }
     }
 
     pub fn snapshot(&self) -> Vec<GwInfo> {

@@ -7,7 +7,7 @@ use crate::protocol::{AnalysisEvent, EcgPacket, Patient, Vitals, WaveBlock};
 use crate::state::AppState;
 use crate::wire::{self, Item};
 use crate::gateways::SeqVerdict;
-use crate::patch_store::StoreOp;
+use crate::patch_store::{StoreBatch, StoreOp};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -80,7 +80,8 @@ async fn handle_conn(state: Arc<AppState>, stream: TcpStream, peer: std::net::So
 
     let mut dec = wire::Decoder::new();
     let mut items = VecDeque::new();
-    let mut buf = vec![0u8; 64 * 1024];
+    // Frames are 1–2 KB (bundles ≤ ~40 KB); 16 KB keeps 1,800 sockets at ~28 MB instead of 113 MB.
+    let mut buf = vec![0u8; 16 * 1024];
     loop {
         let n = match rd.read(&mut buf).await {
             Ok(0) | Err(_) => break,
@@ -217,11 +218,14 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) ->
     if frame.records.is_empty() {
         return ops;
     }
-    let (_gw_name, loc) = state.gateways.location_of(hdr.gw_id).unwrap_or_default();
-    let space = loc.room.clone();
+    let space = state.gateways.room_of(hdr.gw_id).unwrap_or_default();
+    // Nobody consumes stream packets without an analysis server or a WS session: update the registry row
+    // from the raw record and skip building EcgPacket (samples, blob, JSON) for 10k records/s.
+    let want_stream = state.analysis_up() || state.out_tx.receiver_count() > 0;
+    let mut batch = StoreBatch::new(hdr.ts_ms, hdr.gw_id, frame.records.len());
     for rec in &frame.records {
         state.total_packets.fetch_add(1, Ordering::Relaxed);
-        ops.push(StoreOp::Record { ts_ms: hdr.ts_ms, gw_id: hdr.gw_id, raw: rec.raw.to_vec() });
+        batch.push(rec.raw);
         let channel_id = rec.patch_id.to_string();
         // Per-patch packet counter: a gap here = packets lost anywhere between patch and router.
         // A frame that answers a NACK carries older patch seqs by design: store it, skip the seq check.
@@ -253,6 +257,22 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) ->
                 continue;
             }
             _ => {}
+        }
+        if !want_stream {
+            let mut vit = Vitals::default();
+            for c in &rec.channels {
+                match (c.ch, c.dtype) {
+                    (wire::CH_HR, 2) => vit.hr = c.data.first().copied().filter(|v| *v > 0),
+                    (wire::CH_RESP, 2) => vit.resp = c.data.first().copied().filter(|v| *v > 0),
+                    (wire::CH_SPO2, 2) => vit.spo2 = c.data.first().copied().filter(|v| *v > 0),
+                    (wire::CH_TEMP, 1) => vit.temp = c.data.chunks_exact(2).next().map(|b| i16::from_le_bytes([b[0], b[1]])).filter(|v| *v != 0).map(|v| v as f32 * 0.01),
+                    (wire::CH_GLUCOSE, 3) => vit.glucose = c.data.chunks_exact(2).next().map(|b| u16::from_le_bytes([b[0], b[1]])).filter(|v| *v != 0).map(|v| v as f32 * 0.1),
+                    _ => {}
+                }
+            }
+            state.registry.note_patch(&channel_id, rec.patient_id, rec.flags, rec.battery, rec.rssi);
+            state.registry.note_record(&channel_id, rec.seq as u64, hdr.ts_ms, rec.flags, &vit, &gw_key, &space);
+            continue;
         }
         let bundle_ms = state.registry.bundle_ms_of(&channel_id).unwrap_or(200).max(1) as u32;
         let mut pkt = EcgPacket {
@@ -311,6 +331,9 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) ->
         process_ecg(state, pkt);
     }
     state.gateways.add_records(hdr.gw_id, frame.records.len());
+    if !batch.is_empty() {
+        ops.push(StoreOp::Batch(batch));
+    }
     ops
 }
 
