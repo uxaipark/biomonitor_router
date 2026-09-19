@@ -7,7 +7,7 @@ import { flagNames } from './model.js'
 const WINDOW_S = 6
 const GAP_PX = 16
 const GRID_PX = 40
-const WAVE_H = { normal: 110, compact: 50, dense: 34 }
+const WAVE_H = { normal: 140, compact: 50, dense: 34 }
 const WAVE_W = { normal: 460, compact: 300, dense: 300 }
 
 // Sweep-style ECG canvas (incremental drawing, shared rAF loop, auto-scaling envelope) — ported from the
