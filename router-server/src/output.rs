@@ -44,7 +44,9 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
                 let Ok(cmsg) = serde_json::from_str::<ClientMsg>(text.as_str()) else { continue };
                 match cmsg {
                     ClientMsg::Subscribe { group_id } => {
-                        subs.insert(group_id.clone());
+                        if subs.insert(group_id.clone()) {
+                            *state.sub_groups.entry(group_id.clone()).or_insert(0) += 1;
+                        }
                         // 구독 즉시 현재 멤버 스냅샷 전송 → 초기 화면을 매끄럽게 구성
                         for (channel_id, patient, connected) in state.registry.members_of(&group_id) {
                             let snap = OutMsg::Membership {
@@ -64,21 +66,35 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
                         }
                     }
                     ClientMsg::Unsubscribe { group_id } => {
-                        subs.remove(&group_id);
+                        if subs.remove(&group_id) {
+                            dec(&state.sub_groups, &group_id);
+                        }
                     }
                     // 게이트웨이 단위 구독 (Patch Map 파형 모달)
                     ClientMsg::SubscribeGateway { gateway_id } => {
-                        gw_subs.insert(gateway_id);
+                        if gw_subs.insert(gateway_id.clone()) {
+                            *state.sub_gateways.entry(gateway_id).or_insert(0) += 1;
+                        }
                     }
                     ClientMsg::UnsubscribeGateway { gateway_id } => {
-                        gw_subs.remove(&gateway_id);
+                        if gw_subs.remove(&gateway_id) {
+                            dec(&state.sub_gateways, &gateway_id);
+                        }
                     }
                     // 채널 목록 단위 구독 (주치의/간호사 코호트 파형 모달)
                     ClientMsg::SubscribeChannels { channel_ids } => {
+                        for c in ch_subs.drain() {
+                            dec(&state.sub_channels, &c);
+                        }
                         ch_subs = channel_ids.into_iter().collect();
+                        for c in &ch_subs {
+                            *state.sub_channels.entry(c.clone()).or_insert(0) += 1;
+                        }
                     }
                     ClientMsg::UnsubscribeChannels {} => {
-                        ch_subs.clear();
+                        for c in ch_subs.drain() {
+                            dec(&state.sub_channels, &c);
+                        }
                     }
                 }
             }
@@ -126,6 +142,26 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
                     break;
                 }
             }
+        }
+    }
+    for g in subs {
+        dec(&state.sub_groups, &g);
+    }
+    for g in gw_subs {
+        dec(&state.sub_gateways, &g);
+    }
+    for c in ch_subs {
+        dec(&state.sub_channels, &c);
+    }
+}
+
+fn dec(map: &dashmap::DashMap<String, usize>, key: &str) {
+    if let Some(mut n) = map.get_mut(key) {
+        if *n <= 1 {
+            drop(n);
+            map.remove(key);
+        } else {
+            *n -= 1;
         }
     }
 }

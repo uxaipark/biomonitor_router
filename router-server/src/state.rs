@@ -87,6 +87,11 @@ pub struct AppState {
     pub alarms: AlarmBook,
     /// 마지막 저장 큐 드롭 시각 (ms) — 알람 엔진의 백프레셔 판정
     pub last_store_drop_ms: AtomicU64,
+    /// Live WS subscription refcounts (channel ids / group ids / gateway ids): emit_stream serialises a packet
+    /// only when someone could receive it.
+    pub sub_channels: dashmap::DashMap<String, usize>,
+    pub sub_groups: dashmap::DashMap<String, usize>,
+    pub sub_gateways: dashmap::DashMap<String, usize>,
     /// 에뮬레이터 EMR 프록시 캐시: path → (만료 시각 ms, 본문)
     pub emr_cache: Mutex<std::collections::HashMap<String, (u64, Arc<String>)>>,
 }
@@ -141,6 +146,9 @@ impl AppState {
             displays: Mutex::new(displays),
             ingest_allow: Mutex::new(None),
             ingest_sources: Mutex::new(std::collections::HashMap::new()),
+            sub_channels: dashmap::DashMap::new(),
+            sub_groups: dashmap::DashMap::new(),
+            sub_gateways: dashmap::DashMap::new(),
             alarms: AlarmBook::new(),
             last_store_drop_ms: AtomicU64::new(0),
             emr_cache: Mutex::new(std::collections::HashMap::new()),
@@ -320,6 +328,13 @@ impl AppState {
     pub fn emit_stream(&self, pkt: EcgPacket, hr: Option<f32>, events: Vec<AnalysisEvent>) {
         // No WS session: skip the JSON/blob work entirely (10k packets/s otherwise serialised for nobody).
         if self.out_tx.receiver_count() == 0 {
+            return;
+        }
+        // Serialise only what some session subscribed to (by channel, gateway or group).
+        let wanted = self.sub_channels.contains_key(&pkt.channel_id)
+            || (!pkt.gateway_id.is_empty() && self.sub_gateways.contains_key(&pkt.gateway_id))
+            || (!self.sub_groups.is_empty() && self.registry.groups_of(&pkt.channel_id).iter().any(|g| self.sub_groups.contains_key(g)));
+        if !wanted {
             return;
         }
         let groups = self.registry.groups_of(&pkt.channel_id);

@@ -58,6 +58,7 @@ struct Conn {
     id: u64,
     addr: String,
     tx: mpsc::Sender<Vec<u8>>,
+    last_verdict: std::cell::Cell<SeqVerdict>,
     /// (gw_id, gw_id as string, room, refreshed) — one socket carries one gateway, so the per-frame
     /// `gw_id.to_string()` and room lookup are cached and refreshed every 2 s.
     cache: std::cell::RefCell<(u32, String, String, std::time::Instant)>,
@@ -76,7 +77,7 @@ async fn handle_conn(state: Arc<AppState>, stream: TcpStream, peer: std::net::So
             }
         }
     });
-    let conn = Conn { id: CONN_SEQ.fetch_add(1, Ordering::Relaxed), addr: peer.to_string(), tx, cache: std::cell::RefCell::new((u32::MAX, String::new(), String::new(), std::time::Instant::now())) };
+    let conn = Conn { id: CONN_SEQ.fetch_add(1, Ordering::Relaxed), addr: peer.to_string(), tx, last_verdict: std::cell::Cell::new(SeqVerdict::Ok), cache: std::cell::RefCell::new((u32::MAX, String::new(), String::new(), std::time::Instant::now())) };
     let peer_ip = peer.ip();
     state.ingest_conns.fetch_add(1, Ordering::Relaxed);
     *state.ingest_sources.lock().unwrap().entry(peer_ip).or_insert(0) += 1;
@@ -196,6 +197,7 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) ->
         return ops;
     }
     let (verdict, link_changed) = state.gateways.on_frame(conn.id, &conn.addr, &conn.tx, hdr);
+    conn.last_verdict.set(verdict);
     if link_changed {
         state.push_event("link", None, format!("gw {} connected ({})", hdr.gw_id, conn.addr));
     }
@@ -213,6 +215,12 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) ->
         (c.1.clone(), c.2.clone())
     };
     if let Some(json) = frame.meta_json {
+        // `{"v": <n>, ...}` leads every META: a matching version skips the full parse.
+        if let Some(v) = leading_v(json) {
+            if state.gateways.meta_unchanged(hdr.gw_id, v) {
+                return finish_records(state, conn, frame, ops, gw_key, space);
+            }
+        }
         match serde_json::from_slice::<serde_json::Value>(json) {
             Ok(meta) => {
                 let changed = state.gateways.on_meta(hdr.gw_id, &meta);
@@ -224,6 +232,20 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) ->
             Err(_) => wire_inc(&state.gateways.totals.meta_bad_json),
         }
     }
+    finish_records(state, conn, frame, ops, gw_key, space)
+}
+
+/// `{"v": 123, ...` → Some(123). Tolerates whitespace; anything else → None (full parse decides).
+fn leading_v(json: &[u8]) -> Option<u64> {
+    let s = std::str::from_utf8(json.get(..40)?).ok()?;
+    let rest = s.trim_start().strip_prefix('{')?.trim_start().strip_prefix("\"v\"")?.trim_start().strip_prefix(':')?.trim_start();
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() { None } else { digits.parse().ok() }
+}
+
+fn finish_records(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>, mut ops: Vec<StoreOp>, gw_key: String, space: String) -> Vec<StoreOp> {
+    let hdr = &frame.hdr;
+    let verdict = conn.last_verdict.get();
     if frame.records.is_empty() {
         return ops;
     }

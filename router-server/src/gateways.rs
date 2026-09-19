@@ -361,6 +361,19 @@ impl GatewayTable {
         }
     }
 
+    /// Cheap check before parsing a META block: the emulator re-announces the same `v` every 25 frames per
+    /// gateway (~180 JSON blocks/s of 5–20 KB); when `v` is unchanged only the timestamp needs touching.
+    pub fn meta_unchanged(&self, gw_id: u32, v: u64) -> bool {
+        match self.gws.get_mut(&gw_id) {
+            Some(mut g) if g.meta_v == Some(v) => {
+                g.meta_at = Some(Instant::now());
+                inc!(self.totals, meta);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Store the META summary. Returns true when the block differs from the last one seen (by its `v` stamp).
     pub fn on_meta(&self, gw_id: u32, meta: &serde_json::Value) -> bool {
         inc!(self.totals, meta);
