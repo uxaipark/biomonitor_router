@@ -11,6 +11,7 @@ import { latest } from '../ws.js'
  * into view; data is fetched on demand in 5-minute chunks (binary, ~230 KB each for ECG+accel) and cached.
  */
 const CHUNK_MS = 5 * 60 * 1000
+const DEFAULT_KEYS = new Set(['ecg', 'accel'])
 const SPANS = [10, 30, 60, 120]
 const TRACES = [
   { key: 'ecg', label: 'ECG', range: [-1.5, 2.0], color: '#3ddc84' },
@@ -276,7 +277,9 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
 }
 
 export default function HistoryPanel({ id, theme, onClose, compact }) {
-  const th = { bg: '#000', grid: 'rgba(243,242,242,.10)', paceLine: ['#ffe34d', '#ffffff', '#ff9783'], ...(theme || {}) }
+  // stable object: a fresh theme object per render restarted the live strip's effect on every render, which
+  // re-issued the chunk fetch each time (the flickering '불러오는 중…')
+  const th = useMemo(() => ({ bg: '#000', grid: 'rgba(243,242,242,.10)', paceLine: ['#ffe34d', '#ffffff', '#ff9783'], ...(theme || {}) }), [theme])
   const [info, setInfo] = useState(null) // { index, files }
   const [chunks, setChunks] = useState(new Map()) // chunk index → decoded header (with segments); null = in flight
   const [loading, setLoading] = useState(0)
@@ -314,7 +317,8 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   const onVisible = useMemo(() => (t0) => { for (let c = Math.floor(t0 / CHUNK_MS); c <= Math.floor((t0 + spanMs - 1) / CHUNK_MS); c++) ensureChunk(c) }, [spanMs, id]) // eslint-disable-line react-hooks/exhaustive-deps
   const loaded = useMemo(() => [...chunks.values()].filter(Boolean), [chunks])
   const pace = useMemo(() => loaded.flatMap((h) => h.pace).map(([t, m]) => [t, (m >> 14) & 3]), [loaded])
-  const keys = useMemo(() => new Set(loaded.flatMap((h) => h.segments.map((s) => s.key))), [loaded])
+  const keysKey = [...new Set(loaded.flatMap((h) => h.segments.map((s) => s.key)))].sort().join(',')
+  const keys = useMemo(() => new Set(keysKey ? keysKey.split(',') : []), [keysKey]) // identity changes only when the channel set does
   const hours = info?.files || []
   const ix = info?.index
   // hour file keys are UTC (router hour_key); show them in local time
@@ -350,7 +354,7 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
       </div>
       <div className="hx-hours">{hours.map((f) => <button key={f.hour} className={f.hour === hour ? 'on' : ''} title={`${localHour(f.hour).day} ${localHour(f.hour).hh}시 · ${(f.bytes / 2 ** 20).toFixed(1)} MB`} onClick={() => setHour(f.hour)}>{localHour(f.hour).hh}시</button>)}</div>
       <div className="hx-list" style={{ '--hx-ecg': `${height}px`, '--hx-thin': `${Math.max(20, Math.round(height * 0.28))}px` }}>
-        <LiveWindow id={id} spanMs={spanMs} theme={th} keys={keys.size ? keys : new Set(['ecg', 'accel'])} onRollover={onRollover} loaded={loaded} onWindow={onWindow} />
+        <LiveWindow id={id} spanMs={spanMs} theme={th} keys={keys.size ? keys : DEFAULT_KEYS} onRollover={onRollover} loaded={loaded} onWindow={onWindow} />
         {windows.map((t0) => <Window key={t0} t0={t0} spanMs={spanMs} loaded={loaded} pace={pace} theme={th} onVisible={onVisible} keys={keys} />)}
         {!windows.length && <div className="ds-dim">이 시간에 저장된 구간이 없습니다.</div>}
       </div>
