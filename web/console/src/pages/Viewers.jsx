@@ -73,7 +73,7 @@ export default function Viewers({ alarms }) {
     }
     for (const r of live) {
       const p = r.patient || {}
-      if (kind === 'ward') add(p.ward, r, p.ward, [p.building, p.floor && `${p.floor}F`].filter(Boolean).join(' '))
+      if (kind === 'ward') { add(p.ward, r, p.ward, ''); const e = m.get(p.ward); if (e) { e.building = e.building || p.building || ''; e.floor = e.floor || p.floor || '' } }
       else if (kind === 'room') add(p.room || r.space, r, p.room || r.space, p.ward && `병동 ${p.ward}`)
       else if (kind === 'doctor') add(p.doctor, r, staffLabel(p.doctor), staffSub(p.doctor))
       else if (kind === 'nurse') add(p.nurse, r, staffLabel(p.nurse), staffSub(p.nurse))
@@ -89,7 +89,7 @@ export default function Viewers({ alarms }) {
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase()
     const v = needle ? entries.filter((e) => [e.key, e.label, e.sub].some((x) => String(x || '').toLowerCase().includes(needle))) : entries
-    const key = sort[0] === 'gws' ? (e) => e.gws.size : sort[0] === 'cond' ? (e) => describeGroup(e.group) : sort[0] === 'label' && kind === 'gw' ? (e) => Number(e.key) : sort[0]
+    const key = sort[0] === 'gws' ? (e) => e.gws.size : sort[0] === 'cond' ? (e) => describeGroup(e.group) : sort[0] === 'floor' ? (e) => Number(e.floor) || 0 : sort[0] === 'label' && kind === 'gw' ? (e) => Number(e.key) : sort[0]
     const sorted = sortBy(v, key, sort[1])
     // the catch-all group stays on top whatever the order
     if (kind === 'group') return [...sorted.filter((e) => e.key === 'all'), ...sorted.filter((e) => e.key !== 'all')]
@@ -132,12 +132,14 @@ export default function Viewers({ alarms }) {
       </div>
       <p className="muted">{kindLabel}별 목록입니다. 행을 누르면 선택한 템플릿의 뷰어가 새 탭에서 전체 화면으로 열리고, 행의 버튼으로 다른 템플릿을 고를 수도 있습니다. 전체 연결 환자 {live.length.toLocaleString()}명.</p>
       <table className="tbl vw-table">
-        <thead><tr><th className="w-idx">#</th>{th('label', kindLabel)}{kind === 'group' && th('cond', '조건')}{th('count', '환자', 'num w-n')}{th('alarms', '알람', 'num w-n')}{kind !== 'gw' && kind !== 'group' && th('gws', 'GW', 'num w-n')}<th>뷰어</th>{kind === 'group' && <th></th>}</tr></thead>
+        <thead><tr><th className="w-idx">#</th>{th('label', kindLabel)}{kind === 'ward' && th('building', '건물')}{kind === 'ward' && th('floor', '층', 'num w-n')}{kind === 'group' && th('cond', '조건')}{th('count', '환자', 'num w-n')}{th('alarms', '알람', 'num w-n')}{kind !== 'gw' && kind !== 'group' && th('gws', 'GW', 'num w-n')}<th>뷰어</th>{kind === 'group' && <th></th>}</tr></thead>
         <tbody>
           {shown.map((e, i) => (
             <tr key={e.key} className={'clickable' + (e.alarms ? ' sev-high' : '')} onClick={() => open(e)}>
               <td className="num muted w-idx">{i + 1}</td>
               <td className="lbl"><b>{e.label}</b>{e.sub && <small>{e.sub}</small>}</td>
+              {kind === 'ward' && <td>{e.building || <span className="muted">—</span>}</td>}
+              {kind === 'ward' && <td className="num w-n">{e.floor ? `${e.floor}F` : <span className="muted">—</span>}</td>}
               {kind === 'group' && <td className="muted cond">{describeGroup(e.group)}</td>}
               <td className="num w-n">{e.count.toLocaleString()}</td>
               <td className="num w-n">{e.alarms ? <span className="tag sev-high small">{e.alarms}</span> : <span className="muted">0</span>}</td>
