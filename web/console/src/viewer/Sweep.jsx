@@ -72,10 +72,13 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
         const off = m & 0x3fff, ch = (m >> 14) & 3
         const t = t0 + off * step
         if (t < tFirst) continue
+        // bedside-monitor style: a short tick at the top edge (chamber colour), not a full-height line
         const x = Math.round(xOf(t)) + 0.5
-        ctx.save(); ctx.strokeStyle = th.paceLine[ch] || th.paceLine[1]; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3])
-        ctx.beginPath(); ctx.moveTo(x, 2); ctx.lineTo(x, H - 2); ctx.stroke(); ctx.restore()
-        ctx.fillStyle = th.paceLine[ch] || th.paceLine[1]; ctx.fillRect(x - 1, 2, 3, 8)
+        const c = th.paceLine[ch] || th.paceLine[1]
+        ctx.save(); ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 1.5
+        ctx.beginPath(); ctx.moveTo(x, 1); ctx.lineTo(x, 9); ctx.stroke()
+        ctx.beginPath(); ctx.moveTo(x - 3, 9); ctx.lineTo(x + 3, 9); ctx.lineTo(x, 13); ctx.closePath(); ctx.fill()
+        ctx.restore()
       }
       paceDrawn = l.paceSeq
     }
