@@ -158,7 +158,9 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   const keys = useMemo(() => new Set(loaded.flatMap((h) => h.segments.map((s) => s.key))), [loaded])
   const hours = info?.files || []
   const ix = info?.index
-  const hourStart = (key) => new Date(+key.slice(0, 4), +key.slice(4, 6) - 1, +key.slice(6, 8), +key.slice(9, 11)).getTime()
+  // hour file keys are UTC (router hour_key); show them in local time
+  const hourStart = (key) => Date.UTC(+key.slice(0, 4), +key.slice(4, 6) - 1, +key.slice(6, 8), +key.slice(9, 11))
+  const localHour = (key) => { const d = new Date(hourStart(key)); return { day: d.toLocaleDateString('ko-KR'), hh: String(d.getHours()).padStart(2, '0') } }
   // windows of the selected hour, newest first, clipped to the stored range
   const windows = useMemo(() => {
     if (!hour || !ix) return []
@@ -173,13 +175,13 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   return (
     <div className={'hx' + (compact ? ' compact' : '')}>
       <div className="hx-bar">
-        <span className="hx-when"><b>{hour ? `${hour.slice(0, 4)}-${hour.slice(4, 6)}-${hour.slice(6, 8)} ${hour.slice(9)}시` : ''}</b><span className="ds-dim"> · {windows.length}개 구간</span></span>
+        <span className="hx-when"><b>{hour ? `${localHour(hour).day} ${localHour(hour).hh}시` : ''}</b><span className="ds-dim"> · {windows.length}개 구간</span></span>
         <span className="hx-seg">{SPANS.map((s) => <button key={s} className={span === s ? 'on' : ''} onClick={() => setSpan(s)}>{s}s</button>)}</span>
         <span className="ds-dim">{loading ? '불러오는 중…' : `${(ix.records || 0).toLocaleString()} 레코드 · ${hours.length}개 시간 파일`}</span>
         <span className="spacer" />
         <button className="btn btn-secondary" onClick={onClose}>실시간으로</button>
       </div>
-      <div className="hx-hours">{hours.map((f) => <button key={f.hour} className={f.hour === hour ? 'on' : ''} title={`${f.hour.slice(0, 8)} ${f.hour.slice(9)}시 · ${(f.bytes / 2 ** 20).toFixed(1)} MB`} onClick={() => setHour(f.hour)}>{f.hour.slice(9)}시</button>)}</div>
+      <div className="hx-hours">{hours.map((f) => <button key={f.hour} className={f.hour === hour ? 'on' : ''} title={`${localHour(f.hour).day} ${localHour(f.hour).hh}시 · ${(f.bytes / 2 ** 20).toFixed(1)} MB`} onClick={() => setHour(f.hour)}>{localHour(f.hour).hh}시</button>)}</div>
       <div className="hx-list">
         {windows.map((t0) => <Window key={t0} t0={t0} spanMs={spanMs} loaded={loaded} pace={pace} theme={th} onVisible={onVisible} keys={keys} />)}
         {!windows.length && <div className="ds-dim">이 시간에 저장된 구간이 없습니다.</div>}
