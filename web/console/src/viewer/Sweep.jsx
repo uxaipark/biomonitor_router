@@ -63,7 +63,9 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
     const io = new IntersectionObserver((es) => { visible = es[es.length - 1].isIntersecting }, { rootMargin: '100px' })
     io.observe(canvas)
 
-    const yOf = (v) => H - 4 - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (H - 8)
+    // vertical margin: 12 % of the strip top and bottom (min 8 px) so full-range waves do not touch the edges
+    const vm = () => Math.max(8, H * 0.12)
+    const yOf = (v) => H - vm() - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (H - 2 * vm())
     const xOf = (t) => ((((t % windowMs) + windowMs) % windowMs) / windowMs) * W
     const gapPx = () => Math.max(10, W * GAP_FRAC)
     const strokeNow = () => { const l = latest.get(id); return l && (l.disconnected || Date.now() - l.rx > 5000) ? th.stale : color }
