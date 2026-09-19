@@ -414,6 +414,7 @@ fn apply_meta_patches(state: &Arc<AppState>, gw_id: u32, meta: &serde_json::Valu
             room: loc.room.clone(),
             doctor: prev.as_ref().map(|q| q.doctor.clone()).unwrap_or_default(),
             department: prev.as_ref().map(|q| q.department.clone()).unwrap_or_default(),
+            diagnosis: prev.as_ref().map(|q| q.diagnosis.clone()).unwrap_or_default(),
             nurse: prev.as_ref().map(|q| q.nurse.clone()).unwrap_or_default(),
             profile_no: profile_id,
             sex: prev.as_ref().map(|q| q.sex.clone()).unwrap_or_default(),

@@ -11,7 +11,9 @@ pub struct Config {
     pub db_addr: String,
     /// 출력 WS + 어드민 REST API 주소
     pub http_addr: String,
-    /// 그룹 설정 영속화 파일
+    /// 라우터 로컬 DB (SQLite): 그룹 정의 등 설정 영속화
+    pub db_path: String,
+    /// 예전 그룹 설정 JSON — DB 가 비어 있을 때 1회 가져오기 원본
     pub groups_path: String,
     /// 디스플레이(센트럴 모니터) → 그룹 매핑 영속화 파일
     pub displays_path: String,
@@ -42,6 +44,7 @@ impl Config {
             analysis_addr: get("ROUTER_ANALYSIS_ADDR", "127.0.0.1:7100"),
             db_addr: get("ROUTER_DB_ADDR", "127.0.0.1:7601"),
             http_addr: get("ROUTER_HTTP_ADDR", "0.0.0.0:7300"),
+            db_path: get("ROUTER_DB_PATH", "router.db"),
             groups_path: get("ROUTER_GROUPS_PATH", "groups.json"),
             displays_path: get("ROUTER_DISPLAYS_PATH", "displays.json"),
             ring_capacity: get("ROUTER_RING_CAPACITY", "512").parse().unwrap_or(512),

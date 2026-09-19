@@ -1,8 +1,8 @@
 use crate::protocol::Patient;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
+use tracing::{info, warn};
 
 /// 그룹 정의.
 /// - criteria: 속성 조건 (키: building/floor/ward/zone/room/doctor/department/nurse,
@@ -25,6 +25,11 @@ pub struct GroupConfig {
     pub include: Vec<String>,
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// DB 기록 시각 (ms) — 어드민 표시용, 클라이언트가 보내는 값은 무시
+    #[serde(default)]
+    pub created_ms: u64,
+    #[serde(default)]
+    pub updated_ms: u64,
 }
 
 fn patient_attr<'a>(p: &'a Patient, key: &str) -> Option<&'a str> {
@@ -37,6 +42,7 @@ fn patient_attr<'a>(p: &'a Patient, key: &str) -> Option<&'a str> {
         "doctor" => &p.doctor,
         "department" => &p.department,
         "nurse" => &p.nurse,
+        "diagnosis" => &p.diagnosis,
         _ => return None,
     })
 }
@@ -62,79 +68,130 @@ impl GroupConfig {
     }
 }
 
-/// 그룹 저장소. groups.json 으로 영속화한다.
+/// 그룹 저장소. 라우터 로컬 SQLite(`ROUTER_DB_PATH`, 표 `groups`)에 영속화하고 메모리 사본으로 조회한다.
+/// DB 가 비어 있으면 예전 `groups.json` 을 1회 가져오고, 그것도 없으면 기본 그룹을 만든다.
 pub struct GroupStore {
     groups: RwLock<HashMap<String, GroupConfig>>,
-    path: PathBuf,
+    db: Mutex<rusqlite::Connection>,
 }
 
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS groups (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    owner TEXT NOT NULL DEFAULT '',
+    criteria TEXT NOT NULL DEFAULT '{}',
+    include TEXT NOT NULL DEFAULT '[]',
+    exclude TEXT NOT NULL DEFAULT '[]',
+    created_ms INTEGER NOT NULL DEFAULT 0,
+    updated_ms INTEGER NOT NULL DEFAULT 0
+)";
+
 impl GroupStore {
-    pub fn load(path: &str) -> Self {
-        let path = PathBuf::from(path);
-        let groups = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<Vec<GroupConfig>>(&s).ok())
-            .map(|v| v.into_iter().map(|g| (g.id.clone(), g)).collect())
-            .unwrap_or_else(|| {
-                let defaults = Self::default_groups();
-                defaults.into_iter().map(|g| (g.id.clone(), g)).collect()
-            });
-        let store = Self {
-            groups: RwLock::new(groups),
-            path,
+    pub fn load(db_path: &str, legacy_json: &str) -> Self {
+        let db = match rusqlite::Connection::open(db_path) {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("group db {} open failed ({}); using in-memory db", db_path, e);
+                rusqlite::Connection::open_in_memory().expect("in-memory sqlite")
+            }
         };
-        store.save();
-        store
+        let _ = db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+        if let Err(e) = db.execute_batch(SCHEMA) {
+            warn!("group db schema: {}", e);
+        }
+        let mut groups = Self::read_all(&db);
+        if groups.is_empty() {
+            let seed: Vec<GroupConfig> = std::fs::read_to_string(legacy_json)
+                .ok()
+                .and_then(|s| serde_json::from_str::<Vec<GroupConfig>>(&s).ok())
+                .filter(|v| !v.is_empty())
+                .map(|v| {
+                    info!("group db empty: importing {} groups from {}", v.len(), legacy_json);
+                    v
+                })
+                .unwrap_or_else(Self::default_groups);
+            for mut g in seed {
+                let t = now_ms();
+                g.created_ms = if g.created_ms == 0 { t } else { g.created_ms };
+                g.updated_ms = t;
+                Self::write(&db, &g);
+                groups.insert(g.id.clone(), g);
+            }
+        }
+        info!("group db {}: {} groups", db_path, groups.len());
+        Self { groups: RwLock::new(groups), db: Mutex::new(db) }
+    }
+
+    fn read_all(db: &rusqlite::Connection) -> HashMap<String, GroupConfig> {
+        let mut out = HashMap::new();
+        let Ok(mut st) = db.prepare("SELECT id,name,description,owner,criteria,include,exclude,created_ms,updated_ms FROM groups") else { return out };
+        let rows = st.query_map([], |r| {
+            Ok(GroupConfig {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                description: r.get(2)?,
+                owner: r.get(3)?,
+                criteria: serde_json::from_str(&r.get::<_, String>(4)?).unwrap_or_default(),
+                include: serde_json::from_str(&r.get::<_, String>(5)?).unwrap_or_default(),
+                exclude: serde_json::from_str(&r.get::<_, String>(6)?).unwrap_or_default(),
+                created_ms: r.get::<_, i64>(7)? as u64,
+                updated_ms: r.get::<_, i64>(8)? as u64,
+            })
+        });
+        if let Ok(rows) = rows {
+            for g in rows.flatten() {
+                out.insert(g.id.clone(), g);
+            }
+        }
+        out
+    }
+
+    fn write(db: &rusqlite::Connection, g: &GroupConfig) {
+        let r = db.execute(
+            "INSERT INTO groups (id,name,description,owner,criteria,include,exclude,created_ms,updated_ms)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+             ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description, owner=excluded.owner,
+               criteria=excluded.criteria, include=excluded.include, exclude=excluded.exclude, updated_ms=excluded.updated_ms",
+            rusqlite::params![
+                g.id, g.name, g.description, g.owner,
+                serde_json::to_string(&g.criteria).unwrap_or_else(|_| "{}".into()),
+                serde_json::to_string(&g.include).unwrap_or_else(|_| "[]".into()),
+                serde_json::to_string(&g.exclude).unwrap_or_else(|_| "[]".into()),
+                g.created_ms as i64, g.updated_ms as i64,
+            ],
+        );
+        if let Err(e) = r {
+            warn!("group db write {}: {}", g.id, e);
+        }
     }
 
     fn default_groups() -> Vec<GroupConfig> {
-        let mut v = vec![GroupConfig {
-            id: "all".into(),
-            name: "전체 채널".into(),
-            description: "라우터에 접속된 모든 채널 (기본 그룹)".into(),
-            owner: "system".into(),
-            criteria: HashMap::new(),
-            include: vec![],
-            exclude: vec![],
-        }];
-        for ward in ["W1", "W2", "W3"] {
-            let mut criteria = HashMap::new();
-            criteria.insert("ward".to_string(), vec![ward.to_string()]);
-            v.push(GroupConfig {
-                id: format!("ward-{}", ward.to_lowercase()),
-                name: format!("병동 {}", ward),
-                description: format!("{} 병동 재원 환자", ward),
-                owner: "system".into(),
-                criteria,
-                include: vec![],
-                exclude: vec![],
-            });
-        }
-        let mut criteria = HashMap::new();
-        criteria.insert("department".to_string(), vec!["Cardiology".to_string()]);
-        v.push(GroupConfig {
-            id: "dept-cardiology".into(),
-            name: "순환기내과".into(),
-            description: "순환기내과 소속 환자".into(),
+        let mk = |id: &str, name: &str, desc: &str, criteria: HashMap<String, Vec<String>>| GroupConfig {
+            id: id.into(),
+            name: name.into(),
+            description: desc.into(),
             owner: "system".into(),
             criteria,
             include: vec![],
             exclude: vec![],
-        });
-        v
-    }
-
-    pub fn save(&self) {
-        let list = self.list();
-        if let Ok(json) = serde_json::to_string_pretty(&list) {
-            let _ = std::fs::write(&self.path, json);
-        }
+            created_ms: 0,
+            updated_ms: 0,
+        };
+        vec![mk("all", "전체 채널", "라우터에 접속된 모든 채널 (기본 그룹)", HashMap::new())]
     }
 
     pub fn list(&self) -> Vec<GroupConfig> {
         let mut v: Vec<GroupConfig> = self.groups.read().unwrap().values().cloned().collect();
         // 기본 그룹 "all"(전체 채널)은 항상 맨 위에 고정
-        v.sort_by_key(|g| (g.id != "all", g.id.clone()));
+        v.sort_by_key(|g| (g.id != "all", g.name.clone(), g.id.clone()));
         v
     }
 
@@ -142,15 +199,20 @@ impl GroupStore {
         self.groups.read().unwrap().get(id).cloned()
     }
 
-    pub fn upsert(&self, cfg: GroupConfig) {
+    pub fn upsert(&self, mut cfg: GroupConfig) {
+        let t = now_ms();
+        cfg.created_ms = self.get(&cfg.id).map(|g| g.created_ms).filter(|c| *c > 0).unwrap_or(t);
+        cfg.updated_ms = t;
+        Self::write(&self.db.lock().unwrap(), &cfg);
         self.groups.write().unwrap().insert(cfg.id.clone(), cfg);
-        self.save();
     }
 
     pub fn remove(&self, id: &str) -> bool {
         let removed = self.groups.write().unwrap().remove(id).is_some();
         if removed {
-            self.save();
+            if let Err(e) = self.db.lock().unwrap().execute("DELETE FROM groups WHERE id=?1", [id]) {
+                warn!("group db delete {}: {}", id, e);
+            }
         }
         removed
     }

@@ -127,7 +127,7 @@ impl AppState {
             .unwrap_or_default();
         let state = Arc::new(Self {
             registry: Registry::new(cfg.ring_capacity),
-            groups: GroupStore::load(&cfg.groups_path),
+            groups: GroupStore::load(&cfg.db_path, &cfg.groups_path),
             cfg,
             out_tx,
             analysis_tx,

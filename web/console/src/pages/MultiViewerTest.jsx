@@ -73,7 +73,7 @@ export default function MultiViewerTest() {
         <span className="muted">열림 {openCount} · 차단 {log.blocked}</span>
       </div>
       {log.blocked > 0 && <p className="err">팝업 {log.blocked}개가 브라우저에 막혔습니다. 주소창 오른쪽의 팝업 차단 아이콘에서 이 사이트의 팝업을 항상 허용한 뒤 다시 누르거나, "다음 병동 열기"로 한 번에 하나씩 여세요.</p>}
-      <table className="tbl dense">
+      <table className="tbl dense mv-table">
         <thead><tr><th>#</th><th>병동</th><th>게이트웨이</th><th>환자</th><th>탭</th><th></th></tr></thead>
         <tbody>
           {wards.map(({ ward, count, names, gws }, i) => {
@@ -81,10 +81,10 @@ export default function MultiViewerTest() {
             const open = win && !win.closed
             return (
               <tr key={ward} className={open ? '' : 'stale'}>
-                <td className="num muted">{i + 1}</td><td><b>{ward}</b></td><td className="names mono"><b>{gws.length}대</b><div className="list">{gws.join(' ')}</div></td>
+                <td className="num muted idx">{i + 1}</td><td className="ward"><b>{ward}</b></td><td className="names mono"><b>{gws.length}대</b><div className="list">{gws.join(' ')}</div></td>
                 <td className="names"><b>{count}명</b><div className="list">{names.join(', ')}</div></td>
-                <td>{open ? <span className="tag ok small">열림</span> : <span className="tag small">닫힘</span>}</td>
-                <td>{open ? <button className="icon" onClick={() => { win.focus() }}>보기</button> : <a href={urlOf(ward)} target={`viewer-${ward}`} rel="noopener" onClick={(e) => { e.preventDefault(); openOne(ward); tick((x) => x + 1) }}>열기</a>}</td>
+                <td className="tab">{open ? <span className="tag ok">열림</span> : <span className="tag">닫힘</span>}</td>
+                <td className="act">{open ? <button onClick={() => { win.focus() }}>보기</button> : <a href={urlOf(ward)} target={`viewer-${ward}`} rel="noopener" onClick={(e) => { e.preventDefault(); openOne(ward); tick((x) => x + 1) }}>열기</a>}</td>
               </tr>
             )
           })}

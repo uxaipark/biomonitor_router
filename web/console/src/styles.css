@@ -52,6 +52,12 @@ main { flex: 1; overflow: auto; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .seg.wrap { flex-wrap: wrap; }
 .toolbar .gap-l { margin-left: 10px; }
+.mv-table td.idx { font-size: 18px; font-weight: 600; }
+.mv-table td.ward { font-size: 16px; }
+.mv-table td.tab .tag { font-size: 14px; padding: 3px 10px; }
+.mv-table td.act a { font-size: 15px; font-weight: 600; }
+.mv-table td.act button { font-size: 14px; }
+.mv-table td { vertical-align: top; }
 .tbl td.names { white-space: normal; font-size: 12px; line-height: 1.35; vertical-align: top; }
 .tbl td.names .list { color: var(--muted); margin-top: 2px; }
 .stat-line { display: flex; flex-wrap: wrap; gap: 8px 22px; padding: 10px 12px; margin-bottom: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }

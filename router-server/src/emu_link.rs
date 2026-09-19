@@ -77,9 +77,56 @@ pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
                 Err(e) => warn!("emr sync: bad JSON: {}", e),
             },
             Ok((code, _)) => warn!("emr sync: HTTP {}", code),
-            Err(e) => info!("emr sync: emulator {} unreachable ({})", addr, e),
+            Err(e) => {
+                info!("emr sync: emulator {} unreachable ({})", addr, e);
+                continue;
+            }
+        }
+        // patients feed: specialty (진료과목) and disease (주진단) per patch — the admissions feed lacks both
+        match request(&addr, "GET", "/api/v1/emr/patients?status=admitted&limit=100000", None).await {
+            Ok((200, body)) => match serde_json::from_str::<serde_json::Value>(&body) {
+                Ok(v) => {
+                    let n = apply_patients(&state, &v);
+                    debug!("emr sync: {} patient records applied", n);
+                }
+                Err(e) => warn!("emr sync (patients): bad JSON: {}", e),
+            },
+            Ok((code, _)) => debug!("emr sync (patients): HTTP {}", code),
+            Err(e) => debug!("emr sync (patients): {}", e),
         }
     }
+}
+
+/// `/api/v1/emr/patients` → department (specialty) / diagnosis (disease) on the registry rows.
+pub fn apply_patients(state: &Arc<AppState>, v: &serde_json::Value) -> usize {
+    let list = match v {
+        serde_json::Value::Array(a) => a,
+        other => match other.get("patients").and_then(|a| a.as_array()) {
+            Some(a) => a,
+            None => return 0,
+        },
+    };
+    let mut n = 0;
+    for a in list {
+        let Some(patch_id) = a.get("patch_id").and_then(|x| x.as_u64()) else { continue };
+        let channel_id = patch_id.to_string();
+        let Some(prev) = state.registry.patient_of(&channel_id) else { continue };
+        let mut p = prev.clone();
+        let spec = s(a, "specialty");
+        if !spec.is_empty() {
+            p.department = spec;
+        }
+        let dis = s(a, "disease");
+        if !dis.is_empty() {
+            p.diagnosis = dis;
+        }
+        if prev != p {
+            state.registry.upsert_meta(&channel_id, p);
+            state.recompute_channel_groups(&channel_id);
+            n += 1;
+        }
+    }
+    n
 }
 
 fn s(v: &serde_json::Value, k: &str) -> String {

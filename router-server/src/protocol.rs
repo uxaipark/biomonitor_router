@@ -27,6 +27,9 @@ pub struct Patient {
     pub doctor: String,
     #[serde(default)]
     pub department: String,
+    /// 주진단 (EMR patients 피드의 disease)
+    #[serde(default)]
+    pub diagnosis: String,
     #[serde(default)]
     pub nurse: String,
     /// 프로필 번호 — 얼굴 이미지(faces/<n>.png) 지정 (에뮬레이터가 전달)
