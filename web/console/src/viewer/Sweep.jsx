@@ -63,24 +63,32 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
       blit(a, w1)
       if (len > w1) blit(0, len - w1)
     }
-    let paceDrawn = null // paceSeq of the last drawn pace record (the latest map is replaced per packet)
-    const paceMarks = (l, tFirst, step, n) => {
+    // Pace marks: queue them as they arrive (each record once) and draw a mark only once the playout clock
+    // has passed it, so the tick appears together with the spike in the trace instead of ~1 s ahead of the pen.
+    let paceDrawn = null // paceSeq of the last queued pace record (the latest map is replaced per packet)
+    const pending = [] // [{ t, ch }]
+    const drawTick = (t, ch) => {
+      // bedside-monitor style: a short tick at the top edge (chamber colour), not a full-height line
+      const x = Math.round(xOf(t)) + 0.5
+      const c = th.paceLine[ch] || th.paceLine[1]
+      ctx.save(); ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 1.5
+      ctx.beginPath(); ctx.moveTo(x, 1); ctx.lineTo(x, 9); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(x - 3, 9); ctx.lineTo(x + 3, 9); ctx.lineTo(x, 13); ctx.closePath(); ctx.fill()
+      ctx.restore()
+    }
+    const paceMarks = (l, T, tFirst, step, n) => {
+      if (!pace || wave !== 'ecg') return
       // pace: bits 0-13 = sample offset within this bundle's ECG block, bits 14-15 = chamber (0 A, 1 V, 2 LV)
-      if (!pace || wave !== 'ecg' || !l?.pace?.length || l.paceSeq == null || l.paceSeq === paceDrawn) return
-      const t0 = (l.paceTs ?? l.ts_ms) - (n - 1) * step
-      for (const m of l.pace) {
-        const off = m & 0x3fff, ch = (m >> 14) & 3
-        const t = t0 + off * step
-        if (t < tFirst) continue
-        // bedside-monitor style: a short tick at the top edge (chamber colour), not a full-height line
-        const x = Math.round(xOf(t)) + 0.5
-        const c = th.paceLine[ch] || th.paceLine[1]
-        ctx.save(); ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 1.5
-        ctx.beginPath(); ctx.moveTo(x, 1); ctx.lineTo(x, 9); ctx.stroke()
-        ctx.beginPath(); ctx.moveTo(x - 3, 9); ctx.lineTo(x + 3, 9); ctx.lineTo(x, 13); ctx.closePath(); ctx.fill()
-        ctx.restore()
+      if (l?.pace?.length && l.paceSeq != null && l.paceSeq !== paceDrawn) {
+        const t0 = (l.paceTs ?? l.ts_ms) - (n - 1) * step
+        for (const m of l.pace) pending.push({ t: t0 + (m & 0x3fff) * step, ch: (m >> 14) & 3 })
+        paceDrawn = l.paceSeq
       }
-      paceDrawn = l.paceSeq
+      for (let i = pending.length - 1; i >= 0; i--) {
+        const m = pending[i]
+        if (m.t < tFirst) { pending.splice(i, 1); continue }
+        if (m.t <= T) { drawTick(m.t, m.ch); pending.splice(i, 1) }
+      }
     }
     const renderFull = (T, st, step) => {
       ctx.drawImage(grid, 0, 0, W, H)
@@ -133,9 +141,9 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
           penX = x; penY = y; penT = t; lastAbsIdx = st.trimmed + i
         }
         ctx.stroke()
-        const l = latest.get(id)
-        if (l) paceMarks(l, tFirst, step, st.sampleRate * 0.2)
       }
+      // marks older than the last erase point are behind the pen and would be wiped anyway
+      paceMarks(latest.get(id), T, lastT - step, step, st.sampleRate * 0.2)
       lastT = T
     }
     const un = registerDraw(draw)
