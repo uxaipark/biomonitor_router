@@ -108,6 +108,18 @@ npm run smoke                                       # react-dom/server 로 전 �
 디자인 토큰·CSS(`ds.css`)는 에뮬레이터 `style.css` 의 `.ds/.cs-*/.vm-*` 를 옮긴 것이라 두 화면이 같게 보인다. 파형은 `Sweep.jsx`(ECG 용지 격자, 고정 범위, 페이스 마커)가 콘솔 공용 링버퍼·플레이아웃 클록으로 그린다.
 RP5 서비스 설치는 `sudo deploy/pi/install.sh` (systemd 유닛 + sysctl + `/etc/biomonitor-router.env`).
 
+## 성능 (RP5#2, 2026-09-19)
+
+환자 2,000 · 게이트웨이 1,772 · 초당 프레임 4.6k / 레코드 10k 기준(`scripts/cpu_baseline.sh 60`):
+
+| 상태 | CPU(1코어 기준) | 레코드당 | PSS |
+|---|---|---|---|
+| 최적화 전 | 19.1 % | 19.0 µs | 250 MB |
+| 최적화 후, 구독자 없음 | 7.9 % | 7.9 µs | 106 MB |
+| 콘솔 WS 구독(48채널+알람) | 11.6 % | 11.5 µs | 107 MB |
+
+핵심 원칙: **아무도 듣지 않는 일은 하지 않는다** — 스트림 패킷은 구독된 패치에만 만들고, 변하지 않은 META 는 파싱하지 않으며, 알람 평가는 행을 복제하지 않는다. 파일 I/O 는 전용 스레드(SD 지연이 ingest 큐에 닿지 않음). 자원 추적은 `scripts/leakwatch.py`, 내부 구조 크기는 `GET /api/debug/sizes`.
+
 ## 다음 단계
 
 P2 WS 다채널 출력 + 뷰어 → P3 DB/어드민(도면 JSON 폴리곤) → P4 RP5 #2 배포(1 TB SSD, systemd) → P5 보존·인증. 세부는 [docs/PLAN.md](docs/PLAN.md).
