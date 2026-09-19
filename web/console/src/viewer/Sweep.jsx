@@ -190,8 +190,8 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
         if (mode === 'speed') traceSpeed(st, i, T, step, 1)
         else traceQuality(st, i, T, step, false)
       }
-      // marks older than the last erase point are behind the pen and would be wiped anyway
-      paceMarks(latest.get(id), T, lastT - step, step, st.sampleRate * 0.2)
+      // marks that fell out of the window (one sweep behind the front) are dropped; the rest wait for the pen
+      paceMarks(latest.get(id), T, T - windowMs + (gapPx() / W) * windowMs, step, st.sampleRate * 0.2)
       lastT = T
     }
     const un = registerDraw(draw)
