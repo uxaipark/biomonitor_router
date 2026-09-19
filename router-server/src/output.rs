@@ -15,7 +15,10 @@ pub async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| client_task(state, socket))
+    // Clients only ever send small JSON commands. tungstenite zero-fills its read buffer on every read
+    // attempt (128 KiB by default), so keep it small.
+    ws.read_buffer_size(4096)
+        .on_upgrade(move |socket| client_task(state, socket))
 }
 
 /// 스트림 배칭 플러시 주기 (ms). 뷰어는 1초 지터버퍼로 재생하므로 100ms 묶음은
@@ -26,6 +29,17 @@ const STREAM_BUF_MAX: usize = 1024;
 
 async fn client_task(state: Arc<AppState>, socket: WebSocket) {
     let (mut tx, mut rx_ws) = socket.split();
+    // Socket reads run in their own task: a `select!` branch on `rx_ws.next()` would attempt a read (and
+    // tungstenite's buffer zero-fill) on every one of the ~10k/s broadcast wake-ups, which profiled at
+    // 80 % of router CPU with 20 sessions. The reader only wakes when the socket is actually readable.
+    let (in_tx, mut in_rx) = tokio::sync::mpsc::channel::<Message>(32);
+    tokio::spawn(async move {
+        while let Some(Ok(msg)) = rx_ws.next().await {
+            if in_tx.send(msg).await.is_err() {
+                break;
+            }
+        }
+    });
     let mut subs: HashSet<String> = HashSet::new();
     let mut gw_subs: HashSet<String> = HashSet::new();
     let mut ch_subs: HashSet<String> = HashSet::new();
@@ -40,8 +54,8 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
 
     loop {
         tokio::select! {
-            incoming = rx_ws.next() => {
-                let Some(Ok(msg)) = incoming else { break };
+            incoming = in_rx.recv() => {
+                let Some(msg) = incoming else { break };
                 let Message::Text(text) = msg else { continue };
                 let Ok(cmsg) = serde_json::from_str::<ClientMsg>(text.as_str()) else { continue };
                 match cmsg {
