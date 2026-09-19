@@ -136,9 +136,10 @@ function Window({ t0, spanMs, loaded, pace, theme, onVisible, keys }) {
   )
 }
 
-/** The newest window, drawn live: samples accumulate from the WS rings as they play out, filling the strip
- *  left to right; when the playout clock crosses the next span boundary the window rolls over and the
- *  completed one becomes the first stored strip (the parent refreshes the index and re-reads that chunk). */
+/** The newest window, drawn live and incrementally: the grid is painted once per window, each new ring sample
+ *  extends the trace through a persistent column tracer (no full redraws), the sweep bar is erased by restoring a
+ *  grid slice, all on requestAnimationFrame. When the playout clock crosses the next span boundary the window rolls
+ *  over and the completed one becomes the first stored strip (the parent refreshes the index and that chunk). */
 function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
   const canvases = useRef([])
   const [t0, setT0] = useState(null)
@@ -151,51 +152,127 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
   }, [keys])
   const loadedRef = useRef(loaded); loadedRef.current = loaded
   useEffect(() => {
-    const bufs = new Map() // ring key → { t: [], v: [], lastAbs, fs }
-    let cur = null, paceSeen = null
-    const pace = []
+    // per row: canvas prep + persistent tracer state
+    const S = rows.map(() => ({ ctx: null, W: 0, H: 0, dpr: 1, grid: null, tracer: new ColumnTracer(), stroker: null, drawn: 0, pT: null, barX: null, seeded: false, t: [], v: [], lastAbs: null, fs: 250 }))
+    let cur = null, curAt = 0, paceSeen = null
+    const pace = [], paceDrawn = new Set()
+    const prep = (i) => {
+      const st = S[i], canvas = canvases.current[i]
+      if (!canvas) return false
+      const r = canvas.parentElement.getBoundingClientRect()
+      const W = Math.max(1, Math.round(r.width)), H = Math.max(1, Math.round(r.height)), dpr = Math.min(window.devicePixelRatio || 1, 2)
+      const resized = W !== st.W || H !== st.H
+      if (resized) {
+        st.W = W; st.H = H; st.dpr = dpr
+        canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr)
+        st.ctx = canvas.getContext('2d'); st.ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+        st.grid = document.createElement('canvas'); st.grid.width = canvas.width; st.grid.height = canvas.height
+        const g = st.grid.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0)
+        g.fillStyle = theme.bg; g.fillRect(0, 0, W, H)
+        if (rows[i].grid) {
+          const px = W / (spanMs / 1000)
+          g.strokeStyle = theme.grid; g.lineWidth = 1
+          for (let t = 0; t * px * 0.2 <= W; t++) { const x = Math.round(t * px * 0.2) + 0.5; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke() }
+          const minor = px * 0.2, yc = H / 2
+          for (let j = -Math.ceil(yc / minor); j * minor <= yc; j++) { const y = Math.round(yc + j * minor) + 0.5; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke() }
+        }
+        st.stroker = new ColumnStroker(st.ctx, dpr)
+      }
+      return resized
+    }
+    const restart = (i) => { const st = S[i]; if (!st.ctx) return; st.ctx.drawImage(st.grid, 0, 0, st.W, st.H); st.tracer.reset(); st.stroker.reset(); st.drawn = 0; st.pT = null; st.barX = null; st.seeded = false }
+    const yOf = (st, range, v) => { const vm = Math.max(3, st.H * 0.1), [lo, hi] = range; return st.H - vm - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (st.H - 2 * vm) }
+    const xOf = (st, t) => ((t - cur) / spanMs) * st.W
+    const blit = (st, x, w) => { const sx = Math.max(0, Math.floor(x * st.dpr)), sw = Math.min(st.grid.width - sx, Math.ceil(w * st.dpr) + 1); if (sw > 0) { st.ctx.save(); st.ctx.setTransform(1, 0, 0, 1, 0, 0); st.ctx.drawImage(st.grid, sx, 0, sw, st.grid.height, sx, 0, sw, st.grid.height); st.ctx.restore() } }
+    const traceRuns = (i, runs) => {
+      const st = S[i], row = rows[i]
+      st.stroker.begin(row.color, row.lw)
+      for (const run of runs) {
+        for (let k = run.i0; k < run.i1; k++) {
+          const t = run.t0 + (k - run.i0) * run.step, v = run.data[k * run.axes + run.axis] * run.scale
+          const gap = st.pT != null && t - st.pT > run.step * 1.5
+          st.tracer.point(xOf(st, t) * st.dpr, yOf(st, row.range, v) * st.dpr, gap, st.stroker.emit)
+          st.pT = t
+        }
+      }
+      st.stroker.end()
+    }
     const tick = () => {
+      raf = requestAnimationFrame(tick)
       const T = playoutNow(performance.now())
       if (T == null) return
       const w0 = Math.floor(T / spanMs) * spanMs
-      if (cur !== w0) { const prev = cur; cur = w0; bufs.clear(); pace.length = 0; setT0(w0); onWindow?.(w0); if (prev != null) onRollover?.(prev) }
-      for (const row of rows) {
-        const st = getStream(`${id}:${row.ring}`)
-        if (!st || !st.len) continue
-        const b = bufs.get(row.ring) || { t: [], v: [], lastAbs: null, fs: st.sampleRate }
-        let i = b.lastAbs == null ? 0 : b.lastAbs - st.trimmed + 1
-        if (i < 0) i = 0
-        for (; i < st.len; i++) { const t = st.tAt(i); if (t > T) break; if (t >= cur) { b.t.push(t); b.v.push(st.vAt(i)) } b.lastAbs = st.trimmed + i }
-        bufs.set(row.ring, b)
+      if (cur !== w0) {
+        const prev = cur; cur = w0; curAt = performance.now(); pace.length = 0; paceDrawn.clear()
+        for (let i = 0; i < S.length; i++) { S[i].t = []; S[i].v = []; S[i].lastAbs = null; prep(i); restart(i) }
+        setT0(w0); onWindow?.(w0); if (prev != null) onRollover?.(prev)
       }
+      // pace marks of this window from the latest map (each record once)
       const l = latest.get(id)
       if (l?.pace?.length && l.paceSeq != null && l.paceSeq !== paceSeen) {
-        const st = getStream(`${id}:ecg`), fs = st?.sampleRate || 250, step = 1000 / fs, n = Math.round(fs * 0.2)
+        const ecg = getStream(`${id}:ecg`), fs = ecg?.sampleRate || 250, step = 1000 / fs, n = Math.round(fs * 0.2)
         const p0 = (l.paceTs ?? l.ts_ms) - (n - 1) * step
         for (const m of l.pace) pace.push([p0 + (m & 0x3fff) * step, (m >> 14) & 3])
         paceSeen = l.paceSeq
       }
       rows.forEach((row, i) => {
-        const c = canvases.current[i]
-        const b = bufs.get(row.ring)
-        if (!c) return
-        // the part of this window before the rings' oldest sample (the panel opened mid-window, or the ring's
-        // 8 s retention) comes from the stored chunk; the rest from the accumulated ring samples
-        const ringStart = b && b.t.length ? b.t[0] : T
-        const runs = ringStart > cur ? slice(loadedRef.current, row.key, 0, cur, ringStart) : []
-        if (b && b.t.length) {
-          const step = 1000 / b.fs
-          let s0 = 0
-          for (let k = 1; k <= b.t.length; k++) {
-            if (k === b.t.length || b.t[k] - b.t[k - 1] > step * 1.5) { runs.push({ t0: b.t[s0], step, scale: 1, axes: 1, axis: 0, data: b.v, i0: s0, i1: k }); s0 = k }
+        const st = S[i]
+        if (prep(i)) { // resized: repaint everything drawn so far
+          restart(i)
+          if (st.t.length) { st.seeded = true; traceRuns(i, splitRuns(st)); st.drawn = st.t.length }
+        }
+        if (!st.ctx) return
+        // accumulate new ring samples (from the window start, or from the oldest retained sample)
+        const rg = getStream(`${id}:${row.ring}`)
+        if (rg && rg.len) {
+          st.fs = rg.sampleRate
+          let k = st.lastAbs == null ? 0 : st.lastAbs - rg.trimmed + 1
+          if (k < 0) k = 0
+          for (; k < rg.len; k++) { const t = rg.tAt(k); if (t > T) break; if (t >= cur) { st.t.push(t); st.v.push(rg.vAt(k)) } st.lastAbs = rg.trimmed + k }
+        }
+        // seed: the part of the window before the oldest ring sample comes from the stored chunk — wait up to
+        // 2.5 s for it (the chunk is being re-read), then give up and draw from the rings only
+        if (!st.seeded) {
+          const ringStart = st.t.length ? st.t[0] : T
+          const needSeed = ringStart > cur + 400
+          const stored = needSeed ? slice(loadedRef.current, row.key, 0, cur, ringStart) : []
+          if (!needSeed || stored.length || performance.now() - curAt > 2500) {
+            if (stored.length) traceRuns(i, stored)
+            st.seeded = true
+          } else return
+        }
+        // erase the old sweep bar, extend the trace with the samples not drawn yet, draw the bar at T
+        if (st.barX != null) blit(st, st.barX - 1, 3)
+        if (st.drawn < st.t.length) { traceRuns(i, splitRuns(st, st.drawn)); st.drawn = st.t.length }
+        if (row.key === 'ecg') {
+          for (let j = 0; j < pace.length; j++) {
+            const [t, ch] = pace[j]
+            if (paceDrawn.has(j) || t > (st.pT ?? -Infinity) || t < cur) continue
+            const x = Math.round(xOf(st, t)) + 0.5, c = theme.paceLine[ch] || theme.paceLine[1]
+            st.ctx.strokeStyle = c; st.ctx.fillStyle = c; st.ctx.lineWidth = 1.5
+            st.ctx.beginPath(); st.ctx.moveTo(x, 1); st.ctx.lineTo(x, 9); st.ctx.stroke()
+            st.ctx.beginPath(); st.ctx.moveTo(x - 3, 9); st.ctx.lineTo(x + 3, 9); st.ctx.lineTo(x, 13); st.ctx.closePath(); st.ctx.fill()
+            paceDrawn.add(j)
           }
         }
-        drawStrip(c, { runs, pace: row.key === 'ecg' ? pace : [], t0: cur, spanMs, range: row.range, color: row.color, theme, lineWidth: row.lw, grid: !!row.grid, live: T })
+        const bx = Math.round(xOf(st, T)) + 0.5
+        st.ctx.save(); st.ctx.globalAlpha = 0.6; st.ctx.strokeStyle = theme.paceLine[1] || '#fff'; st.ctx.lineWidth = 1
+        st.ctx.beginPath(); st.ctx.moveTo(bx, 0); st.ctx.lineTo(bx, st.H); st.ctx.stroke(); st.ctx.restore()
+        st.barX = bx
       })
     }
-    const iv = setInterval(tick, 50) // 20 fps is plenty for a strip that only grows at the right edge
-    return () => clearInterval(iv)
-  }, [id, spanMs, theme, rows, onRollover])
+    // accumulated ring samples → uniformly spaced runs (split at gaps), from index `from`
+    const splitRuns = (st, from = 0) => {
+      const runs = [], step = 1000 / st.fs
+      let s0 = from
+      for (let k = from + 1; k <= st.t.length; k++) {
+        if (k === st.t.length || st.t[k] - st.t[k - 1] > step * 1.5) { runs.push({ t0: st.t[s0], step, scale: 1, axes: 1, axis: 0, data: st.v, i0: s0, i1: k }); s0 = k }
+      }
+      return runs
+    }
+    let raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [id, spanMs, theme, rows, onRollover, onWindow])
   return (
     <div className="hx-win hx-live">
       <div className="hx-win-t"><b>{t0 != null ? fmtTime(t0) : '--:--:--'}</b><span className="ds-dim"> ~ {t0 != null ? fmtTime(t0 + spanMs) : ''}</span><span className="hx-live-tag">LIVE</span></div>
