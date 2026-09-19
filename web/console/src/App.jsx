@@ -11,6 +11,7 @@ import Events from './pages/Events.jsx'
 import Viewers from './pages/Viewers.jsx'
 import Viewer from './pages/Viewer.jsx'
 import MultiViewerTest from './pages/MultiViewerTest.jsx'
+import Settings from './pages/Settings.jsx'
 import { LiveModal } from './pages/LiveModal.jsx'
 
 const PAGES = [
@@ -24,6 +25,7 @@ const PAGES = [
   // entries with a 4th element hang under that top-menu group (rendered as a custom nav menu)
   ['#/live', '실시간', Live, '테스트'],
   ['#/test/multiviewer', '멀티 뷰어 테스트', MultiViewerTest, '테스트'],
+  ['#/settings', '설정', Settings, null, 'last'], // 5th element: rendered after the menu groups
 ]
 const MENUS = [...new Set(PAGES.map((p) => p[3]).filter(Boolean))]
 
@@ -122,10 +124,11 @@ export default function App() {
       <header className="top">
         <a className="brand" href="#/">🫀 Biomonitor Router</a>
         <nav>
-          {PAGES.filter((p) => !p[3]).map(([h, label]) => (
+          {PAGES.filter((p) => !p[3] && !p[4]).map(([h, label]) => (
             <a key={h} href={h} className={base === h ? 'active' : ''}>{label}{h === '#/alarms' && s.unacked > 0 && <span className="badge">{s.unacked}</span>}</a>
           ))}
           {MENUS.map((m) => <NavMenu key={m} label={m} base={base} items={PAGES.filter((p) => p[3] === m)} hints={navHints} />)}
+          {PAGES.filter((p) => p[4] === 'last').map(([h, label]) => <a key={h} href={h} className={base === h ? 'active' : ''}>{label}</a>)}
         </nav>
         <span className="spacer" />
         <span className={'pill ' + (health?.ok ? 'ok' : 'err')} title="라우터 API">라우터 {health?.ok ? '정상' : '응답 없음'}</span>

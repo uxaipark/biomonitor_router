@@ -54,6 +54,8 @@ check('WaveCard dense', <WaveCard.WaveCard row={row} density="dense" alarm={alar
 check('WaveCard dense (empty)', <WaveCard.WaveCard row={{ ...row, vitals: {}, patient: null }} density="dense" />)
 globalThis.ResizeObserver = class { observe() {} disconnect() {} }
 check('Viewers', <Viewers.default />)
+const SettingsPage = (await import('./pages/Settings.jsx')).default
+check('Settings', <SettingsPage />)
 check('MultiViewerTest', <MultiViewerTest.default />)
 check('Viewer route', <Viewer.default alarms={alarms} hash="#/viewer?tpl=central&gw=895" />)
 check('CentralStation', <Central.default rows={[row, { ...row, channel_id: '65539', flags: 0x01 }]} alarms={alarms} unit="TEST" onClose={() => {}} />)

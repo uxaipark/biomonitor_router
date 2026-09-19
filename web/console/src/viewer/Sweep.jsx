@@ -2,10 +2,16 @@ import React, { useEffect, useRef } from 'react'
 import { getStream, playoutNow } from '../waveStore.js'
 import { registerDraw } from '../renderLoop.js'
 import { latest } from '../ws.js'
+import { getRenderMode, onRenderMode } from '../settings.js'
+import { ColumnTracer, rectEmitter } from '../traceRender.js'
 
 // Monitor-style sweep trace that fills its box (the emulator's Central Station / bed viewer look): black or
 // paper ground with an ECG-paper major grid (bold line every 0.2 s), fixed physical range, colour per channel,
 // pace-pulse markers. Reads the console's shared rings + playout clock, so it stays phase-locked with WaveCard.
+//
+// Two renderers (설정 → 메인 뷰어 그래픽):
+//  - quality: pixel-column tracer in whole device pixels (uniform thickness, no lost peaks, no AA seams)
+//  - speed:   anti-aliased polyline, decimated on full redraws (the original renderer)
 const WINDOW_S = 6
 const GAP_FRAC = 0.035
 
@@ -16,12 +22,15 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
     const box = canvas.parentElement
     const ctx = canvas.getContext('2d')
     const th = { bg: '#000', grid: 'rgba(243,242,242,.10)', stale: '#5a6a80', paceLine: ['#ffe34d', '#ffffff', '#ff9783'], ...(theme || {}) }
-    let W = 0, H = 0, dpr = 1
+    let W = 0, H = 0, dpr = 1, lwDev = 2
     let grid = null
     const windowMs = WINDOW_S * 1000
     const [lo, hi] = range
     let lastT = null, lastAbsIdx = null, penX = null, penY = null, penT = null, needFull = true
     let visible = true
+    let mode = getRenderMode()
+    const tracer = new ColumnTracer()
+    const offMode = onRenderMode((m) => { mode = m; needFull = true })
 
     const size = () => {
       const r = box.getBoundingClientRect()
@@ -29,6 +38,7 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
       dpr = Math.min(window.devicePixelRatio || 1, 2)
       if (w === W && h === H && canvas.width === Math.round(w * dpr)) return false
       W = w; H = h
+      lwDev = Math.max(1, Math.round(lineWidth * dpr))
       canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr)
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       grid = document.createElement('canvas')
@@ -55,7 +65,16 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
     const xOf = (t) => ((((t % windowMs) + windowMs) % windowMs) / windowMs) * W
     const gapPx = () => Math.max(10, W * GAP_FRAC)
     const strokeNow = () => { const l = latest.get(id); return l && (l.disconnected || Date.now() - l.rx > 5000) ? th.stale : color }
-    const blit = (x, w) => { if (w > 0 && grid) ctx.drawImage(grid, x * dpr, 0, w * dpr, H * dpr, x, 0, w, H) }
+    // grid restore in whole device pixels (fractional source rects would resample the grid into a blur)
+    const blit = (x, w) => {
+      if (!(w > 0) || !grid) return
+      const sx = Math.floor(x * dpr), sw = Math.min(canvas.width - sx, Math.ceil(w * dpr) + 1)
+      if (sw <= 0) return
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0)
+      ctx.drawImage(grid, sx, 0, sw, canvas.height, sx, 0, sw, canvas.height)
+      ctx.restore()
+    }
+    // clear from `a` (CSS px) forward to the sweep front `b` plus the gap, wrapping at the right edge
     const eraseAdvance = (a, b) => {
       let len = (b - a + W * 2) % W + gapPx()
       if (len > W) len = W
@@ -90,6 +109,41 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
         if (m.t <= T) { drawTick(m.t, m.ch); pending.splice(i, 1) }
       }
     }
+
+    // ---- quality renderer: samples → device-pixel columns, one fill per frame
+    const traceQuality = (st, from, T, step, restart) => {
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0)
+      ctx.fillStyle = strokeNow()
+      ctx.beginPath()
+      const emit = rectEmitter(ctx, lwDev)
+      if (restart) tracer.reset()
+      let i = from, pT = penT, pX = penX
+      for (; i < st.len && st.tAt(i) <= T; i++) {
+        const t = st.tAt(i), x = xOf(t), y = yOf(st.vAt(i))
+        const gap = pT != null && (t - pT > step * 1.5 || x < pX) // discontinuity or wrap at the right edge
+        tracer.point(x * dpr, y * dpr, gap, emit)
+        pX = x; pT = t; penX = x; penY = y; penT = t; lastAbsIdx = st.trimmed + i
+      }
+      ctx.fill()
+      ctx.restore()
+      return i
+    }
+    // ---- speed renderer: anti-aliased polyline (original)
+    const traceSpeed = (st, from, T, step, stride) => {
+      ctx.strokeStyle = strokeNow(); ctx.lineWidth = lineWidth; ctx.lineJoin = 'round'; ctx.lineCap = 'round'
+      ctx.beginPath()
+      let i = from, started = penX != null, pT = penT ?? 0, pX = penX ?? -1
+      if (started) ctx.moveTo(penX, penY)
+      for (; i < st.len && st.tAt(i) <= T; i += stride) {
+        const t = st.tAt(i), x = xOf(t), y = yOf(st.vAt(i))
+        const gap = t - pT > step * stride * 1.5
+        if (!started || gap || x < pX) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+        started = true; pT = t; pX = x; penX = x; penY = y; penT = t; lastAbsIdx = st.trimmed + i
+      }
+      ctx.stroke()
+      return i
+    }
+
     const renderFull = (T, st, step) => {
       ctx.drawImage(grid, 0, 0, W, H)
       const tOld = T - windowMs + (gapPx() / W) * windowMs
@@ -98,19 +152,14 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
       if (hi_ < 0) return null
       let lo_ = hi_
       while (lo_ > 0 && st.tAt(lo_ - 1) >= tOld) lo_--
-      const stride = Math.max(1, Math.ceil((hi_ - lo_ + 1) / (W * 2)))
-      ctx.strokeStyle = strokeNow(); ctx.lineWidth = lineWidth; ctx.lineJoin = 'round'; ctx.lineCap = 'round'
-      ctx.beginPath()
-      let started = false, pT = 0, pX = -1
-      for (let i = lo_; i <= hi_; i += stride) {
-        const t = st.tAt(i), x = xOf(t), y = yOf(st.vAt(i))
-        const gap = t - pT > step * stride * 1.5
-        if (!started || gap || x < pX) ctx.moveTo(x, y); else ctx.lineTo(x, y)
-        started = true; pT = t; pX = x
+      penX = null; penY = null; penT = null
+      if (mode === 'speed') {
+        const stride = Math.max(1, Math.ceil((hi_ - lo_ + 1) / (W * 2)))
+        traceSpeed(st, lo_, T, step, stride)
+      } else {
+        traceQuality(st, lo_, T, step, true)
       }
-      ctx.stroke()
       blit(Math.min(xOf(T), W - 1), Math.min(gapPx(), W - xOf(T)))
-      penX = xOf(st.tAt(hi_)); penY = yOf(st.vAt(hi_)); penT = st.tAt(hi_)
       return hi_
     }
     const draw = (now) => {
@@ -127,27 +176,21 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
         return
       }
       if (lastAbsIdx == null) { needFull = true; return }
-      eraseAdvance(xOf(lastT), xOf(T))
+      // erase ahead of the pen only: starting at the pen's own x would clip the last stroke's edge every frame
+      const eraseFrom = penX == null ? xOf(lastT) : mode === 'speed' ? xOf(lastT) : Math.min(W - 1, (tracer.col + lwDev) / dpr)
+      eraseAdvance(eraseFrom, xOf(T))
       let i = lastAbsIdx - st.trimmed + 1
       if (i < 0) { needFull = true; lastT = T; return }
       if (i < st.len && st.tAt(i) <= T) {
-        const tFirst = st.tAt(i)
-        ctx.strokeStyle = strokeNow(); ctx.lineWidth = lineWidth; ctx.lineJoin = 'round'; ctx.lineCap = 'round'
-        ctx.beginPath()
-        for (; i < st.len && st.tAt(i) <= T; i++) {
-          const t = st.tAt(i), x = xOf(t), y = yOf(st.vAt(i))
-          const gap = penT != null && t - penT > step * 1.5
-          if (penX == null || gap || x < penX) ctx.moveTo(x, y); else { ctx.moveTo(penX, penY); ctx.lineTo(x, y) }
-          penX = x; penY = y; penT = t; lastAbsIdx = st.trimmed + i
-        }
-        ctx.stroke()
+        if (mode === 'speed') traceSpeed(st, i, T, step, 1)
+        else traceQuality(st, i, T, step, false)
       }
       // marks older than the last erase point are behind the pen and would be wiped anyway
       paceMarks(latest.get(id), T, lastT - step, step, st.sampleRate * 0.2)
       lastT = T
     }
     const un = registerDraw(draw)
-    return () => { un(); ro.disconnect(); io.disconnect() }
+    return () => { un(); ro.disconnect(); io.disconnect(); offMode() }
   }, [id, wave, range[0], range[1], color, lineWidth, pace, theme])
   return <canvas ref={ref} />
 }

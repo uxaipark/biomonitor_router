@@ -3,6 +3,8 @@ import { getStream, playoutNow } from './waveStore.js'
 import { registerDraw } from './renderLoop.js'
 import { latest } from './ws.js'
 import { flagNames } from './model.js'
+import { getRenderMode, onRenderMode } from './settings.js'
+import { ColumnTracer, rectEmitter } from './traceRender.js'
 
 const WINDOW_S = 6
 const GAP_PX = 16
@@ -55,7 +57,31 @@ export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height
       const l = latest.get(id)
       return l && (l.disconnected || Date.now() - l.rx > 5000) ? staleCol : traceCol
     }
-    const blit = (x, w) => { if (w > 0) ctx.drawImage(gridCanvas, x * dpr, 0, w * dpr, H * dpr, x, 0, w, H) }
+    let mode = getRenderMode()
+    const tracer = new ColumnTracer()
+    const lwDev = () => Math.max(1, Math.round((density === 'dense' ? 1.1 : 1.4) * dpr))
+    const offMode = onRenderMode((m) => { mode = m; needFull = true })
+    // grid restore in whole device pixels (fractional source rects would resample the grid into a blur)
+    const blit = (x, w) => {
+      if (!(w > 0) || !gridCanvas) return
+      const sx = Math.floor(x * dpr), sw = Math.min(canvas.width - sx, Math.ceil(w * dpr) + 1)
+      if (sw <= 0) return
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(gridCanvas, sx, 0, sw, canvas.height, sx, 0, sw, canvas.height); ctx.restore()
+    }
+    // quality renderer: samples → device-pixel columns, one fill per frame (see traceRender.js)
+    const traceQuality = (st, from, T, step, restart) => {
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = strokeNow(); ctx.beginPath()
+      const emit = rectEmitter(ctx, lwDev())
+      if (restart) tracer.reset()
+      let i = from, pT = penT, pX = penX
+      for (; i < st.len && st.tAt(i) <= T; i++) {
+        const t = st.tAt(i), x = xOf(t), y = yOf(st.vAt(i))
+        const gap = pT != null && (t - pT > step * 1.5 || x < pX)
+        tracer.point(x * dpr, y * dpr, gap, emit)
+        pX = x; pT = t; penX = x; penY = y; penT = t; lastAbsIdx = st.trimmed + i
+      }
+      ctx.fill(); ctx.restore()
+    }
     const eraseAdvance = (a, b) => {
       let len = (b - a + W * 2) % W + GAP_PX
       if (len > W) len = W
@@ -83,6 +109,13 @@ export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height
       if (hi < 0) return null
       let lo = hi
       while (lo > 0 && st.tAt(lo - 1) >= tOld) lo--
+      if (mode !== 'speed') {
+        penX = null; penY = null; penT = null
+        traceQuality(st, lo, T, step, true)
+        blit(Math.min(xOf(T), W - 1), Math.min(GAP_PX, W - xOf(T)))
+        const hiAbs = lastAbsIdx; lastAbsIdx = null
+        return hiAbs == null ? null : hiAbs - st.trimmed
+      }
       const stride = Math.max(1, Math.ceil((hi - lo + 1) / (W * 2)))
       let i0 = lo
       if (stride > 1) { const rem = Math.round(st.tAt(lo) / step) % stride; if (rem) i0 = lo + (stride - rem); if (i0 > hi) i0 = lo }
@@ -138,10 +171,12 @@ export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height
         return
       }
       if (lastAbsIdx == null) { needFull = true; return }
-      eraseAdvance(xOf(lastT), xOf(T))
+      // erase ahead of the pen only: starting at the pen's own x would clip the last stroke's edge every frame
+      eraseAdvance(mode === 'speed' || penX == null ? xOf(lastT) : Math.min(W - 1, (tracer.col + lwDev()) / dpr), xOf(T))
       let i = lastAbsIdx - st.trimmed + 1
       if (i < 0) { needFull = true; lastT = T; return }
-      if (i < st.len && st.tAt(i) <= T) {
+      if (i < st.len && st.tAt(i) <= T && mode !== 'speed') traceQuality(st, i, T, step, false)
+      else if (i < st.len && st.tAt(i) <= T) {
         ctx.strokeStyle = strokeNow(); ctx.lineWidth = density === 'dense' ? 1.1 : 1.4; ctx.lineJoin = 'round'
         ctx.beginPath()
         for (; i < st.len && st.tAt(i) <= T; i++) {
@@ -155,7 +190,7 @@ export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height
       lastT = T
     }
     const unregister = registerDraw(draw)
-    return () => { unregister(); io.disconnect() }
+    return () => { unregister(); io.disconnect(); offMode() }
   }, [id, wave, H, density, color])
   return <canvas ref={canvasRef} width={WAVE_W[density] || 460} height={H} className="wave" />
 }

@@ -274,3 +274,9 @@ svg.plan { width: 100%; height: 100%; background: var(--panel); border: 1px soli
 .grp-list .row button { padding: 1px 8px; font-size: 12px; }
 .grp-form { display: grid; grid-template-columns: 90px 1fr; gap: 6px 10px; align-items: center; }
 .grp-form input { min-width: 0; width: 100%; }
+
+/* settings page */
+.settings section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; max-width: 900px; margin-bottom: 14px; }
+.settings h3 { margin: 0 0 6px; font-size: 15px; }
+.settings ul { margin: 10px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.5; }
+.settings .seg button { padding: 6px 16px; }
