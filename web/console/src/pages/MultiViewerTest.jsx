@@ -17,8 +17,8 @@ export default function MultiViewerTest() {
   const live = useMemo(() => (rows || []).filter((r) => r.connected), [rows])
   const wards = useMemo(() => {
     const m = new Map()
-    for (const r of live) if (r.patient?.ward) m.set(r.patient.ward, (m.get(r.patient.ward) || 0) + 1)
-    return [...m].sort((a, b) => a[0].localeCompare(b[0], 'ko')).map(([w, n]) => ({ ward: w, count: n }))
+    for (const r of live) if (r.patient?.ward) { if (!m.has(r.patient.ward)) m.set(r.patient.ward, []); m.get(r.patient.ward).push(r.patient.name || r.mrn || r.channel_id) }
+    return [...m].sort((a, b) => a[0].localeCompare(b[0], 'ko')).map(([w, names]) => ({ ward: w, count: names.length, names: names.sort((a, b) => String(a).localeCompare(String(b), 'ko')) }))
   }, [live])
   const tplOpts = TEMPLATES.map((t) => ({ value: t.id, label: t.name, count: undefined }))
   const urlOf = (w) => viewerUrl({ tpl, ward: w })
@@ -50,15 +50,6 @@ export default function MultiViewerTest() {
   const memPct = stats ? Math.round(stats.mem_sys_used_bytes / stats.mem_sys_total_bytes * 100) : null
   return (
     <div className="page">
-      <h2 className="h">멀티 뷰어 테스트</h2>
-      <p className="muted">병동마다 브라우저 탭을 하나씩 열고 그 병동의 뷰어를 띄웁니다. 병동 {wards.length}곳 · 환자 {live.length.toLocaleString()}명. 탭마다 WebSocket 1개를 열어 그 병동 채널만 구독하므로 라우터 WS 세션·구독 채널 수와 브라우저 부하를 함께 볼 수 있습니다.</p>
-      <div className="toolbar">
-        <Dropdown value={tpl} options={tplOpts} onChange={setTpl} searchable={false} width={300} />
-        <button className="primary" onClick={openAll} disabled={!wards.length}>모든 병동 탭 열기 ({wards.length})</button>
-        <button onClick={openNext} disabled={!wards.length}>{next >= wards.length ? '처음부터 다시' : `다음 병동 열기 (${next + 1}/${wards.length}: ${wards[next]?.ward})`}</button>
-        <button onClick={closeAll} disabled={!openCount}>열린 탭 모두 닫기 ({openCount})</button>
-        <span className="muted">열림 {openCount} · 차단 {log.blocked}</span>
-      </div>
       <div className="stat-line">
         <span className="stat"><small>열린 뷰어</small><b>{openCount}</b><small>/ {wards.length}</small></span>
         <span className="stat"><small>표시 중인 환자 파형</small><b>{openPatients.toLocaleString()}</b><small>명</small></span>
@@ -69,16 +60,26 @@ export default function MultiViewerTest() {
         <span className={'stat' + (memPct > 80 ? ' warn' : '')}><small>시스템 메모리</small><b>{memPct ?? '—'}</b><small>% ({stats ? fmtBytes(stats.mem_sys_used_bytes) : '—'} / {stats ? fmtBytes(stats.mem_sys_total_bytes) : '—'})</small></span>
         <span className={'stat' + (stats?.ws_lagged > 0 ? ' warn' : '')}><small>WS 지연 건너뜀</small><b>{stats?.ws_lagged?.toLocaleString() ?? '—'}</b></span>
       </div>
+      <h2 className="h">멀티 뷰어 테스트</h2>
+      <p className="muted">병동마다 브라우저 탭을 하나씩 열고 그 병동의 뷰어를 띄웁니다. 병동 {wards.length}곳 · 환자 {live.length.toLocaleString()}명. 탭마다 WebSocket 1개를 열어 그 병동 채널만 구독하므로 라우터 WS 세션·구독 채널 수와 브라우저 부하를 함께 볼 수 있습니다.</p>
+      <div className="toolbar">
+        <Dropdown value={tpl} options={tplOpts} onChange={setTpl} searchable={false} width={300} />
+        <button className="primary" onClick={openAll} disabled={!wards.length}>모든 병동 탭 열기 ({wards.length})</button>
+        <button onClick={openNext} disabled={!wards.length}>{next >= wards.length ? '처음부터 다시' : `다음 병동 열기 (${next + 1}/${wards.length}: ${wards[next]?.ward})`}</button>
+        <button onClick={closeAll} disabled={!openCount}>열린 탭 모두 닫기 ({openCount})</button>
+        <span className="muted">열림 {openCount} · 차단 {log.blocked}</span>
+      </div>
       {log.blocked > 0 && <p className="err">팝업 {log.blocked}개가 브라우저에 막혔습니다. 주소창 오른쪽의 팝업 차단 아이콘에서 이 사이트의 팝업을 항상 허용한 뒤 다시 누르거나, "다음 병동 열기"로 한 번에 하나씩 여세요.</p>}
       <table className="tbl dense">
-        <thead><tr><th>#</th><th>병동</th><th className="num">환자</th><th>탭</th><th>URL</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>병동</th><th className="num">환자</th><th>환자 이름</th><th>탭</th><th>URL</th><th></th></tr></thead>
         <tbody>
-          {wards.map(({ ward, count }, i) => {
+          {wards.map(({ ward, count, names }, i) => {
             const win = wins.current.get(ward)
             const open = win && !win.closed
             return (
               <tr key={ward} className={open ? '' : 'stale'}>
                 <td className="num muted">{i + 1}</td><td><b>{ward}</b></td><td className="num">{count}</td>
+                <td className="names" title={names.join(', ')}>{names.slice(0, 12).join(', ')}{names.length > 12 && <span className="muted"> 외 {names.length - 12}명</span>}</td>
                 <td>{open ? <span className="tag ok small">열림</span> : <span className="tag small">닫힘</span>}</td>
                 <td className="mono muted">{urlOf(ward)}</td>
                 <td>{open ? <button className="icon" onClick={() => { win.focus() }}>보기</button> : <a href={urlOf(ward)} target={`viewer-${ward}`} rel="noopener" onClick={(e) => { e.preventDefault(); openOne(ward); tick((x) => x + 1) }}>열기</a>}</td>
