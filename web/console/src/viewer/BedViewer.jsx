@@ -63,8 +63,18 @@ export default function BedViewer({ row, alarms, unit, onBack }) {
   // trend table: one row per minute over the last hour of samples (the emulator's 6 h hourly table has no router-side source yet)
   const trend = []
   for (let i = hist.length - 1; i >= 0 && trend.length < 12; i -= 12) trend.push(hist[i])
+  const tiles = (
+    <>
+          <VmTile k="hr" label="HR" unit="bpm" hi={LIMITS.hr[1]} lo={LIMITS.hr[0]} note="ECG · Lead II" val={v.hr} flag={flag} alarmColor={a[0]} spark={spark('hr')} />
+          <VmTile k="spo2" label="SpO₂" unit="%" hi="100" lo={LIMITS.spo2[0]} note={ch.includes('ppg') ? 'PPG' : 'Patch'} val={v.spo2} flag={flag} alarmColor={a[0]} spark={spark('spo2')} />
+          <VmTile k="rr" label="RR" unit="/min" hi={LIMITS.rr[1]} lo={LIMITS.rr[0]} note={ch.includes('resp_wave') ? 'Capacitive' : 'Derived'} val={v.resp} flag={flag} alarmColor={a[0]} spark={spark('resp')} />
+          <VmTile k="nibp" label="NIBP" unit="mmHg" hi={LIMITS.nibp[1]} lo={LIMITS.nibp[0]} note="No cuff" val={null} flag={flag} alarmColor={a[0]} spark="" />
+          <VmTile k="temp" label="Temp" unit="°C" hi={LIMITS.temp[1]} lo={LIMITS.temp[0]} note="Skin patch" val={v.temp} fmt={(x) => x.toFixed(1)} flag={flag} alarmColor={a[0]} spark={spark('temp')} />
+          <VmTile k="gl" label="GLU" unit="mg/dL" hi={LIMITS.gl[1]} lo={LIMITS.gl[0]} note="CGM" val={v.glucose} fmt={(x) => x.toFixed(0)} flag={flag} alarmColor={a[0]} spark={spark('glucose')} />
+    </>
+  )
   return (
-    <div className={'ds vm' + (night ? ' night' : '') + (silenced ? ' silenced' : '') + (flags & 0x01 ? ' leadoff' : '')}>
+    <div className={'ds vm' + (history ? ' vm-history-mode' : '') + (night ? ' night' : '') + (silenced ? ' silenced' : '') + (flags & 0x01 ? ' leadoff' : '')}>
       <header className="nav">
         <div className="vm-brand nav-brand"><span>BED {p.bed || p.room || row.space}</span><span className="ds-unit">{[p.ward, unit].filter(Boolean).join(' · ')}</span></div>
         <div className="vm-who">
@@ -87,21 +97,23 @@ export default function BedViewer({ row, alarms, unit, onBack }) {
           <button className="btn btn-secondary" onClick={onBack}>Back</button>
         </div>
       </header>
+      {history ? (
+        // history: the six vital tiles stay fixed in a row above the scrolling strip list, so an emergency is
+        // visible while reading old traces
+        <main className="vm-main vm-history">
+          <div className="vm-tiles-row">{tiles}</div>
+          <section className="vm-waves vm-hx"><HistoryPanel id={id} theme={th} onClose={() => setHistory(false)} /></section>
+        </main>
+      ) : (
       <main className="vm-main">
-        {history ? <section className="vm-waves"><HistoryPanel id={id} theme={th} onClose={() => setHistory(false)} /></section> : <section className="vm-waves">
+        <section className="vm-waves">
           <div className="vm-row cs-ecg"><div className="vm-ttl"><b>ECG · Lead II</b><span className="ds-dim">25 mm/s · 10 mm/mV</span><span className="ds-dim">Filter 0.5–40 Hz</span><span className="ds-dim vm-r">{flags & 0x10 ? 'Pacer on · pulse marks A/V' : 'Pacer off'}</span></div><div className="vm-box"><Sweep id={id} wave="ecg" range={[-1.5, 2.0]} color={th.ecg} theme={th} /><div className="ds-off">LEAD OFF</div></div></div>
           <div className="vm-row"><div className="vm-ttl"><b>Pleth · SpO₂</b><span className="ds-dim">{ch.includes('ppg') ? 'PPG' : ch.includes('spo2') ? 'Rate only' : 'No SpO₂ sensor'}</span></div><div className="vm-box">{ch.includes('ppg') ? <Sweep id={id} wave="ppg" range={[-1.2, 1.5]} color={th.ppg} theme={th} pace={false} /> : ch.includes('accel') ? <Sweep id={id} wave="accel0" range={[-1.6, 1.6]} color={th.ppg} theme={th} pace={false} /> : null}</div></div>
           <div className="vm-row"><div className="vm-ttl"><b>Resp · Impedance</b><span className="ds-dim">{ch.includes('resp_wave') ? 'Capacitive · Apnea limit 20 s' : 'Rate only'}</span></div><div className="vm-box">{ch.includes('resp_wave') && <Sweep id={id} wave="resp_wave" range={[-1.5, 1.5]} color={th.resp} theme={th} pace={false} />}</div></div>
-        </section>}
-        <aside className="vm-aside">
-          <VmTile k="hr" label="HR" unit="bpm" hi={LIMITS.hr[1]} lo={LIMITS.hr[0]} note="ECG · Lead II" val={v.hr} flag={flag} alarmColor={a[0]} spark={spark('hr')} />
-          <VmTile k="spo2" label="SpO₂" unit="%" hi="100" lo={LIMITS.spo2[0]} note={ch.includes('ppg') ? 'PPG' : 'Patch'} val={v.spo2} flag={flag} alarmColor={a[0]} spark={spark('spo2')} />
-          <VmTile k="rr" label="RR" unit="/min" hi={LIMITS.rr[1]} lo={LIMITS.rr[0]} note={ch.includes('resp_wave') ? 'Capacitive' : 'Derived'} val={v.resp} flag={flag} alarmColor={a[0]} spark={spark('resp')} />
-          <VmTile k="nibp" label="NIBP" unit="mmHg" hi={LIMITS.nibp[1]} lo={LIMITS.nibp[0]} note="No cuff" val={null} flag={flag} alarmColor={a[0]} spark="" />
-          <VmTile k="temp" label="Temp" unit="°C" hi={LIMITS.temp[1]} lo={LIMITS.temp[0]} note="Skin patch" val={v.temp} fmt={(x) => x.toFixed(1)} flag={flag} alarmColor={a[0]} spark={spark('temp')} />
-          <VmTile k="gl" label="GLU" unit="mg/dL" hi={LIMITS.gl[1]} lo={LIMITS.gl[0]} note="CGM" val={v.glucose} fmt={(x) => x.toFixed(0)} flag={flag} alarmColor={a[0]} spark={spark('glucose')} />
-        </aside>
+        </section>
+        <aside className="vm-aside">{tiles}</aside>
       </main>
+      )}
       <section className="vm-bottom">
         <div><div className="vm-cap"><h6>Vitals trend · session</h6><span>1-min samples while this viewer is open</span></div>
           <table className="table"><thead><tr><th>Time</th><th>HR</th><th>SpO₂</th><th>RR</th><th>Temp</th><th>GLU</th></tr></thead>

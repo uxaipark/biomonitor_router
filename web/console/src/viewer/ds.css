@@ -209,3 +209,14 @@
 .ds .dd-item.on { background: var(--color-accent); color: #fff; }
 .ds .dd-group { color: var(--color-text); opacity: .55; font-family: var(--font-body); }
 .ds .dd-count { opacity: .7; }
+
+/* bed viewer · history mode: tiles fixed on top, strips scroll below */
+.vm-main.vm-history{display:flex;flex-direction:column;height:calc(100vh - 64px);min-height:520px}
+.vm-tiles-row{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));border-bottom:2px solid var(--color-divider);flex:none}
+.vm-tiles-row .vm-tile{border-right:1px solid var(--color-divider);padding:6px 10px}
+.vm-tiles-row .vm-tile:last-child{border-right:0}
+.vm-tiles-row .vm-tile .vm-val b{font-size:34px}
+.vm-tiles-row .vm-tile .vm-foot{display:none}
+.vm-waves.vm-hx{display:flex;flex-direction:column;flex:1;min-height:0;border-right:0;padding:8px 12px}
+.vm-waves.vm-hx .hx-list{flex:1;min-height:0;overflow:auto}
+.vm.vm-history-mode .vm-bottom{display:none}
