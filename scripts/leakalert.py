@@ -78,7 +78,8 @@ def main():
                 third = len(w30) // 3
                 def floor_rise(key):
                     return min(r.get(key, 0) for r in w30[-third:]) - min(r.get(key, 0) for r in w30[:third])
-                d_pss, d_fd = floor_rise("pss_mb"), floor_rise("fds")
+                # each WS session holds one socket fd: discount session count changes before judging fds
+                d_pss, d_fd = floor_rise("pss_mb"), floor_rise("fds") - floor_rise("ws_sessions")
                 if d_pss > 12:
                     alert("pss", f"PSS floor up {d_pss:+.1f} MB within 30 min (slope {slope_h(w30, 'pss_mb'):+.0f} MB/h, now {w30[-1]['pss_mb']:.0f} MB)")
                 if d_fd > 20:
