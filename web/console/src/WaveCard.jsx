@@ -4,7 +4,7 @@ import { registerDraw } from './renderLoop.js'
 import { latest } from './ws.js'
 import { flagNames } from './model.js'
 import { getRenderMode, onRenderMode } from './settings.js'
-import { ColumnTracer, rectEmitter } from './traceRender.js'
+import { ColumnTracer, ColumnStroker } from './traceRender.js'
 
 const WINDOW_S = 6
 const GAP_PX = 16
@@ -59,7 +59,8 @@ export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height
     }
     let mode = getRenderMode()
     const tracer = new ColumnTracer()
-    const lwDev = () => Math.max(1, Math.round((density === 'dense' ? 1.1 : 1.4) * dpr))
+    let stroker = null
+    const lwCss = density === 'dense' ? 1.1 : 1.4
     const offMode = onRenderMode((m) => { mode = m; needFull = true })
     // grid restore in whole device pixels (fractional source rects would resample the grid into a blur)
     const blit = (x, w) => {
@@ -70,17 +71,17 @@ export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height
     }
     // quality renderer: samples → device-pixel columns, one fill per frame (see traceRender.js)
     const traceQuality = (st, from, T, step, restart) => {
-      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = strokeNow(); ctx.beginPath()
-      const emit = rectEmitter(ctx, lwDev())
-      if (restart) tracer.reset()
+      if (!stroker) stroker = new ColumnStroker(ctx, dpr)
+      if (restart) { tracer.reset(); stroker.reset() }
+      stroker.begin(strokeNow(), lwCss)
       let i = from, pT = penT, pX = penX
       for (; i < st.len && st.tAt(i) <= T; i++) {
         const t = st.tAt(i), x = xOf(t), y = yOf(st.vAt(i))
         const gap = pT != null && (t - pT > step * 1.5 || x < pX)
-        tracer.point(x * dpr, y * dpr, gap, emit)
+        tracer.point(x * dpr, y * dpr, gap, stroker.emit)
         pX = x; pT = t; penX = x; penY = y; penT = t; lastAbsIdx = st.trimmed + i
       }
-      ctx.fill(); ctx.restore()
+      stroker.end()
     }
     const eraseAdvance = (a, b) => {
       if ((b - a + W * 2) % W > W / 2) a = b // erase start ahead of the front (pen column + width): clamp, not wrap
@@ -173,7 +174,7 @@ export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height
       }
       if (lastAbsIdx == null) { needFull = true; return }
       // erase ahead of the pen only: starting at the pen's own x would clip the last stroke's edge every frame
-      eraseAdvance(mode === 'speed' || penX == null ? xOf(lastT) : Math.min(W - 1, (tracer.col + lwDev()) / dpr), xOf(T))
+      eraseAdvance(mode === 'speed' || penX == null ? xOf(lastT) : Math.min(W - 1, (tracer.col - 0.5) / dpr + lwCss / 2 + 1 / dpr), xOf(T))
       let i = lastAbsIdx - st.trimmed + 1
       if (i < 0) { needFull = true; lastT = T; return }
       if (i < st.len && st.tAt(i) <= T && mode !== 'speed') traceQuality(st, i, T, step, false)

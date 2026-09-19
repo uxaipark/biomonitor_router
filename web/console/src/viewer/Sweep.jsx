@@ -3,7 +3,7 @@ import { getStream, playoutNow } from '../waveStore.js'
 import { registerDraw } from '../renderLoop.js'
 import { latest } from '../ws.js'
 import { getRenderMode, onRenderMode } from '../settings.js'
-import { ColumnTracer, rectEmitter } from '../traceRender.js'
+import { ColumnTracer, ColumnStroker } from '../traceRender.js'
 
 // Monitor-style sweep trace that fills its box (the emulator's Central Station / bed viewer look): black or
 // paper ground with an ECG-paper major grid (bold line every 0.2 s), fixed physical range, colour per channel,
@@ -30,6 +30,7 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
     let visible = true
     let mode = getRenderMode()
     const tracer = new ColumnTracer()
+    let stroker = null
     const offMode = onRenderMode((m) => { mode = m; needFull = true })
 
     const size = () => {
@@ -41,6 +42,7 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
       lwDev = Math.max(1, Math.round(lineWidth * dpr))
       canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr)
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      stroker = new ColumnStroker(ctx, dpr)
       grid = document.createElement('canvas')
       grid.width = canvas.width; grid.height = canvas.height
       const g = grid.getContext('2d')
@@ -115,20 +117,16 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
 
     // ---- quality renderer: samples → device-pixel columns, one fill per frame
     const traceQuality = (st, from, T, step, restart) => {
-      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0)
-      ctx.fillStyle = strokeNow()
-      ctx.beginPath()
-      const emit = rectEmitter(ctx, lwDev)
-      if (restart) tracer.reset()
+      if (restart) { tracer.reset(); stroker.reset() }
+      stroker.begin(strokeNow(), lineWidth)
       let i = from, pT = penT, pX = penX
       for (; i < st.len && st.tAt(i) <= T; i++) {
         const t = st.tAt(i), x = xOf(t), y = yOf(st.vAt(i))
         const gap = pT != null && (t - pT > step * 1.5 || x < pX) // discontinuity or wrap at the right edge
-        tracer.point(x * dpr, y * dpr, gap, emit)
+        tracer.point(x * dpr, y * dpr, gap, stroker.emit)
         pX = x; pT = t; penX = x; penY = y; penT = t; lastAbsIdx = st.trimmed + i
       }
-      ctx.fill()
-      ctx.restore()
+      stroker.end()
       return i
     }
     // ---- speed renderer: anti-aliased polyline (original)
@@ -180,7 +178,8 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
       }
       if (lastAbsIdx == null) { needFull = true; return }
       // erase ahead of the pen only: starting at the pen's own x would clip the last stroke's edge every frame
-      const eraseFrom = penX == null ? xOf(lastT) : mode === 'speed' ? xOf(lastT) : Math.min(W - 1, (tracer.col + lwDev) / dpr)
+      // quality: the pen's column is not drawn yet; the previous column's stroke (round cap) reaches lineWidth/2 past its centre
+      const eraseFrom = penX == null ? xOf(lastT) : mode === 'speed' ? xOf(lastT) : Math.min(W - 1, (tracer.col - 0.5) / dpr + lineWidth / 2 + 1 / dpr)
       eraseAdvance(eraseFrom, xOf(T))
       let i = lastAbsIdx - st.trimmed + 1
       if (i < 0) { needFull = true; lastT = T; return }

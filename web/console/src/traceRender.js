@@ -1,35 +1,55 @@
-// Pixel-column tracer ("품질형" rendering). Bedside monitors draw a waveform as one vertical span per pixel
-// column: the span covers every sample that fell into that column and is joined to the previous column's last
-// row. Drawn with fillRect in whole device pixels, so there is no anti-aliasing, no overlapping strokes between
-// animation frames (which thicken the joints), and no decimation that drops R peaks. Redrawing a span is
-// idempotent, so incremental frames can extend a column freely. One fill() per frame: rects are accumulated
-// into the current path by `emit` and filled by the caller.
+// Column tracer ("품질형" rendering). Samples are bucketed per device-pixel column; a column contributes its
+// entry, min, max and exit rows (so R peaks survive when several samples share a column). Completed columns are
+// handed to the renderer once, in time order, and drawn as ONE anti-aliased polyline segment per frame — never
+// re-stroking geometry drawn in an earlier frame (which thickened the joints) and never decimating samples.
+// The column the pen is in is held back until the next column starts (≤ 1 sample of latency).
 export class ColumnTracer {
   constructor() { this.reset() }
-  reset() { this.col = -1; this.top = 0; this.bot = 0; this.row = 0 }
-  /** xd/yd: device-pixel coordinates (floats). `gap` = discontinuity before this sample. emit(col, top, bot). */
+  reset() { this.col = -1; this.entry = this.min = this.max = this.exit = 0; this.brk = true }
+  /** xd/yd: device-pixel coordinates (floats). `gap` = discontinuity before this sample.
+   *  emit(points, startNew): points = [[xd, yd], ...] of one completed column; startNew = do not join to the previous one. */
   point(xd, yd, gap, emit) {
-    const c = Math.floor(xd), r = Math.round(yd)
-    if (gap || this.col < 0 || c < this.col) { this.col = c; this.top = this.bot = this.row = r; emit(c, r, r); return }
-    if (c === this.col) {
-      if (r < this.top || r > this.bot) { this.top = Math.min(this.top, r); this.bot = Math.max(this.bot, r); emit(c, this.top, this.bot) }
-      this.row = r
+    const c = Math.floor(xd)
+    if (gap || this.col < 0 || c < this.col) {
+      if (this.col >= 0) this.flush(emit)
+      this.col = c; this.entry = this.min = this.max = this.exit = yd; this.brk = true
       return
     }
-    // advance one or more columns: interpolate a row for each column crossed so the trace stays connected
-    let prev = this.row
-    const span = c - this.col
-    for (let k = this.col + 1; k <= c; k++) {
-      const rk = k === c ? r : Math.round(prev + (r - prev) * (k - this.col) / span)
-      emit(k, Math.min(prev, rk), Math.max(prev, rk))
-      prev = rk
+    if (c === this.col) { if (yd < this.min) this.min = yd; if (yd > this.max) this.max = yd; this.exit = yd; return }
+    this.flush(emit)
+    // columns skipped in one step (very wide canvases): one interpolated point each keeps the line continuous
+    const span = c - this.col, from = this.exit
+    for (let k = this.col + 1; k < c; k++) emit([[k + 0.5, from + (yd - from) * (k - this.col) / span]], false)
+    this.col = c; this.entry = this.min = this.max = this.exit = yd
+  }
+  flush(emit) {
+    const x = this.col + 0.5, pts = [[x, this.entry]]
+    if (this.max - this.min > 0.5) {
+      if (Math.abs(this.entry - this.min) <= Math.abs(this.entry - this.max)) pts.push([x, this.min], [x, this.max]); else pts.push([x, this.max], [x, this.min])
     }
-    this.col = c; this.top = Math.min(this.row, r); this.bot = Math.max(this.row, r); this.row = r
+    if (Math.abs(this.exit - pts[pts.length - 1][1]) > 0.01) pts.push([x, this.exit])
+    emit(pts, this.brk)
+    this.brk = false
   }
 }
 
-/** Build an `emit` that appends the column span as a rect (lw device px thick) to the current path. */
-export function rectEmitter(ctx, lw) {
-  const off = Math.floor((lw - 1) / 2)
-  return (c, top, bot) => ctx.rect(c - off, top - off, lw, bot - top + lw)
+/** Renderer state for a canvas in CSS space (ctx transform = dpr): strokes each completed column once. */
+export class ColumnStroker {
+  constructor(ctx, dpr) { this.ctx = ctx; this.dpr = dpr; this.pen = null; this.open = false }
+  reset() { this.pen = null; this.open = false }
+  begin(color, lineWidth) {
+    const c = this.ctx
+    c.strokeStyle = color; c.lineWidth = lineWidth; c.lineJoin = 'round'; c.lineCap = 'round'
+    c.beginPath(); this.open = false
+  }
+  emit = (pts, startNew) => {
+    const c = this.ctx, d = this.dpr
+    for (let i = 0; i < pts.length; i++) {
+      const x = pts[i][0] / d, y = pts[i][1] / d
+      if (i === 0 && (startNew || !this.pen)) c.moveTo(x, y)
+      else { if (i === 0 && !this.open) c.moveTo(this.pen.x, this.pen.y); c.lineTo(x, y) }
+      this.open = true; this.pen = { x, y }
+    }
+  }
+  end() { if (this.open) this.ctx.stroke() }
 }
