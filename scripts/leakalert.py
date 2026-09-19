@@ -68,7 +68,10 @@ def main():
             same = [r for r in all_rows if r["pid"] == pid]
             w30 = [r for r in same if r["ts"] >= all_rows[-1]["ts"] - 1800]
             w10 = [r for r in same if r["ts"] >= all_rows[-1]["ts"] - 600]
-            if len(w30) >= 10:
+            # drift checks only once the router has warmed up: the first ~15 min after a start are a ramp
+            # (buffers, index, allocator arenas) and read as a false +20..30 MB/h slope
+            warm = float(st.get("uptime_s", 0)) >= 1200
+            if len(w30) >= 10 and warm:
                 s_pss = slope_h(w30, "pss_mb"); s_fd = slope_h(w30, "fds")
                 if s_pss > 20:
                     alert("pss", f"PSS growing {s_pss:+.1f} MB/h over 30 min (now {w30[-1]['pss_mb']:.0f} MB)")
