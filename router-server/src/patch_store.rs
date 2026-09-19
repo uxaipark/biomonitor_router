@@ -282,13 +282,21 @@ pub struct Entry {
 }
 
 /// Walk a buffer of entries. Returns (entries, bad_crc). `f` receives every entry whose CRC verifies.
-pub fn walk_entries(buf: &[u8], mut f: impl FnMut(&Entry)) -> (u64, u64) {
+pub fn walk_entries(buf: &[u8], f: impl FnMut(&Entry)) -> (u64, u64) {
+    walk_entries_in(buf, 0, u64::MAX, f)
+}
+
+/// Like `walk_entries`, but entries with ts outside [from_ms, to_ms) are skipped without copying their channel
+/// data or checking their CRC — a 5-minute history read of a full hour file then allocates only its own share
+/// instead of decoding all ~18k records (which showed up as +25 MB transient PSS per request).
+pub fn walk_entries_in(buf: &[u8], from_ms: u64, to_ms: u64, mut f: impl FnMut(&Entry)) -> (u64, u64) {
     let (mut ok, mut bad) = (0u64, 0u64);
     let mut off = 0usize;
     while off + ENTRY_HDR_LEN <= buf.len() {
         let start = off;
         let b = &buf[off..off + ENTRY_HDR_LEN];
         let ts_ms = u64::from_le_bytes(b[0..8].try_into().unwrap());
+        let wanted = ts_ms >= from_ms && ts_ms < to_ms;
         let gw_id = u32::from_le_bytes(b[8..12].try_into().unwrap());
         let patient_id = u32::from_le_bytes(b[12..16].try_into().unwrap());
         let seq = u32::from_le_bytes(b[16..20].try_into().unwrap());
@@ -313,7 +321,9 @@ pub fn walk_entries(buf: &[u8], mut f: impl FnMut(&Entry)) -> (u64, u64) {
                 truncated = true;
                 break;
             }
-            channels.push((ch, dt, n, buf[off..off + size].to_vec()));
+            if wanted {
+                channels.push((ch, dt, n, buf[off..off + size].to_vec()));
+            }
             off += size;
         }
         if truncated || off + 4 > buf.len() {
@@ -323,6 +333,10 @@ pub fn walk_entries(buf: &[u8], mut f: impl FnMut(&Entry)) -> (u64, u64) {
         let want = u32::from_le_bytes(buf[off..off + 4].try_into().unwrap());
         let body_end = off;
         off += 4;
+        if !wanted {
+            ok += 1;
+            continue;
+        }
         if wire::crc32(&buf[start..body_end]) == want {
             ok += 1;
             f(&Entry { ts_ms, gw_id, patient_id, seq, flags, battery, rssi, channels });
@@ -407,10 +421,7 @@ pub fn read_ecg_range(root: &Path, patch_id: u32, from_ms: u64, to_ms: u64) -> V
             continue;
         }
         let Ok(buf) = read_file(&path) else { continue };
-        walk_entries(&buf, |e| {
-            if e.ts_ms < from_ms || e.ts_ms >= to_ms {
-                return;
-            }
+        walk_entries_in(&buf, from_ms, to_ms, |e| {
             if let Some((_, dt, _, data)) = e.channels.iter().find(|c| c.0 == CH_ECG) {
                 if *dt == 1 {
                     let s: Vec<f32> = data
@@ -443,10 +454,7 @@ pub fn read_wave_range(root: &Path, patch_id: u32, from_ms: u64, to_ms: u64) -> 
             continue;
         }
         let Ok(buf) = read_file(&path) else { continue };
-        walk_entries(&buf, |e| {
-            if e.ts_ms < from_ms || e.ts_ms >= to_ms {
-                return;
-            }
+        walk_entries_in(&buf, from_ms, to_ms, |e| {
             let mut rec = WaveRec { ts_ms: e.ts_ms, seq: e.seq, blocks: Vec::new(), pace: Vec::new() };
             for (ch, dt, n, data) in &e.channels {
                 if *ch == wire::CH_PACE && *dt == 3 {
