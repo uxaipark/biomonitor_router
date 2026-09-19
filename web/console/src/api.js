@@ -38,6 +38,7 @@ export const api = {
   updateGroup: (id, g) => send('PUT', `/api/groups/${id}`, g),
   deleteGroup: (id) => send('DELETE', `/api/groups/${id}`),
   staff: () => get('/api/emr/staff'),
+  waveReset: () => send('POST', '/api/wave/reset'),
   verifyPatch: (id) => get(`/api/patches/${id}/verify`),
   emu: {
     status: () => get('/api/emu/status'),

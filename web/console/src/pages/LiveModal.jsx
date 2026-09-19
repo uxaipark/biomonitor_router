@@ -3,6 +3,8 @@ import { api, usePoll, fmtTime, fmtBytes } from '../api.js'
 import { claimLive, releaseLive, latest } from '../ws.js'
 import { WaveCard, WaveCanvas } from '../WaveCard.jsx'
 import { alarmIndex, flagNames, SEV_LABEL } from '../model.js'
+import HistoryPanel from '../viewer/History.jsx'
+import '../viewer/ds.css'
 
 /** One patient in detail: all waveforms, vitals, EMR profile (via the router's EMR proxy), storage index, alarms. */
 export function LiveModal({ channelId, alarms, onClose }) {
@@ -10,6 +12,7 @@ export function LiveModal({ channelId, alarms, onClose }) {
   const row = useMemo(() => (rows || []).find((r) => r.channel_id === channelId), [rows, channelId])
   const [idx] = usePoll(() => api.patch(channelId), 10000, [channelId])
   const [emr, setEmr] = useState(null)
+  const [history, setHistory] = useState(false)
   const [, tick] = useState(0)
   const aidx = useMemo(() => alarmIndex(alarms?.alarms), [alarms])
   const mine = (alarms?.alarms || []).filter((a) => a.channel_id === channelId)
@@ -32,11 +35,12 @@ export function LiveModal({ channelId, alarms, onClose }) {
         <div className="modal-head">
           <h2>{p.name || row.mrn} <small className="mono">패치 {channelId} · 환자번호 {row.patient_id} · {row.mrn}</small></h2>
           <span className="spacer" />
+          <button className={history ? 'primary' : ''} onClick={() => setHistory(!history)} title="저장된 파형 이력">이력</button>
           <button className="icon" onClick={onClose}>✕</button>
         </div>
         <div className="modal-cols">
           <div className="modal-main">
-            <WaveCard row={row} density="normal" alarm={aidx.get(channelId)} waves={waves} />
+            {history ? <div className="ds hx-host"><HistoryPanel id={channelId} compact onClose={() => setHistory(false)} /></div> : <WaveCard row={row} density="normal" alarm={aidx.get(channelId)} waves={waves} />}
             {waves.includes('accel') && (
               <div className="accel">
                 <small>가속도 X/Y/Z (g)</small>

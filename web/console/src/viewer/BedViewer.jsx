@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import Sweep from './Sweep.jsx'
+import HistoryPanel from './History.jsx'
 import { LIMITS, BAT_LOW, VM_TH, monAlarm, alarmKey } from './central.js'
 import { latest } from '../ws.js'
 import { api, usePoll, fmtTime } from '../api.js'
@@ -26,6 +27,7 @@ export default function BedViewer({ row, alarms, unit, onBack }) {
   const id = row?.channel_id
   const [night, setNight] = useState(() => { try { return localStorage.getItem('vm:night') === '1' } catch { return false } })
   const [silenced, setSilenced] = useState(false)
+  const [history, setHistory] = useState(false) // stored-waveform mode instead of the live traces
   const [emr, setEmr] = useState(null)
   const [hist, setHist] = useState([]) // sampled vitals for the sparkline / trend table
   const [, tick] = useState(0)
@@ -80,16 +82,17 @@ export default function BedViewer({ row, alarms, unit, onBack }) {
           {a[0] ? <span className={'vm-alarm' + (a[0] === 'yellow' ? ' is-yellow' : '')}>{a[1]}</span> : <span className="vm-quiet">{BELL}No active alarms</span>}
           <span className="vm-clock">{clock}</span>
           <button className={'btn btn-secondary ds-icon' + (silenced ? ' on' : '')} onClick={() => setSilenced(!silenced)} title="알람 묵음">{BELL}</button>
+          <button className={'btn ' + (history ? 'btn-primary' : 'btn-secondary')} onClick={() => setHistory(!history)} title="저장된 파형 이력">History</button>
           <button className={'btn ' + (night ? 'btn-primary' : 'btn-secondary')} onClick={() => setNight(!night)}>Night</button>
           <button className="btn btn-secondary" onClick={onBack}>Back</button>
         </div>
       </header>
       <main className="vm-main">
-        <section className="vm-waves">
+        {history ? <section className="vm-waves"><HistoryPanel id={id} theme={th} onClose={() => setHistory(false)} /></section> : <section className="vm-waves">
           <div className="vm-row cs-ecg"><div className="vm-ttl"><b>ECG · Lead II</b><span className="ds-dim">25 mm/s · 10 mm/mV</span><span className="ds-dim">Filter 0.5–40 Hz</span><span className="ds-dim vm-r">{flags & 0x10 ? 'Pacer on · pulse marks A/V' : 'Pacer off'}</span></div><div className="vm-box"><Sweep id={id} wave="ecg" range={[-1.5, 2.0]} color={th.ecg} theme={th} /><div className="ds-off">LEAD OFF</div></div></div>
           <div className="vm-row"><div className="vm-ttl"><b>Pleth · SpO₂</b><span className="ds-dim">{ch.includes('ppg') ? 'PPG' : ch.includes('spo2') ? 'Rate only' : 'No SpO₂ sensor'}</span></div><div className="vm-box">{ch.includes('ppg') ? <Sweep id={id} wave="ppg" range={[-1.2, 1.5]} color={th.ppg} theme={th} pace={false} /> : ch.includes('accel') ? <Sweep id={id} wave="accel0" range={[-1.6, 1.6]} color={th.ppg} theme={th} pace={false} /> : null}</div></div>
           <div className="vm-row"><div className="vm-ttl"><b>Resp · Impedance</b><span className="ds-dim">{ch.includes('resp_wave') ? 'Capacitive · Apnea limit 20 s' : 'Rate only'}</span></div><div className="vm-box">{ch.includes('resp_wave') && <Sweep id={id} wave="resp_wave" range={[-1.5, 1.5]} color={th.resp} theme={th} pace={false} />}</div></div>
-        </section>
+        </section>}
         <aside className="vm-aside">
           <VmTile k="hr" label="HR" unit="bpm" hi={LIMITS.hr[1]} lo={LIMITS.hr[0]} note="ECG · Lead II" val={v.hr} flag={flag} alarmColor={a[0]} spark={spark('hr')} />
           <VmTile k="spo2" label="SpO₂" unit="%" hi="100" lo={LIMITS.spo2[0]} note={ch.includes('ppg') ? 'PPG' : 'Patch'} val={v.spo2} flag={flag} alarmColor={a[0]} spark={spark('spo2')} />

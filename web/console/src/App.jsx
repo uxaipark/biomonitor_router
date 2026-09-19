@@ -12,6 +12,7 @@ import Viewers from './pages/Viewers.jsx'
 import Viewer from './pages/Viewer.jsx'
 import MultiViewerTest from './pages/MultiViewerTest.jsx'
 import Settings from './pages/Settings.jsx'
+import DataAdmin from './pages/DataAdmin.jsx'
 import { LiveModal } from './pages/LiveModal.jsx'
 
 const PAGES = [
@@ -25,6 +26,7 @@ const PAGES = [
   // entries with a 4th element hang under that top-menu group (rendered as a custom nav menu)
   ['#/live', '실시간', Live, '테스트'],
   ['#/test/multiviewer', '멀티 뷰어 테스트', MultiViewerTest, '테스트'],
+  ['#/test/data', '데이터 관리', DataAdmin, '테스트'],
   ['#/settings', '설정', Settings, null, 'last'], // 5th element: rendered after the menu groups
 ]
 const MENUS = [...new Set(PAGES.map((p) => p[3]).filter(Boolean))]

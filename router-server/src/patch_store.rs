@@ -425,6 +425,44 @@ pub fn read_ecg_range(root: &Path, patch_id: u32, from_ms: u64, to_ms: u64) -> V
     out
 }
 
+/// One stored record's waveform blocks: (ts_ms, seq, [(ch, n_samples_per_axis, i16 raw)], pace marks).
+pub struct WaveRec {
+    pub ts_ms: u64,
+    pub seq: u32,
+    pub blocks: Vec<(u8, u16, Vec<i16>)>,
+    pub pace: Vec<u16>,
+}
+
+/// All waveform channels (int16: ECG, accel, PPG, resp wave) and pace marks of a patch in [from_ms, to_ms).
+pub fn read_wave_range(root: &Path, patch_id: u32, from_ms: u64, to_ms: u64) -> Vec<WaveRec> {
+    let mut out = Vec::new();
+    let from_key = hour_key(from_ms);
+    let to_key = hour_key(to_ms);
+    for (key, path, _) in list_files(root, patch_id) {
+        if key < from_key || key > to_key {
+            continue;
+        }
+        let Ok(buf) = read_file(&path) else { continue };
+        walk_entries(&buf, |e| {
+            if e.ts_ms < from_ms || e.ts_ms >= to_ms {
+                return;
+            }
+            let mut rec = WaveRec { ts_ms: e.ts_ms, seq: e.seq, blocks: Vec::new(), pace: Vec::new() };
+            for (ch, dt, n, data) in &e.channels {
+                if *ch == wire::CH_PACE && *dt == 3 {
+                    rec.pace = data.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
+                } else if *dt == 1 && wire::wave_info(*ch).is_some() {
+                    rec.blocks.push((*ch, *n, data.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect()));
+                }
+            }
+            if !rec.blocks.is_empty() || !rec.pace.is_empty() {
+                out.push(rec);
+            }
+        });
+    }
+    out
+}
+
 /// (t, min, max) buckets of the ECG over a range — long-span overview.
 pub fn overview(root: &Path, patch_id: u32, from_ms: u64, to_ms: u64, buckets: usize) -> Vec<(u64, f32, f32)> {
     let buckets = buckets.clamp(1, 20_000);

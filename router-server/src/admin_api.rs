@@ -31,6 +31,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/channels", get(list_channels))
         .route("/api/wave/{channel_id}/info", get(wave_info))
         .route("/api/wave/{channel_id}", get(wave_read))
+        .route("/api/wave/{channel_id}/waves", get(wave_read_all))
         .route("/api/groups", get(list_groups))
         .route("/api/groups", post(create_group))
         .route("/api/groups/{id}", put(update_group))
@@ -584,6 +585,82 @@ async fn wave_read(
     }
     Json(serde_json::json!({ "from_ms": from, "to_ms": to, "segments": segments }))
         .into_response()
+}
+
+/// 저장 파형 전 채널 조회 (이력 뷰어). 범위 최대 10분. 바이너리 응답:
+///   [u8 0xB3][u32 header_len][header JSON][i16 blob]
+///   header = {"from_ms","to_ms","records","segments":[{key,fs,axes,scale,t0_ms,n,off}],"pace":[[ts_ms,mark],…]}
+/// 세그먼트 = 연속 레코드 묶음(seq 연속 · 시간 간격 정상); n 은 축당 샘플 수, off 는 블롭의 i16 인덱스, 값 = raw × scale.
+async fn wave_read_all(
+    State(state): State<Arc<AppState>>,
+    Path(channel_id): Path<String>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let now = crate::protocol::now_ms();
+    let getn = |k: &str, d: u64| q.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
+    let from = getn("from_ms", now.saturating_sub(60_000));
+    let to = getn("to_ms", now).min(from + 600_000);
+    let root = std::path::PathBuf::from(&state.cfg.store_dir);
+    let Some(pid) = patch_id_of(&channel_id) else { return (StatusCode::BAD_REQUEST, "bad patch id").into_response() };
+    let recs = tokio::task::spawn_blocking(move || crate::patch_store::read_wave_range(&root, pid, from, to)).await.unwrap_or_default();
+    // per-channel run detection: a new segment when the seq jumps or the time gap is not one bundle
+    // each segment keeps its own samples (records interleave channels); the blob is laid out segment by segment
+    struct Seg { key: &'static str, fs: u32, axes: usize, scale: f32, t0: u64, n: usize, data: Vec<i16>, last_seq: u32, last_end: u64 }
+    let mut segs: Vec<Seg> = Vec::new();
+    let mut open: std::collections::HashMap<u8, usize> = std::collections::HashMap::new(); // ch → index in segs
+    let mut pace: Vec<serde_json::Value> = Vec::new();
+    // bundle length per channel from the median record spacing (the store keeps no META); fs = n / bundle
+    let mut spacing: std::collections::HashMap<u8, Vec<u64>> = std::collections::HashMap::new();
+    let mut last_ts: std::collections::HashMap<u8, u64> = std::collections::HashMap::new();
+    for r in &recs {
+        for (ch, _, _) in &r.blocks {
+            if let Some(p) = last_ts.get(ch) { if r.ts_ms > *p { spacing.entry(*ch).or_default().push(r.ts_ms - p) } }
+            last_ts.insert(*ch, r.ts_ms);
+        }
+    }
+    let bundle_of = |ch: u8| -> u64 {
+        let mut v = spacing.get(&ch).cloned().unwrap_or_default();
+        if v.is_empty() { return 200 }
+        v.sort_unstable();
+        v[v.len() / 2].max(1)
+    };
+    let bundles: std::collections::HashMap<u8, u64> = recs.iter().flat_map(|r| r.blocks.iter().map(|b| b.0)).collect::<std::collections::HashSet<_>>().into_iter().map(|ch| (ch, bundle_of(ch))).collect();
+    for r in &recs {
+        for (ch, n, data) in &r.blocks {
+            let Some((key, scale)) = crate::wire::wave_info(*ch) else { continue };
+            let axes = crate::wire::axes(*ch);
+            let bundle = bundles.get(ch).copied().unwrap_or(200);
+            let fs = ((*n as u64) * 1000 / bundle) as u32;
+            let contiguous = open.get(ch).map(|&i| { let s = &segs[i]; r.seq.wrapping_sub(s.last_seq) <= 1 && r.ts_ms.abs_diff(s.last_end) <= bundle / 2 && s.fs == fs }).unwrap_or(false);
+            if !contiguous {
+                open.insert(*ch, segs.len());
+                segs.push(Seg { key, fs, axes, scale, t0: r.ts_ms, n: 0, data: Vec::new(), last_seq: r.seq, last_end: r.ts_ms });
+            }
+            let i = open[ch];
+            let s = &mut segs[i];
+            s.data.extend_from_slice(data);
+            s.n += *n as usize;
+            s.last_seq = r.seq;
+            s.last_end = r.ts_ms + bundle;
+        }
+        for m in &r.pace {
+            pace.push(serde_json::json!([r.ts_ms, m]));
+        }
+    }
+    let mut blob: Vec<i16> = Vec::with_capacity(segs.iter().map(|s| s.data.len()).sum());
+    let mut offs = Vec::with_capacity(segs.len());
+    for s in &segs { offs.push(blob.len()); blob.extend_from_slice(&s.data); }
+    let header = serde_json::json!({
+        "channel_id": channel_id, "from_ms": from, "to_ms": to, "records": recs.len(),
+        "segments": segs.iter().zip(offs.iter()).map(|(s, off)| serde_json::json!({"key": s.key, "fs": s.fs, "axes": s.axes, "scale": s.scale, "t0_ms": s.t0, "n": s.n, "off": off})).collect::<Vec<_>>(),
+        "pace": pace,
+    }).to_string();
+    let mut body = Vec::with_capacity(5 + header.len() + blob.len() * 2);
+    body.push(0xB3);
+    body.extend_from_slice(&(header.len() as u32).to_le_bytes());
+    body.extend_from_slice(header.as_bytes());
+    for v in &blob { body.extend_from_slice(&v.to_le_bytes()); }
+    ([(axum::http::header::CONTENT_TYPE, "application/octet-stream"), (axum::http::header::CACHE_CONTROL, "no-store")], body).into_response()
 }
 
 /// 수신/송신/패킷 누적 카운터 리셋 (어드민 채널 초기화 시 함께 호출)
