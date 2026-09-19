@@ -12,6 +12,8 @@ let wantChannels = new Set() // patch ids the live views want
 let wantGroups = new Set()   // pseudo groups: alarms, or real groups
 const listeners = { alarm: new Set(), stream: new Set(), status: new Set(), membership: new Set() }
 export const latest = new Map() // patch id → last stream item (vitals, flags, hr, seq, ts …)
+// cumulative WS ingress counters (stream_batch frames) — pages diff them to show packets/s, KB/s, items/s
+export const wsCounters = { frames: 0, bytes: 0, items: 0, decodeMs: 0 }
 let status = 'closed'
 
 export function onWs(kind, fn) {
@@ -87,7 +89,13 @@ function open() {
     if (wantChannels.size) ws.send(JSON.stringify({ type: 'subscribe_channels', channel_ids: [...wantChannels] }))
   }
   ws.onmessage = (ev) => {
-    if (ev.data instanceof ArrayBuffer) { handleItems(decodeBatch(ev.data)); return }
+    if (ev.data instanceof ArrayBuffer) {
+      const t0 = performance.now()
+      const items = decodeBatch(ev.data)
+      handleItems(items)
+      wsCounters.frames++; wsCounters.bytes += ev.data.byteLength; wsCounters.items += items.length; wsCounters.decodeMs += performance.now() - t0
+      return
+    }
     let m
     try { m = JSON.parse(ev.data) } catch { return }
     if (m.type === 'alarm') emit('alarm', m)

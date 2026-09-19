@@ -7,8 +7,8 @@ import { flagNames } from './model.js'
 const WINDOW_S = 6
 const GAP_PX = 16
 const GRID_PX = 40
-const WAVE_H = { normal: 110, compact: 70, dense: 34 }
-const WAVE_W = { normal: 460, compact: 460, dense: 300 }
+const WAVE_H = { normal: 110, compact: 46, dense: 34 }
+const WAVE_W = { normal: 460, compact: 300, dense: 300 }
 
 // Sweep-style ECG canvas (incremental drawing, shared rAF loop, auto-scaling envelope) — ported from the
 // 2026-08 viewer's ChannelCard. `id` is the patch id; the trace reads the `${id}:${wave}` ring.
@@ -17,17 +17,28 @@ export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height
   const H = height || WAVE_H[density] || WAVE_H.normal
   useEffect(() => {
     const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
     const W = WAVE_W[density] || 460
-    const dpr = Math.min(window.devicePixelRatio || 1, density === 'dense' ? 1.25 : 2)
-    canvas.width = W * dpr
-    canvas.height = H * dpr
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    const dpr = Math.min(window.devicePixelRatio || 1, density === 'normal' ? 2 : 1.25)
     const css = getComputedStyle(document.documentElement)
     const bg = css.getPropertyValue('--wave-bg').trim() || '#0b1220'
     const gridCol = css.getPropertyValue('--wave-grid').trim() || '#182338'
     const traceCol = color || css.getPropertyValue('--wave-trace').trim() || '#3ddc84'
     const staleCol = css.getPropertyValue('--wave-stale').trim() || '#5a6a80'
+    // backing stores are allocated on the first visible frame, so 2,000 off-screen cards cost no bitmap memory
+    let ctx = null, gridCanvas = null
+    const init = () => {
+      canvas.width = W * dpr
+      canvas.height = H * dpr
+      ctx = canvas.getContext('2d')
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      gridCanvas = document.createElement('canvas')
+      gridCanvas.width = W * dpr; gridCanvas.height = H * dpr
+      const g = gridCanvas.getContext('2d')
+      g.setTransform(dpr, 0, 0, dpr, 0, 0)
+      g.fillStyle = bg; g.fillRect(0, 0, W, H)
+      g.strokeStyle = gridCol; g.lineWidth = 1
+      for (let gx = GRID_PX; gx < W; gx += GRID_PX) { g.beginPath(); g.moveTo(gx + 0.5, 0); g.lineTo(gx + 0.5, H); g.stroke() }
+    }
 
     let envMin = -0.4, envMax = 1.2, tgtMin = null, tgtMax = null, clipFrames = 0, smallFrames = 0
     const yOf = (v) => H * (0.9 - 0.8 * ((v - envMin) / Math.max(envMax - envMin, 0.2)))
@@ -39,15 +50,6 @@ export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height
     const io = new IntersectionObserver((es) => { visible = es[es.length - 1].isIntersecting }, { rootMargin: '200px' })
     io.observe(canvas)
 
-    const gridCanvas = document.createElement('canvas')
-    gridCanvas.width = W * dpr; gridCanvas.height = H * dpr
-    {
-      const g = gridCanvas.getContext('2d')
-      g.setTransform(dpr, 0, 0, dpr, 0, 0)
-      g.fillStyle = bg; g.fillRect(0, 0, W, H)
-      g.strokeStyle = gridCol; g.lineWidth = 1
-      for (let gx = GRID_PX; gx < W; gx += GRID_PX) { g.beginPath(); g.moveTo(gx + 0.5, 0); g.lineTo(gx + 0.5, H); g.stroke() }
-    }
     let lastT = null, lastAbsIdx = null, penX = null, penY = null, penT = null, needFull = true, envTick = 0
     const strokeNow = () => {
       const l = latest.get(id)
@@ -111,6 +113,7 @@ export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height
         if (!visible) return
       }
       invisFrames = 0
+      if (!ctx) init()
       const T = playoutNow(now)
       const st = getStream(`${id}:${wave}`)
       if (T == null || !st || st.len === 0) return

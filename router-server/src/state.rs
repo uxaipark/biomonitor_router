@@ -60,6 +60,8 @@ pub struct AppState {
     pub dropped_analysis: AtomicU64,
     pub dropped_db: AtomicU64,
     pub dropped_wave: AtomicU64,
+    /// WS 구독자가 느려 broadcast 링(4096)에서 건너뛴 메시지 누적 (스트리밍 부하 시험 지표)
+    pub ws_lagged: AtomicU64,
     /// 분석 서버 연결 여부. false 면 패스스루 모드(파형 즉시 통과, hr 없음).
     pub analysis_up: AtomicBool,
     /// ingest 수신 통계 (어드민 실시간 표시용)
@@ -133,6 +135,7 @@ impl AppState {
             dropped_analysis: AtomicU64::new(0),
             dropped_db: AtomicU64::new(0),
             dropped_wave: AtomicU64::new(0),
+            ws_lagged: AtomicU64::new(0),
             analysis_up: AtomicBool::new(false),
             ingest_conns: AtomicU64::new(0),
             total_bytes: AtomicU64::new(0),

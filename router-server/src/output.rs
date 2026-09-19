@@ -6,6 +6,7 @@ use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::debug;
 
@@ -133,6 +134,7 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
                     }
                     // 느린 소비자: 밀린 메시지는 건너뛰고 최신부터 계속
                     Err(RecvError::Lagged(n)) => {
+                        state.ws_lagged.fetch_add(n, Ordering::Relaxed);
                         debug!("ws subscriber lagged, skipped {} messages", n);
                     }
                     Err(RecvError::Closed) => break,
