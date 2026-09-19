@@ -318,6 +318,8 @@ struct Stats {
     queue_dropped_wave: u64,
     /// 느린 WS 구독자 때문에 건너뛴 메시지 누적 (클라이언트가 못 따라온 양)
     ws_lagged: u64,
+    /// 알람·멤버십 큐가 가득 차 버린 메시지 누적 (0 이 정상)
+    ws_ctrl_dropped: u64,
     /// 열린 출력 WS 세션 수 / 채널 단위로 구독된 패치 수 (세션 간 중복 제외)
     ws_sessions: u64,
     ws_subscribed_channels: usize,
@@ -397,6 +399,7 @@ async fn stats(State(state): State<Arc<AppState>>) -> Json<Stats> {
         queue_dropped_db: state.dropped_db.load(Ordering::Relaxed),
         queue_dropped_wave: state.dropped_wave.load(Ordering::Relaxed),
         ws_lagged: state.ws_lagged.load(Ordering::Relaxed),
+        ws_ctrl_dropped: state.ws_ctrl_dropped.load(Ordering::Relaxed),
         ws_sessions: state.ws_sessions.load(Ordering::Relaxed),
         ws_subscribed_channels: state.sub_channels.len(),
         store_queue: state.store_tx.max_capacity() - state.store_tx.capacity(),

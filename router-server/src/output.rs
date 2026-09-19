@@ -46,8 +46,10 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
     // (5 packets/s per channel), far beyond the 100 ms flush and the viewer's 1 s jitter buffer. It was 8192,
     // which let 21 sessions hold ~170 MB of envelopes during a mass reconnect (observed: PSS 118 → 199 MB).
     let (env_tx, mut env_rx) = tokio::sync::mpsc::channel::<Arc<crate::state::OutEnvelope>>(512);
+    // alarms / membership / channel events ride their own queue so a waveform flood never drops them
+    let (ctrl_tx, mut ctrl_rx) = tokio::sync::mpsc::channel::<Arc<crate::state::OutEnvelope>>(1024);
     let sid = state.next_session.fetch_add(1, Ordering::Relaxed);
-    let session = Arc::new(crate::state::Session { subs: std::sync::RwLock::new(Default::default()), tx: env_tx });
+    let session = Arc::new(crate::state::Session { subs: std::sync::RwLock::new(Default::default()), tx: env_tx, ctrl: ctrl_tx });
     state.sessions.insert(sid, session.clone());
     state.ws_sessions.fetch_add(1, Ordering::Relaxed);
     let sync_subs = |session: &crate::state::Session, subs: &HashSet<String>, gw_subs: &HashSet<String>, ch_subs: &HashSet<String>| {
@@ -123,6 +125,14 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
                     }
                 }
                 sync_subs(&session, &subs, &gw_subs, &ch_subs);
+            }
+            envelope = ctrl_rx.recv() => {
+                let Some(env) = envelope else { break };
+                let n = env.json.len();
+                if tx.send(Message::Text(env.json.clone().into())).await.is_err() {
+                    break;
+                }
+                state.add_tx_bytes(n);
             }
             envelope = env_rx.recv() => {
                 let Some(env) = envelope else { break };

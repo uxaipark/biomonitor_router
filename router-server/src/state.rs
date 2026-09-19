@@ -54,7 +54,10 @@ pub struct SessionSubs {
 /// session consume every packet and lag together on ingest bursts.
 pub struct Session {
     pub subs: std::sync::RwLock<SessionSubs>,
+    /// 파형 스트림 큐 — 가득 차면 그 세션 몫만 버린다 (뷰어가 잠깐 멈춰도 라우터 메모리는 고정)
     pub tx: mpsc::Sender<Arc<OutEnvelope>>,
+    /// 알람·멤버십·채널 이벤트 큐. 파형과 분리해 두어야 폭주 중에도 알람이 버려지지 않는다.
+    pub ctrl: mpsc::Sender<Arc<OutEnvelope>>,
 }
 
 impl Session {
@@ -88,8 +91,10 @@ pub struct AppState {
     pub dropped_analysis: AtomicU64,
     pub dropped_db: AtomicU64,
     pub dropped_wave: AtomicU64,
-    /// 세션 큐(8192)가 가득 차 버린 메시지 누적 — 그 세션만 손해 (느린 구독자 지표)
+    /// 세션의 파형 큐가 가득 차 버린 패킷 누적 — 그 세션만 손해 (느린 구독자 지표)
     pub ws_lagged: AtomicU64,
+    /// 세션의 알람·멤버십 큐가 가득 차 버린 메시지 누적 — 정상 운영에선 0
+    pub ws_ctrl_dropped: AtomicU64,
     /// 현재 열린 출력 WS 세션 수
     pub ws_sessions: AtomicU64,
     /// 분석 서버 연결 여부. false 면 패스스루 모드(파형 즉시 통과, hr 없음).
@@ -166,6 +171,7 @@ impl AppState {
             dropped_db: AtomicU64::new(0),
             dropped_wave: AtomicU64::new(0),
             ws_lagged: AtomicU64::new(0),
+            ws_ctrl_dropped: AtomicU64::new(0),
             ws_sessions: AtomicU64::new(0),
             analysis_up: AtomicBool::new(false),
             ingest_conns: AtomicU64::new(0),
@@ -370,10 +376,13 @@ impl AppState {
     /// Hand an envelope to every session whose subscriptions match; a full session queue drops it for that session.
     pub fn route(&self, env: Arc<OutEnvelope>) {
         for s in self.sessions.iter() {
-            if s.wants(&env) {
-                if let Err(mpsc::error::TrySendError::Full(_)) = s.tx.try_send(env.clone()) {
-                    self.ws_lagged.fetch_add(1, Ordering::Relaxed);
-                }
+            if !s.wants(&env) {
+                continue;
+            }
+            let q = if env.is_stream { &s.tx } else { &s.ctrl };
+            if let Err(mpsc::error::TrySendError::Full(_)) = q.try_send(env.clone()) {
+                let counter = if env.is_stream { &self.ws_lagged } else { &self.ws_ctrl_dropped };
+                counter.fetch_add(1, Ordering::Relaxed);
             }
         }
     }

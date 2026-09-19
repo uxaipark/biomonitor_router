@@ -57,6 +57,9 @@ def main():
             alert("cpu", f"router CPU {cpu:.0f} % (1 core = 100) · WS sessions {st.get('ws_sessions')} · subs {st.get('ws_subscribed_channels')}")
         if sys_cpu > 85:
             alert("syscpu", f"system CPU {sys_cpu:.0f} %")
+        # alarm/membership messages have their own per-session queue; dropping one means a viewer missed an alarm
+        if float(st.get("ws_ctrl_dropped", 0)) > 0:
+            alert("ctrl", f"alarm/membership messages dropped for a session: {int(st['ws_ctrl_dropped'])} total")
         all_rows = rows(a.csv)
         if all_rows:
             pid = all_rows[-1]["pid"]
