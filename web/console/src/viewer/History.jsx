@@ -183,7 +183,6 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
     const restart = (i) => { const st = S[i]; if (!st.ctx) return; st.ctx.drawImage(st.grid, 0, 0, st.W, st.H); st.tracer.reset(); st.stroker.reset(); st.drawn = 0; st.pT = null; st.barX = null; st.seeded = false }
     const yOf = (st, range, v) => { const vm = Math.max(3, st.H * 0.1), [lo, hi] = range; return st.H - vm - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (st.H - 2 * vm) }
     const xOf = (st, t) => ((t - cur) / spanMs) * st.W
-    const blit = (st, x, w) => { const sx = Math.max(0, Math.floor(x * st.dpr)), sw = Math.min(st.grid.width - sx, Math.ceil(w * st.dpr) + 1); if (sw > 0) { st.ctx.save(); st.ctx.setTransform(1, 0, 0, 1, 0, 0); st.ctx.drawImage(st.grid, sx, 0, sw, st.grid.height, sx, 0, sw, st.grid.height); st.ctx.restore() } }
     const traceRuns = (i, runs) => {
       const st = S[i], row = rows[i]
       st.stroker.begin(row.color, row.lw)
@@ -241,8 +240,7 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
             st.seeded = true
           } else return
         }
-        // erase the old sweep bar, extend the trace with the samples not drawn yet, draw the bar at T
-        if (st.barX != null) blit(st, st.barX - 1, 3)
+        // extend the trace with the samples not drawn yet (no sweep bar: erasing it would wipe the newest column)
         if (st.drawn < st.t.length) { traceRuns(i, splitRuns(st, st.drawn)); st.drawn = st.t.length }
         if (row.key === 'ecg') {
           for (let j = 0; j < pace.length; j++) {
@@ -255,10 +253,6 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
             paceDrawn.add(j)
           }
         }
-        const bx = Math.round(xOf(st, T)) + 0.5
-        st.ctx.save(); st.ctx.globalAlpha = 0.6; st.ctx.strokeStyle = theme.paceLine[1] || '#fff'; st.ctx.lineWidth = 1
-        st.ctx.beginPath(); st.ctx.moveTo(bx, 0); st.ctx.lineTo(bx, st.H); st.ctx.stroke(); st.ctx.restore()
-        st.barX = bx
       })
     }
     // accumulated ring samples → uniformly spaced runs (split at gaps), from index `from`

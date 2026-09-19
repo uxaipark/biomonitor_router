@@ -589,8 +589,9 @@ async fn wave_read(
 
 /// 저장 파형 전 채널 조회 (이력 뷰어). 범위 최대 10분. 바이너리 응답:
 ///   [u8 0xB3][u32 header_len][header JSON][i16 blob]
-///   header = {"from_ms","to_ms","records","segments":[{key,fs,axes,scale,t0_ms,n,off}],"pace":[[ts_ms,mark],…]}
+///   header = {"from_ms","to_ms","records","segments":[{key,fs,axes,scale,t0_ms,n,off}],"pace":[[t_ms,mark],…]}
 /// 세그먼트 = 연속 레코드 묶음(seq 연속 · 시간 간격 정상); n 은 축당 샘플 수, off 는 블롭의 i16 인덱스, 값 = raw × scale.
+/// 레코드의 ts_ms 는 번들 마지막 샘플 시각(스트림/링 버퍼와 같은 규약)이므로 t0_ms = ts − (n−1)/fs, 페이스 t 도 절대 시각.
 async fn wave_read_all(
     State(state): State<Arc<AppState>>,
     Path(channel_id): Path<String>,
@@ -624,6 +625,7 @@ async fn wave_read_all(
         v.sort_unstable();
         v[v.len() / 2].max(1)
     };
+    let ecg_fs: Option<u32> = recs.iter().flat_map(|r| r.blocks.iter()).find(|b| b.0 == crate::wire::CH_ECG).map(|b| (b.1 as u64 * 1000 / bundle_of(crate::wire::CH_ECG)) as u32);
     let bundles: std::collections::HashMap<u8, u64> = recs.iter().flat_map(|r| r.blocks.iter().map(|b| b.0)).collect::<std::collections::HashSet<_>>().into_iter().map(|ch| (ch, bundle_of(ch))).collect();
     for r in &recs {
         for (ch, n, data) in &r.blocks {
@@ -634,7 +636,8 @@ async fn wave_read_all(
             let contiguous = open.get(ch).map(|&i| { let s = &segs[i]; r.seq.wrapping_sub(s.last_seq) <= 1 && r.ts_ms.abs_diff(s.last_end) <= bundle / 2 && s.fs == fs }).unwrap_or(false);
             if !contiguous {
                 open.insert(*ch, segs.len());
-                segs.push(Seg { key, fs, axes, scale, t0: r.ts_ms, n: 0, data: Vec::new(), last_seq: r.seq, last_end: r.ts_ms });
+                let t0 = r.ts_ms.saturating_sub(((*n as u64).saturating_sub(1)) * 1000 / fs.max(1) as u64);
+                segs.push(Seg { key, fs, axes, scale, t0, n: 0, data: Vec::new(), last_seq: r.seq, last_end: r.ts_ms });
             }
             let i = open[ch];
             let s = &mut segs[i];
@@ -643,8 +646,15 @@ async fn wave_read_all(
             s.last_seq = r.seq;
             s.last_end = r.ts_ms + bundle;
         }
-        for m in &r.pace {
-            pace.push(serde_json::json!([r.ts_ms, m]));
+        // pace offsets index this frame's ECG block, whose last sample is at ts_ms: t = ts − (n_ecg−1)/fs + off/fs
+        if !r.pace.is_empty() {
+            let bundle = bundles.get(&crate::wire::CH_ECG).copied().unwrap_or(200);
+            let fs = ecg_fs.unwrap_or(250) as f64;
+            let n_ecg = (bundle as f64 * fs / 1000.0).round().max(1.0);
+            for m in &r.pace {
+                let t = r.ts_ms as f64 - (n_ecg - 1.0) * 1000.0 / fs + ((m & 0x3fff) as f64) * 1000.0 / fs;
+                pace.push(serde_json::json!([t.round() as u64, m]));
+            }
         }
     }
     let mut blob: Vec<i16> = Vec::with_capacity(segs.iter().map(|s| s.data.len()).sum());
