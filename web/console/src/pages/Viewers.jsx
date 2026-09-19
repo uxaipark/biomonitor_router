@@ -59,7 +59,11 @@ export default function Viewers({ alarms }) {
     if (BOOL_KIND[kind]) {
       const { test, all } = BOOL_KIND[kind]
       const hits = live.filter((r) => test(r, mobile))
-      for (const r of hits) add(' ' + (r.patient?.ward || '기타'), r, r.patient?.ward || '병동 미상', [r.patient?.building, r.patient?.floor && `${r.patient.floor}F`].filter(Boolean).join(' '))
+      for (const r of hits) {
+        const key = ' ' + (r.patient?.ward || '기타')
+        add(key, r, r.patient?.ward || '병동 미상', [r.patient?.building, r.patient?.floor && `${r.patient.floor}F`].filter(Boolean).join(' '))
+        if (!r.patient?.ward) { const e = m.get(key); (e.ids = e.ids || []).push(r.channel_id) } // no ward to scope by: open by patch ids
+      }
       const v = [...m.values()].sort((a, b) => a.label.localeCompare(b.label, 'ko'))
       const total = { key: '', label: all, sub: `${[...m.keys()].length}개 병동`, count: hits.length, alarms: hits.filter((r) => alarmIds.has(r.channel_id)).length, gws: new Set(hits.map((r) => r.gateway_id).filter(Boolean)) }
       return [total, ...v.map((e) => ({ ...e, key: e.key.trim() }))]
@@ -105,7 +109,7 @@ export default function Viewers({ alarms }) {
   }, [live, groups, mobile])
 
   const kindLabel = KINDS.find(([k]) => k === kind)[1]
-  const urlFor = (e, t) => viewerUrl({ tpl: t, ...(BOOL_KIND[kind]?.scope || {}), [SCOPE_KEY[kind]]: e.key, label: BOOL_KIND[kind] ? (e.key ? `${kindLabel} · 병동 ${e.label}` : e.label) : `${kindLabel} ${e.label}` })
+  const urlFor = (e, t) => viewerUrl({ tpl: t, ...(BOOL_KIND[kind]?.scope || {}), ...(e.ids ? { ids: e.ids } : { [SCOPE_KEY[kind]]: e.key }), label: BOOL_KIND[kind] ? (e.key ? `${kindLabel} · 병동 ${e.label}` : e.label) : `${kindLabel} ${e.label}` })
   const open = (e, t = tpl) => window.open(urlFor(e, t), '_blank', 'noopener')
   const tplOpts = TEMPLATES.map((t) => ({ value: t.id, label: t.name }))
   const removeGroup = async (g) => {
