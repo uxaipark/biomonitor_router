@@ -258,6 +258,11 @@ impl Registry {
         verdict
     }
 
+    /// Is this channel in any of the given groups? (no Vec clone)
+    pub fn in_any_group(&self, channel_id: &str, groups: &dashmap::DashMap<String, usize>) -> bool {
+        self.channels.get(channel_id).map(|c| c.groups.iter().any(|g| groups.contains_key(g))).unwrap_or(false)
+    }
+
     /// Visit every row by reference (alarm engine): no per-row clones.
     pub fn for_each(&self, mut f: impl FnMut(&str, &ChannelState)) {
         for e in self.channels.iter() {
@@ -461,6 +466,14 @@ impl Registry {
             .filter(|e| e.gateway_id == gateway_id && e.connected)
             .map(|e| e.key().clone())
             .collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.channels.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.channels.is_empty()
     }
 
     pub fn channel_ids(&self) -> Vec<String> {

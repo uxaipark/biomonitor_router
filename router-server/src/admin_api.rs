@@ -64,7 +64,7 @@ async fn debug_sizes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         (c.len(), c.values().map(|(_, b)| b.len()).sum::<usize>())
     };
     Json(serde_json::json!({
-        "registry_rows": state.registry.channel_ids().len(),
+        "registry_rows": state.registry.len(),
         "registry_connected": state.registry.connected_count(),
         "registry_pending_packets": state.registry.pending_total(),
         "gateway_rows": state.gateways.len(),
@@ -187,13 +187,33 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
     Json(Health {
         ok: true,
         analysis_connected: state.analysis_up(),
-        channel_count: state.registry.channel_ids().len(),
+        channel_count: state.registry.len(),
         channels_connected: state.registry.connected_count(),
     })
 }
 
+/// The console polls /api/channels and /api/gateways from several pages (2,000 rows ≈ 1.6 MB JSON each):
+/// one serialisation per second serves every client.
+static SNAP_CACHE: std::sync::LazyLock<std::sync::Mutex<[(std::time::Instant, Arc<String>); 2]>> = std::sync::LazyLock::new(|| {
+    let t = std::time::Instant::now() - std::time::Duration::from_secs(10);
+    std::sync::Mutex::new([(t, Arc::new(String::new())), (t, Arc::new(String::new()))])
+});
+
+fn cached_json(slot: usize, build: impl FnOnce() -> String) -> axum::response::Response {
+    let now = std::time::Instant::now();
+    {
+        let c = SNAP_CACHE.lock().unwrap();
+        if now.duration_since(c[slot].0) < std::time::Duration::from_secs(1) {
+            return body_with_type(c[slot].1.clone(), "application/json; charset=utf-8");
+        }
+    }
+    let body = Arc::new(build());
+    SNAP_CACHE.lock().unwrap()[slot] = (now, body.clone());
+    body_with_type(body, "application/json; charset=utf-8")
+}
+
 async fn list_channels(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    Json(state.registry.snapshot())
+    cached_json(0, || serde_json::to_string(&state.registry.snapshot()).unwrap_or_else(|_| "[]".into()))
 }
 
 #[derive(Serialize)]
@@ -363,7 +383,7 @@ async fn stats(State(state): State<Arc<AppState>>) -> Json<Stats> {
         uptime_s: state.started_at.elapsed().as_secs(),
         downtime_ms: state.downtime_ms(),
         analysis_connected: state.analysis_up(),
-        channel_count: state.registry.channel_ids().len(),
+        channel_count: state.registry.len(),
         channels_connected: state.registry.connected_count(),
         queue_dropped_analysis: state.dropped_analysis.load(Ordering::Relaxed),
         queue_dropped_db: state.dropped_db.load(Ordering::Relaxed),
@@ -391,7 +411,7 @@ async fn list_displays(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 
 /// 게이트웨이 표 (v3 ingest 링크 상태·카운터·GW_STATUS·NACK)
 async fn gateways(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    Json(state.gateways.snapshot())
+    cached_json(1, || serde_json::to_string(&state.gateways.snapshot()).unwrap_or_else(|_| "[]".into()))
 }
 
 async fn gateways_summary(State(state): State<Arc<AppState>>) -> impl IntoResponse {

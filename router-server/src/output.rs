@@ -44,7 +44,8 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
                 let Ok(cmsg) = serde_json::from_str::<ClientMsg>(text.as_str()) else { continue };
                 match cmsg {
                     ClientMsg::Subscribe { group_id } => {
-                        if subs.insert(group_id.clone()) {
+                        // "alarms" is a pseudo group (alarm events only): it must not make every record look wanted
+                        if subs.insert(group_id.clone()) && group_id != crate::alarms::GROUP {
                             *state.sub_groups.entry(group_id.clone()).or_insert(0) += 1;
                         }
                         // 구독 즉시 현재 멤버 스냅샷 전송 → 초기 화면을 매끄럽게 구성

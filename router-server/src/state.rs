@@ -211,7 +211,7 @@ impl AppState {
             "ingest_connections": self.ingest_conns.load(Ordering::Relaxed),
             "rx_bytes": self.total_bytes.load(Ordering::Relaxed),
             "records": self.total_packets.load(Ordering::Relaxed),
-            "patches": self.registry.channel_ids().len(),
+            "patches": self.registry.len(),
             "lost_packets": self.total_lost_packets.load(Ordering::Relaxed),
             "store_bytes": crate::patch_store::STORE_BYTES.load(Ordering::Relaxed),
             "store_patches": crate::patch_store::STORE_PATCHES.load(Ordering::Relaxed),
@@ -220,6 +220,17 @@ impl AppState {
             "gateways": self.gateways.summary(),
             "alarms": self.alarms.summary(),
         })
+    }
+
+    /// Does any WS session subscribe to this patch (by channel id, its gateway, or one of its groups)?
+    /// Cheap enough per record: 1–3 map lookups, no clones. Used before building a stream packet at all.
+    pub fn stream_wanted(&self, channel_id: &str, gateway_id: &str) -> bool {
+        if self.out_tx.receiver_count() == 0 {
+            return false;
+        }
+        self.sub_channels.contains_key(channel_id)
+            || (!gateway_id.is_empty() && self.sub_gateways.contains_key(gateway_id))
+            || (!self.sub_groups.is_empty() && self.registry.in_any_group(channel_id, &self.sub_groups))
     }
 
     pub fn add_tx_bytes(&self, n: usize) {
@@ -330,11 +341,7 @@ impl AppState {
         if self.out_tx.receiver_count() == 0 {
             return;
         }
-        // Serialise only what some session subscribed to (by channel, gateway or group).
-        let wanted = self.sub_channels.contains_key(&pkt.channel_id)
-            || (!pkt.gateway_id.is_empty() && self.sub_gateways.contains_key(&pkt.gateway_id))
-            || (!self.sub_groups.is_empty() && self.registry.groups_of(&pkt.channel_id).iter().any(|g| self.sub_groups.contains_key(g)));
-        if !wanted {
+        if !self.stream_wanted(&pkt.channel_id, &pkt.gateway_id) {
             return;
         }
         let groups = self.registry.groups_of(&pkt.channel_id);

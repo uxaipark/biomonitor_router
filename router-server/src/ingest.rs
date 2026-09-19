@@ -251,12 +251,14 @@ fn finish_records(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>, m
     }
     // Nobody consumes stream packets without an analysis server or a WS session: update the registry row
     // from the raw record and skip building EcgPacket (samples, blob, JSON) for 10k records/s.
-    let want_stream = state.analysis_up() || state.out_tx.receiver_count() > 0;
+    let analysis = state.analysis_up();
     let mut batch = StoreBatch::new(hdr.ts_ms, hdr.gw_id, frame.records.len());
     for rec in &frame.records {
         state.total_packets.fetch_add(1, Ordering::Relaxed);
         batch.push(rec.raw);
         let channel_id = rec.patch_id.to_string();
+        // Build a stream packet only for the analysis server or a patch someone actually subscribed to.
+        let want_stream = analysis || state.stream_wanted(&channel_id, &gw_key);
         if !want_stream && verdict != SeqVerdict::Recovered {
             let mut vit = Vitals::default();
             for c in &rec.channels {
