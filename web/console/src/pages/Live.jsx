@@ -6,7 +6,8 @@ import { alarmIndex } from '../model.js'
 import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
 
-const MAX = 48
+// cards per density: dense cards are small enough for ~120 on one screen
+const MAX = { normal: 48, compact: 72, dense: 120 }
 
 /** Live waveform grid: pick a ward / gateway / search, up to 48 patients at once. */
 export default function Live({ alarms }) {
@@ -41,8 +42,8 @@ export default function Live({ alarms }) {
     if (needle) v = v.filter((r) => [r.channel_id, r.patient?.name, r.mrn, r.patient?.room].some((x) => String(x || '').toLowerCase().includes(needle)))
     if (onlyAlarm) v = v.filter((r) => aidx.has(r.channel_id))
     v.sort((a, b) => (a.patient?.room || '').localeCompare(b.patient?.room || '', 'ko') || Number(a.channel_id) - Number(b.channel_id))
-    return v.slice(0, MAX)
-  }, [rows, ward, gw, q, onlyAlarm, aidx])
+    return v.slice(0, MAX[density] || 48)
+  }, [rows, ward, gw, q, onlyAlarm, aidx, density])
 
   const ids = selected.map((r) => r.channel_id).join(',')
   useEffect(() => { claimLive('live', ids ? ids.split(',') : []); return () => releaseLive('live') }, [ids])
@@ -58,7 +59,7 @@ export default function Live({ alarms }) {
         <input placeholder="검색" value={q} onChange={(e) => setQ(e.target.value)} />
         <label className="chk"><input type="checkbox" checked={onlyAlarm} onChange={(e) => setOnlyAlarm(e.target.checked)} /> 알람만</label>
         <span className="seg">{['normal', 'compact', 'dense'].map((d) => <button key={d} className={density === d ? 'active' : ''} onClick={() => setDensity(d)}>{{ normal: '크게', compact: '보통', dense: '촘촘' }[d]}</button>)}</span>
-        <span className="muted">{selected.length}명 표시 (최대 {MAX})</span>
+        <span className="muted">{selected.length}명 표시 (최대 {MAX[density] || 48})</span>
       </div>
       {!ward && !gw && !q && <p className="muted">병동이나 게이트웨이를 고르면 해당 환자의 파형이 실시간으로 표시됩니다. 카드를 누르면 상세 창이 열립니다.</p>}
       <div className={'grid ' + density}>

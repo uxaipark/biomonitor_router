@@ -7,7 +7,8 @@ import { flagNames } from './model.js'
 const WINDOW_S = 6
 const GAP_PX = 16
 const GRID_PX = 40
-const WAVE_H = { normal: 110, compact: 70, dense: 46 }
+const WAVE_H = { normal: 110, compact: 70, dense: 34 }
+const WAVE_W = { normal: 460, compact: 460, dense: 300 }
 
 // Sweep-style ECG canvas (incremental drawing, shared rAF loop, auto-scaling envelope) — ported from the
 // 2026-08 viewer's ChannelCard. `id` is the patch id; the trace reads the `${id}:${wave}` ring.
@@ -17,8 +18,8 @@ export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height
   useEffect(() => {
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')
-    const W = 460
-    const dpr = Math.min(window.devicePixelRatio || 1, density === 'dense' ? 1.5 : 2)
+    const W = WAVE_W[density] || 460
+    const dpr = Math.min(window.devicePixelRatio || 1, density === 'dense' ? 1.25 : 2)
     canvas.width = W * dpr
     canvas.height = H * dpr
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -153,7 +154,7 @@ export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height
     const unregister = registerDraw(draw)
     return () => { unregister(); io.disconnect() }
   }, [id, wave, H, density, color])
-  return <canvas ref={canvasRef} width={460} height={H} className="wave" />
+  return <canvas ref={canvasRef} width={WAVE_W[density] || 460} height={H} className="wave" />
 }
 
 const V = ({ label, value, unit, cls }) => (
@@ -171,8 +172,35 @@ export function WaveCard({ row, density = 'normal', alarm, onClick, waves }) {
   const stale = live ? Date.now() - live.rx > 5000 : row.stale
   const names = flagNames(flags)
   const sevCls = alarm ? `sev-${alarm.severity}` : ''
+  const cls = ['card', density, stale ? 'stale' : '', sevCls, row.connected === false ? 'disconnected' : ''].join(' ')
+  if (density === 'dense') {
+    // stacked layout: patient/location line → ECG strip → key numbers, so ~120 cards fit on one screen
+    const loc = [p.ward, p.room || row.space].filter(Boolean).join(' ')
+    const bat = live?.battery ?? row.battery
+    return (
+      <div className={cls} onClick={onClick} title={[id, p.name, p.building, p.floor && `${p.floor}F`, p.ward, p.room, p.doctor, p.nurse].filter(Boolean).join(' · ')}>
+        <div className="card-head">
+          <b className="pname">{p.name || row.mrn || id}</b>
+          <span className="ploc">{loc}</span>
+          <span className="pid">{id}</span>
+          <span className="spacer" />
+          {alarm && <span className={`tag sev-${alarm.severity}`}>{alarm.message}</span>}
+          {names.map((n) => <span key={n} className={'tag ' + (n === 'LEAD_OFF' || n === 'LOW_BATTERY' ? 'warn' : '')}>{n}</span>)}
+          {stale && <span className="tag err">수신 없음</span>}
+        </div>
+        <WaveCanvas id={id} wave="ecg" density="dense" />
+        <div className="card-foot">
+          <V label="HR" value={v.hr} cls="hr" />
+          <V label="SpO₂" value={v.spo2} cls="spo2" />
+          <V label="RR" value={v.resp} cls="rr" />
+          <V label="T" value={v.temp != null ? v.temp.toFixed(1) : null} cls="temp" />
+          <span className={'vital small' + (bat != null && bat <= 15 ? ' low' : '')}><small>BAT</small><b>{bat ?? '—'}</b></span>
+        </div>
+      </div>
+    )
+  }
   return (
-    <div className={['card', density, stale ? 'stale' : '', sevCls, row.connected === false ? 'disconnected' : ''].join(' ')} onClick={onClick}>
+    <div className={cls} onClick={onClick}>
       <div className="card-head">
         <span className="pid">{id}</span>
         <b className="pname">{p.name || row.mrn || '—'}</b>
