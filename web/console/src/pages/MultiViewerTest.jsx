@@ -54,14 +54,14 @@ export default function MultiViewerTest() {
   return (
     <div className="page">
       <div className="stat-line">
-        <span className="stat"><small>열린 뷰어</small><b>{openCount}</b><small>/ {wards.length}</small></span>
-        <span className="stat"><small>표시 중인 환자 파형</small><b>{openPatients.toLocaleString()}</b><small>명</small></span>
-        <span className="stat"><small>라우터 WS 세션</small><b>{stats?.ws_sessions ?? '—'}</b><small>구독 채널 {stats?.ws_subscribed_channels?.toLocaleString() ?? '—'}</small></span>
-        <span className={'stat' + (stats?.cpu_process_percent > 150 ? ' warn' : '')}><small>라우터 CPU</small><b>{stats ? stats.cpu_process_percent.toFixed(0) : '—'}</b><small>% (1코어=100)</small></span>
-        <span className={'stat' + (stats?.cpu_percent > 70 ? ' warn' : '')}><small>시스템 CPU</small><b>{stats ? stats.cpu_percent.toFixed(0) : '—'}</b><small>%</small></span>
-        <span className="stat"><small>라우터 메모리</small><b>{stats ? fmtBytes(stats.mem_process_bytes) : '—'}</b></span>
-        <span className={'stat' + (memPct > 80 ? ' warn' : '')}><small>시스템 메모리</small><b>{memPct ?? '—'}</b><small>% ({stats ? fmtBytes(stats.mem_sys_used_bytes) : '—'} / {stats ? fmtBytes(stats.mem_sys_total_bytes) : '—'})</small></span>
-        <span className={'stat' + (stats?.ws_lagged > 0 ? ' warn' : '')}><small>WS 지연 건너뜀</small><b>{stats?.ws_lagged?.toLocaleString() ?? '—'}</b></span>
+        <span className="stat"><small>열린 뷰어</small><b style={{ minWidth: '3ch' }}>{openCount}</b><small>/ {wards.length}</small></span>
+        <span className="stat"><small>표시 중인 환자 파형</small><b style={{ minWidth: '5ch' }}>{openPatients.toLocaleString()}</b><small>명</small></span>
+        <span className="stat"><small>라우터 WS 세션</small><b style={{ minWidth: '3ch' }}>{stats?.ws_sessions ?? '—'}</b><small>구독 채널 {stats?.ws_subscribed_channels?.toLocaleString() ?? '—'}</small></span>
+        <span className={'stat' + (stats?.cpu_process_percent > 150 ? ' warn' : '')}><small>라우터 CPU</small><b style={{ minWidth: '3ch' }}>{stats ? stats.cpu_process_percent.toFixed(0) : '—'}</b><small>% (1코어=100)</small></span>
+        <span className={'stat' + (stats?.cpu_percent > 70 ? ' warn' : '')}><small>시스템 CPU</small><b style={{ minWidth: '3ch' }}>{stats ? stats.cpu_percent.toFixed(0) : '—'}</b><small>%</small></span>
+        <span className="stat"><small>라우터 메모리</small><b style={{ minWidth: '9ch' }}>{stats ? fmtBytes(stats.mem_process_bytes) : '—'}</b></span>
+        <span className={'stat' + (memPct > 80 ? ' warn' : '')}><small>시스템 메모리</small><b style={{ minWidth: '3ch' }}>{memPct ?? '—'}</b><small>% ({stats ? fmtBytes(stats.mem_sys_used_bytes) : '—'} / {stats ? fmtBytes(stats.mem_sys_total_bytes) : '—'})</small></span>
+        <span className={'stat' + (stats?.ws_lagged > 0 ? ' warn' : '')}><small>WS 지연 건너뜀</small><b style={{ minWidth: '7ch' }}>{stats?.ws_lagged?.toLocaleString() ?? '—'}</b></span>
       </div>
       <h2 className="h">멀티 뷰어 테스트</h2>
       <p className="muted">병동마다 브라우저 탭을 하나씩 열고 그 병동의 뷰어를 띄웁니다. 병동 {wards.length}곳 · 환자 {live.length.toLocaleString()}명. 탭마다 WebSocket 1개를 열어 그 병동 채널만 구독하므로 라우터 WS 세션·구독 채널 수와 브라우저 부하를 함께 볼 수 있습니다.</p>
