@@ -76,6 +76,9 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
     }
     // clear from `a` (CSS px) forward to the sweep front `b` plus the gap, wrapping at the right edge
     const eraseAdvance = (a, b) => {
+      // the erase start may sit a column or two AHEAD of the sweep front (pen column + line width); treating that
+      // as a wrap would wipe the whole trace, so clamp it to the front
+      if ((b - a + W * 2) % W > W / 2) a = b
       let len = (b - a + W * 2) % W + gapPx()
       if (len > W) len = W
       const w1 = Math.min(len, W - a)

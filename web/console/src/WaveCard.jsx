@@ -83,6 +83,7 @@ export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height
       ctx.fill(); ctx.restore()
     }
     const eraseAdvance = (a, b) => {
+      if ((b - a + W * 2) % W > W / 2) a = b // erase start ahead of the front (pen column + width): clamp, not wrap
       let len = (b - a + W * 2) % W + GAP_PX
       if (len > W) len = W
       const w1 = Math.min(len, W - a)
