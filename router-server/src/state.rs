@@ -10,7 +10,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
 
 /// 어드민 실시간 이벤트 목록에 표시되는 시스템 이벤트 (분석 지연/다운 등)
 #[derive(Debug, Clone, Serialize)]
@@ -40,11 +40,39 @@ pub struct OutEnvelope {
     pub json: String,
 }
 
+/// One WS session's subscriptions, read by the publisher on every packet (written only on subscribe/unsubscribe).
+#[derive(Default)]
+pub struct SessionSubs {
+    pub groups: std::collections::HashSet<String>,
+    pub gws: std::collections::HashSet<String>,
+    pub channels: std::collections::HashSet<String>,
+}
+
+/// A connected WS session: its subscription sets and a bounded queue of envelopes routed to it.
+/// Routing happens at publish time (sender side), so a burst on channels nobody watches never touches a
+/// session, and a slow session only loses its own packets (`ws_lagged`) — the old broadcast ring made every
+/// session consume every packet and lag together on ingest bursts.
+pub struct Session {
+    pub subs: std::sync::RwLock<SessionSubs>,
+    pub tx: mpsc::Sender<Arc<OutEnvelope>>,
+}
+
+impl Session {
+    pub fn wants(&self, env: &OutEnvelope) -> bool {
+        let s = self.subs.read().unwrap();
+        env.groups.iter().any(|g| s.groups.contains(g))
+            || env.gateway_id.as_ref().map(|g| s.gws.contains(g)).unwrap_or(false)
+            || env.channel_id.as_ref().map(|c| s.channels.contains(c)).unwrap_or(false)
+    }
+}
+
 pub struct AppState {
     pub cfg: Config,
     pub registry: Registry,
     pub groups: GroupStore,
-    pub out_tx: broadcast::Sender<Arc<OutEnvelope>>,
+    /// 출력 WS 세션 (id → 세션); 발행 시 구독이 맞는 세션의 큐에만 넣는다
+    pub sessions: dashmap::DashMap<u64, Arc<Session>>,
+    pub next_session: AtomicU64,
     /// 분석 서버로 forward 할 NDJSON 라인 큐.
     /// **상한 있음** — 소비자(링크)가 느리면 무한 성장하는 대신 드롭한다
     /// (드롭된 패킷은 플러셔가 500ms 후 무분석 방출하므로 파형은 계속 흐름).
@@ -60,7 +88,7 @@ pub struct AppState {
     pub dropped_analysis: AtomicU64,
     pub dropped_db: AtomicU64,
     pub dropped_wave: AtomicU64,
-    /// WS 구독자가 느려 broadcast 링(4096)에서 건너뛴 메시지 누적 (스트리밍 부하 시험 지표)
+    /// 세션 큐(8192)가 가득 차 버린 메시지 누적 — 그 세션만 손해 (느린 구독자 지표)
     pub ws_lagged: AtomicU64,
     /// 현재 열린 출력 WS 세션 수
     pub ws_sessions: AtomicU64,
@@ -109,7 +137,6 @@ impl AppState {
         mpsc::Receiver<String>,
         mpsc::Receiver<StoreOp>,
     ) {
-        let (out_tx, _) = broadcast::channel(4096);
         // 큐 상한: 정상 운영에서 절대 차지 않는 크기.
         //  - analysis 8192 ≈ 1400ch 기준 ~1.2초분. TCP 백프레셔로 링크가 느려지면
         //    초과분은 드롭 → 플러셔가 무분석 방출 (사실상 부분 패스스루).
@@ -129,7 +156,8 @@ impl AppState {
             registry: Registry::new(cfg.ring_capacity),
             groups: GroupStore::load(&cfg.db_path, &cfg.groups_path),
             cfg,
-            out_tx,
+            sessions: dashmap::DashMap::new(),
+            next_session: AtomicU64::new(1),
             analysis_tx,
             db_tx,
             store_tx,
@@ -231,7 +259,7 @@ impl AppState {
     /// Does any WS session subscribe to this patch (by channel id, its gateway, or one of its groups)?
     /// Cheap enough per record: 1–3 map lookups, no clones. Used before building a stream packet at all.
     pub fn stream_wanted(&self, channel_id: &str, gateway_id: &str) -> bool {
-        if self.out_tx.receiver_count() == 0 {
+        if self.sessions.is_empty() {
             return false;
         }
         self.sub_channels.contains_key(channel_id)
@@ -328,7 +356,7 @@ impl AppState {
             return;
         }
         if let Ok(json) = serde_json::to_string(msg) {
-            let _ = self.out_tx.send(Arc::new(OutEnvelope {
+            self.route(Arc::new(OutEnvelope {
                 groups: groups.to_vec(),
                 gateway_id,
                 channel_id,
@@ -339,12 +367,23 @@ impl AppState {
         }
     }
 
+    /// Hand an envelope to every session whose subscriptions match; a full session queue drops it for that session.
+    pub fn route(&self, env: Arc<OutEnvelope>) {
+        for s in self.sessions.iter() {
+            if s.wants(&env) {
+                if let Err(mpsc::error::TrySendError::Full(_)) = s.tx.try_send(env.clone()) {
+                    self.ws_lagged.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
+    }
+
     /// 분석 결과와 병합된(또는 패스스루) 스트림 패킷 송출.
     /// 샘플은 JSON 에 싣지 않고 i16(×1000, µV) 으로 양자화해 envelope 에 별도 보관 —
     /// WS 세션이 바이너리 stream_batch 프레임의 샘플 블롭으로 내보낸다 (~4× 절감).
     pub fn emit_stream(&self, pkt: EcgPacket, hr: Option<f32>, events: Vec<AnalysisEvent>) {
         // No WS session: skip the JSON/blob work entirely (10k packets/s otherwise serialised for nobody).
-        if self.out_tx.receiver_count() == 0 {
+        if self.sessions.is_empty() {
             return;
         }
         if !self.stream_wanted(&pkt.channel_id, &pkt.gateway_id) {

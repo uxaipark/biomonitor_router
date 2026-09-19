@@ -7,8 +7,6 @@ use futures_util::{SinkExt, StreamExt};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use tokio::sync::broadcast::error::RecvError;
-use tracing::debug;
 
 /// 출력 WS 핸들러. 클라이언트는 subscribe/unsubscribe 로 그룹을 구독한다.
 pub async fn ws_handler(
@@ -43,8 +41,15 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
     let mut subs: HashSet<String> = HashSet::new();
     let mut gw_subs: HashSet<String> = HashSet::new();
     let mut ch_subs: HashSet<String> = HashSet::new();
-    let mut brx = state.out_tx.subscribe();
+    // this session's envelope queue: the publisher routes only matching packets into it
+    let (env_tx, mut env_rx) = tokio::sync::mpsc::channel::<Arc<crate::state::OutEnvelope>>(8192);
+    let sid = state.next_session.fetch_add(1, Ordering::Relaxed);
+    let session = Arc::new(crate::state::Session { subs: std::sync::RwLock::new(Default::default()), tx: env_tx });
+    state.sessions.insert(sid, session.clone());
     state.ws_sessions.fetch_add(1, Ordering::Relaxed);
+    let sync_subs = |session: &crate::state::Session, subs: &HashSet<String>, gw_subs: &HashSet<String>, ch_subs: &HashSet<String>| {
+        *session.subs.write().unwrap() = crate::state::SessionSubs { groups: subs.clone(), gws: gw_subs.clone(), channels: ch_subs.clone() };
+    };
 
     // 매칭된 stream 패킷을 모아 stream_batch 한 프레임으로 묶어 보낸다.
     // (membership/channel_event 는 즉시 전송 — 지연이 UI 상태 전환을 늦추면 안 됨)
@@ -114,45 +119,24 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
                         }
                     }
                 }
+                sync_subs(&session, &subs, &gw_subs, &ch_subs);
             }
-            envelope = brx.recv() => {
-                match envelope {
-                    Ok(env) => {
-                        let group_hit = env.groups.iter().any(|g| subs.contains(g));
-                        let gw_hit = env
-                            .gateway_id
-                            .as_ref()
-                            .map(|g| gw_subs.contains(g))
-                            .unwrap_or(false);
-                        let ch_hit = env
-                            .channel_id
-                            .as_ref()
-                            .map(|c| ch_subs.contains(c))
-                            .unwrap_or(false);
-                        if group_hit || gw_hit || ch_hit {
-                            if env.is_stream {
-                                // 스트림은 모아서 주기 플러시 (버퍼 상한 초과 시 즉시)
-                                stream_buf.push(env);
-                                if stream_buf.len() >= STREAM_BUF_MAX {
-                                    if flush_streams(&state, &mut tx, &mut stream_buf).await.is_err() {
-                                        break;
-                                    }
-                                }
-                            } else {
-                                let n = env.json.len();
-                                if tx.send(Message::Text(env.json.clone().into())).await.is_err() {
-                                    break;
-                                }
-                                state.add_tx_bytes(n);
-                            }
+            envelope = env_rx.recv() => {
+                let Some(env) = envelope else { break };
+                if env.is_stream {
+                    // 스트림은 모아서 주기 플러시 (버퍼 상한 초과 시 즉시)
+                    stream_buf.push(env);
+                    if stream_buf.len() >= STREAM_BUF_MAX {
+                        if flush_streams(&state, &mut tx, &mut stream_buf).await.is_err() {
+                            break;
                         }
                     }
-                    // 느린 소비자: 밀린 메시지는 건너뛰고 최신부터 계속
-                    Err(RecvError::Lagged(n)) => {
-                        state.ws_lagged.fetch_add(n, Ordering::Relaxed);
-                        debug!("ws subscriber lagged, skipped {} messages", n);
+                } else {
+                    let n = env.json.len();
+                    if tx.send(Message::Text(env.json.clone().into())).await.is_err() {
+                        break;
                     }
-                    Err(RecvError::Closed) => break,
+                    state.add_tx_bytes(n);
                 }
             }
             _ = flush.tick() => {
@@ -162,6 +146,7 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
             }
         }
     }
+    state.sessions.remove(&sid);
     state.ws_sessions.fetch_sub(1, Ordering::Relaxed);
     for g in subs {
         dec(&state.sub_groups, &g);

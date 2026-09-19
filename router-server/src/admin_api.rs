@@ -78,7 +78,7 @@ async fn debug_sizes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         "store_open_files": crate::patch_store::STORE_OPEN.load(Ordering::Relaxed),
         "store_buffered_bytes": crate::patch_store::STORE_BUFFERED.load(Ordering::Relaxed),
         "live_index_rows": crate::patch_store::LIVE_INDEX.len(),
-        "ws_subscribers": state.out_tx.receiver_count(),
+        "ws_subscribers": state.sessions.len(),
         "ingest_sources": state.ingest_sources.lock().unwrap().len(),
         "displays": state.displays.lock().unwrap().len(),
     }))
