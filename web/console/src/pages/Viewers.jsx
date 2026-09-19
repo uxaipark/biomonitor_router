@@ -32,7 +32,7 @@ export default function Viewers({ alarms }) {
   const [kind, setKind] = useState(() => pref('viewers.kind', 'ward'))
   const [tpl, setTpl] = useState(() => pref('viewers.tpl', TEMPLATES[0].id))
   const [q, setQ] = useState('')
-  const [bld, setBld] = useState('') // ward tab sub-category: building ('' = all)
+  const [subCat, setSubCat] = useState('') // sub-category ('' = all): ward → building, doctor/nurse → specialty
   // sort per category, remembered: { ward: ['count','desc'], ... }
   const [sorts, setSorts] = useState(() => { try { return JSON.parse(localStorage.getItem('viewers.sorts') || '{}') } catch { return {} } })
   const sort = sorts[kind] || ['label', 'asc'] // [column, dir]; column: label | building | floor | cond | count | alarms | gws
@@ -77,10 +77,10 @@ export default function Viewers({ alarms }) {
     }
     for (const r of live) {
       const p = r.patient || {}
-      if (kind === 'ward') { add(p.ward, r, p.ward, ''); const e = m.get(p.ward); if (e) { e.building = e.building || p.building || ''; e.floor = e.floor || p.floor || '' } }
+      if (kind === 'ward') { add(p.ward, r, p.ward, ''); const e = m.get(p.ward); if (e) { e.building = e.building || p.building || ''; e.floor = e.floor || p.floor || ''; e.sub2 = e.building } }
       else if (kind === 'room') add(p.room || r.space, r, p.room || r.space, p.ward && `병동 ${p.ward}`)
-      else if (kind === 'doctor') add(p.doctor, r, staffLabel(p.doctor), staffSub(p.doctor))
-      else if (kind === 'nurse') add(p.nurse, r, staffLabel(p.nurse), staffSub(p.nurse))
+      else if (kind === 'doctor') { add(p.doctor, r, staffLabel(p.doctor), staffSub(p.doctor)); const e = m.get(p.doctor); if (e) e.sub2 = staff.get(p.doctor)?.specialty || '' }
+      else if (kind === 'nurse') { add(p.nurse, r, staffLabel(p.nurse), staffSub(p.nurse)); const e = m.get(p.nurse); if (e) e.sub2 = staff.get(p.nurse)?.specialty || '' }
       else if (kind === 'department') add(p.department, r)
       else if (kind === 'diagnosis') add(p.diagnosis, r)
       else if (kind === 'gw') { const g = (gws || []).find((x) => String(x.gw_id) === r.gateway_id); add(r.gateway_id, r, `#${r.gateway_id}${g?.name ? ' ' + g.name : ''}`, g ? [g.location?.building, g.location?.floor && `${g.location.floor}F`, g.location?.room, g.type].filter(Boolean).join(' · ') : '') }
@@ -90,23 +90,25 @@ export default function Viewers({ alarms }) {
     else v.sort((a, b) => a.label.localeCompare(b.label, 'ko'))
     return v
   }, [kind, live, groups, gws, staff, alarmIds, mobile])
-  const buildings = useMemo(() => {
-    if (kind !== 'ward') return []
+  // sub-category buttons: ward → building, doctor/nurse → specialty
+  const SUB_LABEL = { ward: '건물', doctor: '진료과목', nurse: '진료과목' }
+  const subCats = useMemo(() => {
+    if (!SUB_LABEL[kind]) return []
     const c = new Map()
-    for (const e of entries) { const b = e.building || '기타'; const n = c.get(b) || { wards: 0, patients: 0 }; n.wards++; n.patients += e.count; c.set(b, n) }
+    for (const e of entries) { const b = e.sub2 || '기타'; const n = c.get(b) || { rows: 0, patients: 0 }; n.rows++; n.patients += e.count; c.set(b, n) }
     return [...c].sort((a, b) => a[0].localeCompare(b[0], 'ko')).map(([name, n]) => ({ name, ...n }))
   }, [kind, entries])
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase()
     let v = needle ? entries.filter((e) => [e.key, e.label, e.sub].some((x) => String(x || '').toLowerCase().includes(needle))) : entries
-    if (kind === 'ward' && bld) v = v.filter((e) => (e.building || '기타') === bld)
+    if (SUB_LABEL[kind] && subCat) v = v.filter((e) => (e.sub2 || '기타') === subCat)
     const key = sort[0] === 'gws' ? (e) => e.gws.size : sort[0] === 'cond' ? (e) => describeGroup(e.group) : sort[0] === 'floor' ? (e) => Number(e.floor) || 0 : sort[0] === 'label' && kind === 'gw' ? (e) => Number(e.key) : sort[0]
     const sorted = sortBy(v, key, sort[1])
     // the catch-all group stays on top whatever the order
     if (kind === 'group') return [...sorted.filter((e) => e.key === 'all'), ...sorted.filter((e) => e.key !== 'all')]
     if (BOOL_KIND[kind]) return [...sorted.filter((e) => e.key === ''), ...sorted.filter((e) => e.key !== '')]
     return sorted
-  }, [entries, q, sort, kind, bld])
+  }, [entries, q, sort, kind, subCat])
   const th = (col, label, cls = '') => (
     <th key={col} className={'sortable ' + cls} onClick={() => setSort([col, sort[0] === col && sort[1] === 'asc' ? 'desc' : 'asc'])}>{label}{sort[0] === col ? (sort[1] === 'asc' ? ' ▲' : ' ▼') : ''}</th>
   )
@@ -134,19 +136,19 @@ export default function Viewers({ alarms }) {
   return (
     <div className="page">
       <div className="toolbar">
-        <span className="seg wrap">{KINDS.map(([k, l]) => <button key={k} className={kind === k ? 'active' : ''} onClick={() => { setKind(k); setQ(''); setBld('') }}>{l}<small className="muted"> {kindCounts[k] ?? 0}</small></button>)}</span>
+        <span className="seg wrap">{KINDS.map(([k, l]) => <button key={k} className={kind === k ? 'active' : ''} onClick={() => { setKind(k); setQ(''); setSubCat('') }}>{l}<small className="muted"> {kindCounts[k] ?? 0}</small></button>)}</span>
         <input placeholder={`${kindLabel} 검색`} value={q} onChange={(e) => setQ(e.target.value)} />
         <span className="spacer" />
         <span className="muted">클릭 시 열 뷰어</span>
         <Dropdown value={tpl} options={tplOpts} onChange={setTpl} searchable={false} width={260} />
         {kind === 'group' && <button className="primary" onClick={() => setEditing({})}>＋ 새 그룹</button>}
       </div>
-      {kind === 'ward' && buildings.length > 0 && (
+      {SUB_LABEL[kind] && subCats.length > 0 && (
         <div className="toolbar sub">
-          <span className="muted">건물</span>
+          <span className="muted">{SUB_LABEL[kind]}</span>
           <span className="seg wrap">
-            <button className={bld === '' ? 'active' : ''} onClick={() => setBld('')}>전체<small className="muted"> {entries.length}</small></button>
-            {buildings.map((b) => <button key={b.name} className={bld === b.name ? 'active' : ''} onClick={() => setBld(b.name)} title={`${b.wards}개 병동 · ${b.patients}명`}>{b.name}<small className="muted"> {b.wards}</small></button>)}
+            <button className={subCat === '' ? 'active' : ''} onClick={() => setSubCat('')}>전체<small className="muted"> {entries.length}</small></button>
+            {subCats.map((b) => <button key={b.name} className={subCat === b.name ? 'active' : ''} onClick={() => setSubCat(b.name)} title={`${b.rows}개 ${kindLabel} · ${b.patients}명`}>{b.name}<small className="muted"> {b.rows}</small></button>)}
           </span>
         </div>
       )}
