@@ -28,7 +28,7 @@ const PAGES = [
 const MENUS = [...new Set(PAGES.map((p) => p[3]).filter(Boolean))]
 
 /** Top-nav group with a click-to-open submenu (no native controls); closes on outside click / Esc / pick. */
-function NavMenu({ label, items, base }) {
+function NavMenu({ label, items, base, hints }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
   useEffect(() => {
@@ -42,7 +42,7 @@ function NavMenu({ label, items, base }) {
   return (
     <span ref={ref} className={'nav-menu' + (open ? ' open' : '')}>
       <a href="#" className={active ? 'active' : ''} onClick={(e) => { e.preventDefault(); setOpen(!open) }} aria-haspopup="menu" aria-expanded={open}>{label} <i className="dd-caret" /></a>
-      {open && <div className="nav-sub" role="menu">{items.map(([h, l]) => <a key={h} href={h} role="menuitem" className={base === h ? 'active' : ''} onClick={() => setOpen(false)}>{l}</a>)}</div>}
+      {open && <div className="nav-sub" role="menu">{items.map(([h, l]) => <a key={h} href={h} role="menuitem" className={base === h ? 'active' : ''} onClick={() => setOpen(false)}>{l}{hints?.[h] != null && <span className="hint">{hints[h]}</span>}</a>)}</div>}
     </span>
   )
 }
@@ -92,6 +92,10 @@ export default function App() {
   const [theme, setTheme] = useTheme()
   const [health] = usePoll(api.health, 5000)
   const [emu] = usePoll(api.emu.status, 5000)
+  // ward count for the 멀티 뷰어 테스트 menu caption (= number of browser tabs it opens)
+  const [chRows] = usePoll(api.channels, 30000)
+  const wardCount = new Set((chRows || []).filter((r) => r.connected).map((r) => r.patient?.ward).filter(Boolean)).size
+  const navHints = { '#/test/multiviewer': `${wardCount}탭` }
   const [ws, setWs] = useState(wsStatus())
   const [modal, setModal] = useState(null) // { channel_id } for the patient live modal
   const alarms = useAlarms()
@@ -121,7 +125,7 @@ export default function App() {
           {PAGES.filter((p) => !p[3]).map(([h, label]) => (
             <a key={h} href={h} className={base === h ? 'active' : ''}>{label}{h === '#/alarms' && s.unacked > 0 && <span className="badge">{s.unacked}</span>}</a>
           ))}
-          {MENUS.map((m) => <NavMenu key={m} label={m} base={base} items={PAGES.filter((p) => p[3] === m)} />)}
+          {MENUS.map((m) => <NavMenu key={m} label={m} base={base} items={PAGES.filter((p) => p[3] === m)} hints={navHints} />)}
         </nav>
         <span className="spacer" />
         <span className={'pill ' + (health?.ok ? 'ok' : 'err')} title="라우터 API">라우터 {health?.ok ? '정상' : '응답 없음'}</span>
