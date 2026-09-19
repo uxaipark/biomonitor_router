@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { TEMPLATES, viewerUrl } from '../viewer/templates.js'
+import { sortBy } from '../model.js'
 import Dropdown from '../Dropdown.jsx'
 import '../viewer/ds.css'
 
@@ -25,6 +26,7 @@ export default function Viewers({ alarms }) {
   const [kind, setKind] = useState(() => pref('viewers.kind', 'ward'))
   const [tpl, setTpl] = useState(() => pref('viewers.tpl', TEMPLATES[0].id))
   const [q, setQ] = useState('')
+  const [sort, setSort] = useState(['label', 'asc']) // [column, dir]; column: label | cond | count | alarms | gws
   const [editing, setEditing] = useState(null) // group being edited (null = closed, {} = new)
   useEffect(() => { try { localStorage.setItem('viewers.kind', kind); localStorage.setItem('viewers.tpl', tpl) } catch { /* ignore */ } }, [kind, tpl])
   useEffect(() => { api.staff().then((d) => setStaff(new Map((d?.staff || []).map((s) => [s.id, s])))).catch(() => {}) }, [])
@@ -64,8 +66,15 @@ export default function Viewers({ alarms }) {
   }, [kind, live, groups, gws, staff, alarmIds])
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    return needle ? entries.filter((e) => [e.key, e.label, e.sub].some((x) => String(x || '').toLowerCase().includes(needle))) : entries
-  }, [entries, q])
+    const v = needle ? entries.filter((e) => [e.key, e.label, e.sub].some((x) => String(x || '').toLowerCase().includes(needle))) : entries
+    const key = sort[0] === 'gws' ? (e) => e.gws.size : sort[0] === 'cond' ? (e) => describeGroup(e.group) : sort[0] === 'label' && kind === 'gw' ? (e) => Number(e.key) : sort[0]
+    const sorted = sortBy(v, key, sort[1])
+    // the catch-all group stays on top whatever the order
+    return kind === 'group' ? [...sorted.filter((e) => e.key === 'all'), ...sorted.filter((e) => e.key !== 'all')] : sorted
+  }, [entries, q, sort, kind])
+  const th = (col, label, cls = '') => (
+    <th key={col} className={'sortable ' + cls} onClick={() => setSort([col, sort[0] === col && sort[1] === 'asc' ? 'desc' : 'asc'])}>{label}{sort[0] === col ? (sort[1] === 'asc' ? ' ▲' : ' ▼') : ''}</th>
+  )
   const kindCounts = useMemo(() => {
     const c = {}
     for (const [k] of KINDS) {
@@ -98,7 +107,7 @@ export default function Viewers({ alarms }) {
       </div>
       <p className="muted">{kindLabel}별 목록입니다. 행을 누르면 선택한 템플릿의 뷰어가 새 탭에서 전체 화면으로 열리고, 행의 버튼으로 다른 템플릿을 고를 수도 있습니다. 전체 연결 환자 {live.length.toLocaleString()}명.</p>
       <table className="tbl vw-table">
-        <thead><tr><th className="w-idx">#</th><th>{kindLabel}</th>{kind === 'group' && <th>조건</th>}<th className="num w-n">환자</th><th className="num w-n">알람</th>{kind !== 'gw' && kind !== 'group' && <th className="num w-n">GW</th>}<th>뷰어</th>{kind === 'group' && <th></th>}</tr></thead>
+        <thead><tr><th className="w-idx">#</th>{th('label', kindLabel)}{kind === 'group' && th('cond', '조건')}{th('count', '환자', 'num w-n')}{th('alarms', '알람', 'num w-n')}{kind !== 'gw' && kind !== 'group' && th('gws', 'GW', 'num w-n')}<th>뷰어</th>{kind === 'group' && <th></th>}</tr></thead>
         <tbody>
           {shown.map((e, i) => (
             <tr key={e.key} className={'clickable' + (e.alarms ? ' sev-high' : '')} onClick={() => open(e)}>

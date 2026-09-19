@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api, usePoll, fmtBytes } from '../api.js'
 import { TEMPLATES, viewerUrl } from '../viewer/templates.js'
 import Dropdown from '../Dropdown.jsx'
+import { sortBy } from '../model.js'
 
 /** Load test: open one browser tab per ward, each running a viewer template scoped to that ward.
  *  Browsers allow one popup per click unless the site is allowed to open popups, so the page offers both
@@ -12,6 +13,7 @@ export default function MultiViewerTest() {
   const [tpl, setTpl] = useState('central')
   const [next, setNext] = useState(0)
   const [log, setLog] = useState({ opened: 0, blocked: 0 })
+  const [sort, setSort] = useState(['ward', 'asc'])
   const wins = useRef(new Map()) // ward → Window
   const [, tick] = useState(0)
   const live = useMemo(() => (rows || []).filter((r) => r.connected), [rows])
@@ -48,6 +50,9 @@ export default function MultiViewerTest() {
   const closeAll = () => { for (const win of wins.current.values()) { try { win.close() } catch { /* ignore */ } } wins.current.clear(); setNext(0); setLog({ opened: 0, blocked: 0 }) }
   const openWards = [...wins.current.entries()].filter(([, w]) => !w.closed).map(([w]) => w)
   const openCount = openWards.length
+  const isOpen = (w) => { const win = wins.current.get(w); return !!(win && !win.closed) }
+  const sortedWards = sortBy(wards, sort[0] === 'gws' ? (w) => w.gws.length : sort[0] === 'open' ? (w) => (isOpen(w.ward) ? 0 : 1) : sort[0], sort[1])
+  const th = (col, label) => <th key={col} className="sortable" onClick={() => setSort([col, sort[0] === col && sort[1] === 'asc' ? 'desc' : 'asc'])}>{label}{sort[0] === col ? (sort[1] === 'asc' ? ' ▲' : ' ▼') : ''}</th>
   const countOf = new Map(wards.map((w) => [w.ward, w.count]))
   const openPatients = openWards.reduce((n, w) => n + (countOf.get(w) || 0), 0)
   const memPct = stats ? Math.round(stats.mem_sys_used_bytes / stats.mem_sys_total_bytes * 100) : null
@@ -74,9 +79,9 @@ export default function MultiViewerTest() {
       </div>
       {log.blocked > 0 && <p className="err">팝업 {log.blocked}개가 브라우저에 막혔습니다. 주소창 오른쪽의 팝업 차단 아이콘에서 이 사이트의 팝업을 항상 허용한 뒤 다시 누르거나, "다음 병동 열기"로 한 번에 하나씩 여세요.</p>}
       <table className="tbl dense mv-table">
-        <thead><tr><th>#</th><th>병동</th><th>게이트웨이</th><th>환자</th><th>탭</th><th></th></tr></thead>
+        <thead><tr><th>#</th>{th('ward', '병동')}{th('gws', '게이트웨이')}{th('count', '환자')}{th('open', '탭')}<th></th></tr></thead>
         <tbody>
-          {wards.map(({ ward, count, names, gws }, i) => {
+          {sortedWards.map(({ ward, count, names, gws }, i) => {
             const win = wins.current.get(ward)
             const open = win && !win.closed
             return (
