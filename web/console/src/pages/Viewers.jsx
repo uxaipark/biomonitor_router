@@ -61,7 +61,7 @@ export default function Viewers({ alarms }) {
       const hits = live.filter((r) => test(r, mobile))
       for (const r of hits) {
         const key = ' ' + (r.patient?.ward || '기타')
-        add(key, r, r.patient?.ward || '병동 미상', [r.patient?.building, r.patient?.floor && `${r.patient.floor}F`].filter(Boolean).join(' '))
+        add(key, r, r.patient?.ward || '병동 외부', [r.patient?.building, r.patient?.floor && `${r.patient.floor}F`].filter(Boolean).join(' '))
         if (!r.patient?.ward) { const e = m.get(key); (e.ids = e.ids || []).push(r.channel_id) } // no ward to scope by: open by patch ids
       }
       const v = [...m.values()].sort((a, b) => a.label.localeCompare(b.label, 'ko'))
