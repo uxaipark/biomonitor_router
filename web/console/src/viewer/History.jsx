@@ -208,8 +208,9 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   const [loading, setLoading] = useState(0)
   const [err, setErr] = useState('')
   const [hour, setHour] = useState('') // selected hour key (YYYYMMDD-HH)
-  const [span, setSpan] = useState(30)
-  const [height, setHeight] = useState(() => { try { return Number(localStorage.getItem('hx.height')) || 120 } catch { return 120 } }) // ECG strip px; thin strips scale with it
+  const [span, setSpan] = useState(() => { try { return Number(localStorage.getItem('hx.span')) || 60 } catch { return 60 } })
+  useEffect(() => { try { localStorage.setItem('hx.span', String(span)) } catch { /* ignore */ } }, [span])
+  const [height, setHeight] = useState(() => { try { return Number(localStorage.getItem('hx.height')) || 60 } catch { return 60 } }) // ECG strip px (default = slider minimum); thin strips scale with it
   useEffect(() => { try { localStorage.setItem('hx.height', String(height)) } catch { /* ignore */ } }, [height])
   const spanMs = span * 1000
   useEffect(() => {
