@@ -102,6 +102,9 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
     }
     const paceMarks = (l, T, tFirst, step, n) => {
       if (!pace || wave !== 'ecg') return
+      // a tick is 7 px wide; draw it only once the pen (and so next frame's erase start) is clear of it,
+      // otherwise the erase sweeping ahead of the pen wipes the half that lies past the pen
+      const tDraw = (penT ?? T) - (8 / W) * windowMs
       // pace: bits 0-13 = sample offset within this bundle's ECG block, bits 14-15 = chamber (0 A, 1 V, 2 LV)
       if (l?.pace?.length && l.paceSeq != null && l.paceSeq !== paceDrawn) {
         const t0 = (l.paceTs ?? l.ts_ms) - (n - 1) * step
@@ -111,7 +114,7 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
       for (let i = pending.length - 1; i >= 0; i--) {
         const m = pending[i]
         if (m.t < tFirst) { pending.splice(i, 1); continue }
-        if (m.t <= T) { drawTick(m.t, m.ch); pending.splice(i, 1) }
+        if (m.t <= tDraw) { drawTick(m.t, m.ch); pending.splice(i, 1) }
       }
     }
 
