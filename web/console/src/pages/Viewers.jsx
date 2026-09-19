@@ -18,7 +18,9 @@ const KINDS = [
 const SCOPE_KEY = { ward: 'ward', room: 'room', doctor: 'doctor', nurse: 'nurse', department: 'dept', diagnosis: 'dx', gw: 'gw', group: 'group', pacemaker: 'ward', mcot: 'ward' }
 // boolean categories: rows are the wards holding such patients, plus an all-wards row (key '')
 const isPaced = (r) => (r.flags & 0x10) !== 0
-const isMcot = (r) => !!r.patient?.mode && r.patient.mode !== 'inpatient'
+// MCOT (원외) is a gateway property: a 1-patient mobile gateway (type "mobile", building "원외(MCOT)"); the frames are identical
+export const isMobileGw = (g) => g?.type === 'mobile' || /원외|MCOT/i.test(g?.location?.building || '')
+const isMcot = (r, mobile) => mobile.has(r.gateway_id) || (!!r.patient?.mode && r.patient.mode !== 'inpatient')
 const BOOL_KIND = { pacemaker: { test: isPaced, scope: { paced: '1' }, all: '페이스메이커 환자 전체' }, mcot: { test: isMcot, scope: { mode: 'mcot' }, all: 'MCOT 환자 전체' } }
 const pref = (k, d) => { try { return localStorage.getItem(k) || d } catch { return d } }
 
@@ -36,6 +38,7 @@ export default function Viewers({ alarms }) {
   useEffect(() => { api.staff().then((d) => setStaff(new Map((d?.staff || []).map((s) => [s.id, s])))).catch(() => {}) }, [])
 
   const live = useMemo(() => (rows || []).filter((r) => r.connected), [rows])
+  const mobile = useMemo(() => new Set((gws || []).filter(isMobileGw).map((g) => String(g.gw_id))), [gws])
   const alarmIds = useMemo(() => new Set((alarms?.alarms || []).map((a) => String(a.channel_id))), [alarms])
   const staffLabel = (id) => { const s = staff.get(id); return s ? `${s.name} (${id})` : id }
   const staffSub = (id) => { const s = staff.get(id); return s ? [s.title, s.specialty, s.ward && `병동 ${s.ward}`].filter(Boolean).join(' · ') : '' }
@@ -55,7 +58,7 @@ export default function Viewers({ alarms }) {
     }
     if (BOOL_KIND[kind]) {
       const { test, all } = BOOL_KIND[kind]
-      const hits = live.filter(test)
+      const hits = live.filter((r) => test(r, mobile))
       for (const r of hits) add(' ' + (r.patient?.ward || '기타'), r, r.patient?.ward || '병동 미상', [r.patient?.building, r.patient?.floor && `${r.patient.floor}F`].filter(Boolean).join(' '))
       const v = [...m.values()].sort((a, b) => a.label.localeCompare(b.label, 'ko'))
       const total = { key: '', label: all, sub: `${[...m.keys()].length}개 병동`, count: hits.length, alarms: hits.filter((r) => alarmIds.has(r.channel_id)).length, gws: new Set(hits.map((r) => r.gateway_id).filter(Boolean)) }
@@ -75,7 +78,7 @@ export default function Viewers({ alarms }) {
     if (kind === 'gw') v.sort((a, b) => Number(a.key) - Number(b.key))
     else v.sort((a, b) => a.label.localeCompare(b.label, 'ko'))
     return v
-  }, [kind, live, groups, gws, staff, alarmIds])
+  }, [kind, live, groups, gws, staff, alarmIds, mobile])
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase()
     const v = needle ? entries.filter((e) => [e.key, e.label, e.sub].some((x) => String(x || '').toLowerCase().includes(needle))) : entries
@@ -93,13 +96,13 @@ export default function Viewers({ alarms }) {
     const c = {}
     for (const [k] of KINDS) {
       if (k === 'group') { c[k] = (groups || []).length; continue }
-      if (BOOL_KIND[k]) { c[k] = live.filter(BOOL_KIND[k].test).length; continue }
+      if (BOOL_KIND[k]) { c[k] = live.filter((r) => BOOL_KIND[k].test(r, mobile)).length; continue }
       const s = new Set()
       for (const r of live) { const p = r.patient || {}; const v = k === 'gw' ? r.gateway_id : k === 'room' ? (p.room || r.space) : p[k]; if (v) s.add(v) }
       c[k] = s.size
     }
     return c
-  }, [live, groups])
+  }, [live, groups, mobile])
 
   const kindLabel = KINDS.find(([k]) => k === kind)[1]
   const urlFor = (e, t) => viewerUrl({ tpl: t, ...(BOOL_KIND[kind]?.scope || {}), [SCOPE_KEY[kind]]: e.key, label: BOOL_KIND[kind] ? (e.key ? `${kindLabel} · 병동 ${e.label}` : e.label) : `${kindLabel} ${e.label}` })

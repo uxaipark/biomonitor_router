@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { claimLive, releaseLive } from '../ws.js'
 import { templateById } from '../viewer/templates.js'
+import { isMobileGw } from './Viewers.jsx'
 import '../viewer/ds.css'
 
 /**
@@ -41,7 +42,8 @@ export default function Viewer({ alarms, hash }) {
     if (ids) { const set = new Set(ids.split(',')); v = v.filter((r) => set.has(r.channel_id)) }
     const doctor = q.get('doctor'), nurse = q.get('nurse'), dept = q.get('dept'), dx = q.get('dx'), group = q.get('group'), paced = q.get('paced'), mode = q.get('mode')
     if (paced) v = v.filter((r) => (r.flags & 0x10) !== 0)
-    if (mode) v = v.filter((r) => (mode === 'mcot' ? (r.patient?.mode && r.patient.mode !== 'inpatient') : r.patient?.mode === mode))
+    if (mode === 'mcot') { const mobile = new Set((gws || []).filter(isMobileGw).map((g) => String(g.gw_id))); v = v.filter((r) => mobile.has(r.gateway_id) || (r.patient?.mode && r.patient.mode !== 'inpatient')) }
+    else if (mode) v = v.filter((r) => r.patient?.mode === mode)
     if (doctor) v = v.filter((r) => r.patient?.doctor === doctor)
     if (nurse) v = v.filter((r) => r.patient?.nurse === nurse)
     if (dept) v = v.filter((r) => r.patient?.department === dept)
@@ -50,7 +52,7 @@ export default function Viewer({ alarms, hash }) {
     if (b != null && f != null) v = v.filter((r) => String(r.patient?.building_idx ?? '') === b && String(r.patient?.floor) === f)
     v = v.map((r) => ({ ...r, emr: emr.byPatient.get(String(r.patient_id)), bed: emr.bedByPatch.get(r.channel_id) }))
     return v.slice(0, tpl.maxRows || 200)
-  }, [rows, q, emr, tpl])
+  }, [rows, q, emr, tpl, gws])
   const ids = scoped.map((r) => r.channel_id).join(',')
   useEffect(() => { claimLive('viewer', ids ? ids.split(',') : []); return () => releaseLive('viewer') }, [ids])
   const unit = useMemo(() => {
