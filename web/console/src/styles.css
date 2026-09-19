@@ -52,8 +52,8 @@ main { flex: 1; overflow: auto; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .seg.wrap { flex-wrap: wrap; }
 .toolbar .gap-l { margin-left: 10px; }
-.mv-table { border-collapse: collapse; border: 1px solid var(--line); }
-.mv-table th, .mv-table td { border: 1px solid var(--line); }
+.mv-table, .vw-table { border-collapse: collapse; border: 1px solid var(--line); }
+.mv-table th, .mv-table td, .vw-table th, .vw-table td { border: 1px solid var(--line); }
 .mv-table td.idx { font-size: 18px; font-weight: 600; }
 .mv-table td.ward { font-size: 16px; }
 .mv-table td.tab .tag { font-size: 14px; padding: 3px 10px; }
