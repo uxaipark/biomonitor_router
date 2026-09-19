@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
  * keyboard navigation (↑ ↓ Enter Esc), outside-click close.
  * options: [{ value, label, count?, group?, disabled? }]
  */
-export default function Dropdown({ value, options, onChange, placeholder = '선택', searchable = true, className = '', width, disabled, renderValue }) {
+export default function Dropdown({ value, options, onChange, placeholder = '선택', searchable = true, className = '', width, disabled, renderValue, countUnit = '명' }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const [hi, setHi] = useState(-1)
@@ -58,7 +58,7 @@ export default function Dropdown({ value, options, onChange, placeholder = '선�
                   {head}
                   <li data-i={i} role="option" aria-selected={String(o.value) === String(value)} className={'dd-item' + (String(o.value) === String(value) ? ' on' : '') + (i === hi ? ' hi' : '') + (o.disabled ? ' disabled' : '')} onMouseEnter={() => setHi(i)} onClick={() => pick(o)}>
                     <span className="dd-label">{o.label}</span>
-                    {o.count != null && <span className="dd-count">{o.count}명</span>}
+                    {o.count != null && <span className="dd-count">{o.count}{countUnit}</span>}
                   </li>
                 </React.Fragment>
               )

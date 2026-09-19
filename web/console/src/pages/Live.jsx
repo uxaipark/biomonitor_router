@@ -4,6 +4,7 @@ import { claimLive, releaseLive, onWs } from '../ws.js'
 import { WaveCard } from '../WaveCard.jsx'
 import { alarmIndex } from '../model.js'
 import { openLive } from '../App.jsx'
+import Dropdown from '../Dropdown.jsx'
 
 const MAX = 48
 
@@ -19,8 +20,19 @@ export default function Live({ alarms }) {
   const aidx = useMemo(() => alarmIndex(alarms?.alarms), [alarms])
   useEffect(() => { try { localStorage.setItem('live.ward', ward) } catch { /* ignore */ } }, [ward])
 
-  const wards = useMemo(() => [...new Set((rows || []).map((r) => r.patient?.ward).filter(Boolean))].sort(), [rows])
-  const gws = useMemo(() => [...new Set((rows || []).filter((r) => !ward || r.patient?.ward === ward).map((r) => r.gateway_id).filter(Boolean))].sort((a, b) => a - b), [rows, ward])
+  // dropdown lists carry the connected-patient count of each ward / gateway
+  const live = useMemo(() => (rows || []).filter((r) => r.connected), [rows])
+  const wards = useMemo(() => {
+    const c = new Map()
+    for (const r of live) if (r.patient?.ward) c.set(r.patient.ward, (c.get(r.patient.ward) || 0) + 1)
+    return [{ value: '', label: '병동 선택 (전체)', count: live.length }, ...[...c].sort((a, b) => a[0].localeCompare(b[0], 'ko')).map(([w, n]) => ({ value: w, label: w, count: n }))]
+  }, [live])
+  const gws = useMemo(() => {
+    const c = new Map()
+    for (const r of live) if (r.gateway_id && (!ward || r.patient?.ward === ward)) c.set(r.gateway_id, (c.get(r.gateway_id) || 0) + 1)
+    const all = [...c.values()].reduce((a, b) => a + b, 0)
+    return [{ value: '', label: '모든 게이트웨이', count: all }, ...[...c].sort((a, b) => a[0] - b[0]).map(([g, n]) => ({ value: g, label: `GW ${g}`, count: n }))]
+  }, [live, ward])
   const selected = useMemo(() => {
     const needle = q.trim().toLowerCase()
     let v = (rows || []).filter((r) => r.connected)
@@ -41,8 +53,8 @@ export default function Live({ alarms }) {
   return (
     <div className="page">
       <div className="toolbar">
-        <select value={ward} onChange={(e) => { setWard(e.target.value); setGw('') }}><option value="">병동 선택 (전체)</option>{wards.map((w) => <option key={w}>{w}</option>)}</select>
-        <select value={gw} onChange={(e) => setGw(e.target.value)}><option value="">모든 게이트웨이</option>{gws.map((g) => <option key={g}>{g}</option>)}</select>
+        <Dropdown value={ward} options={wards} onChange={(v) => { setWard(v); setGw('') }} placeholder="병동 선택 (전체)" width={220} />
+        <Dropdown value={gw} options={gws} onChange={setGw} placeholder="모든 게이트웨이" width={220} />
         <input placeholder="검색" value={q} onChange={(e) => setQ(e.target.value)} />
         <label className="chk"><input type="checkbox" checked={onlyAlarm} onChange={(e) => setOnlyAlarm(e.target.checked)} /> 알람만</label>
         <span className="seg">{['normal', 'compact', 'dense'].map((d) => <button key={d} className={density === d ? 'active' : ''} onClick={() => setDensity(d)}>{{ normal: '크게', compact: '보통', dense: '촘촘' }[d]}</button>)}</span>

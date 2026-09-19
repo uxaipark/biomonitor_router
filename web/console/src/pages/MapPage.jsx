@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { alarmIndex, gatewayAlarmIndex, GW_STATUS } from '../model.js'
 import { openLive } from '../App.jsx'
+import Dropdown from '../Dropdown.jsx'
 
 const ROOM_FILL = {
   room: 'var(--room)', corridor: 'var(--corridor)', nurse_station: 'var(--station)', exam: 'var(--exam)',
@@ -45,6 +46,12 @@ export default function MapPage({ alarms, hash }) {
     }
     return m
   }, [rows])
+  // building dropdown: connected patients per building (rooms of its floors)
+  const buildingOpts = useMemo(() => buildings.map((b) => {
+    let n = 0
+    for (const f of floors) if (f.building_idx === b.idx) for (const r of f.rooms || []) n += (byRoom.get(r.id) || []).length
+    return { value: b.idx, label: b.name, count: n }
+  }), [buildings, floors, byRoom])
   const floorGws = useMemo(() => (layout?.gateways || []).filter((g) => cur && g.building_idx === cur.building_idx && g.floor === cur.floor), [layout, cur])
 
   if (err) return <div className="page"><p className="err">도면을 불러오지 못했습니다: {err} (에뮬레이터 연결 확인)</p></div>
@@ -61,9 +68,7 @@ export default function MapPage({ alarms, hash }) {
   return (
     <div className="page map-page">
       <div className="toolbar">
-        <select value={cur.building_idx} onChange={(e) => setSel({ b: Number(e.target.value), f: floors.find((x) => x.building_idx === Number(e.target.value) && x.wards?.length)?.floor || 1 })}>
-          {buildings.map((b) => <option key={b.idx} value={b.idx}>{b.name}</option>)}
-        </select>
+        <Dropdown value={cur.building_idx} options={buildingOpts} onChange={(v) => setSel({ b: Number(v), f: floors.find((x) => x.building_idx === Number(v) && x.wards?.length)?.floor || 1 })} searchable={false} width={220} />
         <span className="seg wrap">
           {floorList.map((f) => <button key={f.floor} className={f.floor === cur.floor ? 'active' : ''} onClick={() => setSel({ b: cur.building_idx, f: f.floor })} title={f.name}>{f.floor}F</button>)}
         </span>

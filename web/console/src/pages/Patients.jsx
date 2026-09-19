@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { api, usePoll, fmtAgo } from '../api.js'
 import { alarmIndex, flagNames, sortBy, SEV_LABEL } from '../model.js'
 import { openLive } from '../App.jsx'
+import Dropdown from '../Dropdown.jsx'
 
 const COLS = [
   ['channel_id', '패치'], ['name', '환자'], ['mrn', 'MRN'], ['ward', '병동'], ['room', '병실'], ['gateway_id', 'GW'],
@@ -27,7 +28,21 @@ export default function Patients({ alarms }) {
       alarm: al ? ({ critical: 3, high: 2, medium: 1, low: 0 })[al.severity] + 1 : 0, alarmObj: al, last: r.last_ts_ms,
     }
   }), [rows, aidx])
-  const wards = useMemo(() => [...new Set(flat.map((r) => r.ward).filter(Boolean))].sort(), [flat])
+  const wards = useMemo(() => {
+    const c = new Map()
+    for (const r of flat) if (r.ward) c.set(r.ward, (c.get(r.ward) || 0) + 1)
+    return [{ value: '', label: '모든 병동', count: flat.length }, ...[...c].sort((a, b) => a[0].localeCompare(b[0], 'ko')).map(([w, n]) => ({ value: w, label: w, count: n }))]
+  }, [flat])
+  const filters = useMemo(() => {
+    const inWard = flat.filter((r) => !ward || r.ward === ward)
+    return [
+      { value: 'all', label: '전체', count: inWard.length },
+      { value: 'alarm', label: '알람 있음', count: inWard.filter((r) => r.alarm).length },
+      { value: 'leadoff', label: '전극 탈락', count: inWard.filter((r) => r.flags & 0x01).length },
+      { value: 'stale', label: '수신 없음/해제', count: inWard.filter((r) => r.stale || !r.connected).length },
+      { value: 'lowbat', label: '배터리 부족', count: inWard.filter((r) => r.flags & 0x04 || r.battery <= 15).length },
+    ]
+  }, [flat, ward])
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase()
     let v = flat.filter((r) => (!ward || r.ward === ward) && (!needle || [r.channel_id, r.name, r.mrn, r.room, r.gateway_id, String(r.patient_id)].some((x) => String(x || '').toLowerCase().includes(needle))))
@@ -47,10 +62,8 @@ export default function Patients({ alarms }) {
     <div className="page">
       <div className="toolbar">
         <input placeholder="검색: 이름 · MRN · 패치 · 병실 · GW" value={q} onChange={(e) => { setQ(e.target.value); setPage(0) }} />
-        <select value={ward} onChange={(e) => { setWard(e.target.value); setPage(0) }}><option value="">모든 병동</option>{wards.map((w) => <option key={w}>{w}</option>)}</select>
-        <select value={filter} onChange={(e) => { setFilter(e.target.value); setPage(0) }}>
-          <option value="all">전체</option><option value="alarm">알람 있음</option><option value="leadoff">전극 탈락</option><option value="stale">수신 없음/해제</option><option value="lowbat">배터리 부족</option>
-        </select>
+        <Dropdown value={ward} options={wards} onChange={(v) => { setWard(v); setPage(0) }} placeholder="모든 병동" width={200} />
+        <Dropdown value={filter} options={filters} onChange={(v) => { setFilter(v); setPage(0) }} searchable={false} width={200} />
         <span className="muted">{shown.length.toLocaleString()} / {flat.length.toLocaleString()}명</span>
         <span className="spacer" />
         <button disabled={cur === 0} onClick={() => setPage(cur - 1)}>‹</button><span className="muted">{cur + 1} / {pages}</span><button disabled={cur >= pages - 1} onClick={() => setPage(cur + 1)}>›</button>

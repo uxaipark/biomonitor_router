@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { api, usePoll, fmtNum, fmtAgo } from '../api.js'
 import { gatewayAlarmIndex, GW_STATUS, sortBy } from '../model.js'
+import Dropdown from '../Dropdown.jsx'
 
 const COLS = [
   ['gw_id', 'GW'], ['name', '이름'], ['type', '유형'], ['loc', '위치'], ['state', '상태'], ['patches', '패치'], ['frames', '프레임'],
@@ -32,13 +33,17 @@ export default function Gateways({ alarms }) {
   const pages = Math.max(1, Math.ceil(shown.length / PAGE))
   const cur = Math.min(page, pages - 1)
   const counts = { conn: flat.filter((g) => g.connected).length, down: flat.filter((g) => !g.connected).length, silent: flat.filter((g) => g.silent).length }
+  const filters = [
+    { value: 'all', label: '전체', count: flat.length },
+    { value: 'problem', label: '문제 있음', count: flat.filter((g) => g.state > 0 || g.alarm || g.resend_lost || g.bad_crc).length },
+    { value: 'down', label: '끊김/무응답', count: flat.filter((g) => !g.connected || g.silent).length },
+    { value: 'patched', label: '패치 있는 GW', count: flat.filter((g) => g.patches > 0).length },
+  ]
   return (
     <div className="page">
       <div className="toolbar">
         <input placeholder="검색: GW 번호 · 이름 · 위치" value={q} onChange={(e) => { setQ(e.target.value); setPage(0) }} />
-        <select value={filter} onChange={(e) => { setFilter(e.target.value); setPage(0) }}>
-          <option value="all">전체</option><option value="problem">문제 있음</option><option value="down">끊김/무응답</option><option value="patched">패치 있는 GW</option>
-        </select>
+        <Dropdown value={filter} options={filters} onChange={(v) => { setFilter(v); setPage(0) }} searchable={false} countUnit="대" width={200} />
         <span className="muted">연결 {counts.conn} · 끊김 {counts.down} · 무응답 {counts.silent} · 표시 {shown.length}</span>
         <span className="spacer" />
         <button disabled={cur === 0} onClick={() => setPage(cur - 1)}>‹</button><span className="muted">{cur + 1} / {pages}</span><button disabled={cur >= pages - 1} onClick={() => setPage(cur + 1)}>›</button>

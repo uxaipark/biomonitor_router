@@ -1,15 +1,18 @@
 import React, { useState } from 'react'
 import { api, usePoll, fmtTime } from '../api.js'
+import Dropdown from '../Dropdown.jsx'
 
 export default function Events() {
   const [events] = usePoll(api.events, 3000)
   const [kind, setKind] = useState('')
   const list = (events || []).filter((e) => !kind || e.kind === kind).slice().reverse()
-  const kinds = [...new Set((events || []).map((e) => e.kind))].sort()
+  const byKind = new Map()
+  for (const e of events || []) byKind.set(e.kind, (byKind.get(e.kind) || 0) + 1)
+  const kinds = [{ value: '', label: '모든 종류', count: (events || []).length }, ...[...byKind].sort((a, b) => a[0].localeCompare(b[0])).map(([k, n]) => ({ value: k, label: k, count: n }))]
   return (
     <div className="page">
       <div className="toolbar">
-        <select value={kind} onChange={(e) => setKind(e.target.value)}><option value="">모든 종류</option>{kinds.map((k) => <option key={k}>{k}</option>)}</select>
+        <Dropdown value={kind} options={kinds} onChange={setKind} placeholder="모든 종류" countUnit="건" width={220} />
         <span className="muted">{list.length}건 (라우터 메모리 링 최근 300건)</span>
       </div>
       <div className="events big">
