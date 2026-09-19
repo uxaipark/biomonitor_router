@@ -17,8 +17,11 @@ export default function MultiViewerTest() {
   const live = useMemo(() => (rows || []).filter((r) => r.connected), [rows])
   const wards = useMemo(() => {
     const m = new Map()
-    for (const r of live) if (r.patient?.ward) { if (!m.has(r.patient.ward)) m.set(r.patient.ward, []); m.get(r.patient.ward).push(r.patient.name || r.mrn || r.channel_id) }
-    return [...m].sort((a, b) => a[0].localeCompare(b[0], 'ko')).map(([w, names]) => ({ ward: w, count: names.length, names: names.sort((a, b) => String(a).localeCompare(String(b), 'ko')) }))
+    for (const r of live) if (r.patient?.ward) {
+      if (!m.has(r.patient.ward)) m.set(r.patient.ward, { names: [], gws: new Set() })
+      const e = m.get(r.patient.ward); e.names.push(r.patient.name || r.mrn || r.channel_id); if (r.gateway_id) e.gws.add(r.gateway_id)
+    }
+    return [...m].sort((a, b) => a[0].localeCompare(b[0], 'ko')).map(([w, e]) => ({ ward: w, count: e.names.length, names: e.names.sort((a, b) => String(a).localeCompare(String(b), 'ko')), gws: [...e.gws].sort((a, b) => a - b) }))
   }, [live])
   const tplOpts = TEMPLATES.map((t) => ({ value: t.id, label: t.name, count: undefined }))
   const urlOf = (w) => viewerUrl({ tpl, ward: w })
@@ -71,15 +74,15 @@ export default function MultiViewerTest() {
       </div>
       {log.blocked > 0 && <p className="err">팝업 {log.blocked}개가 브라우저에 막혔습니다. 주소창 오른쪽의 팝업 차단 아이콘에서 이 사이트의 팝업을 항상 허용한 뒤 다시 누르거나, "다음 병동 열기"로 한 번에 하나씩 여세요.</p>}
       <table className="tbl dense">
-        <thead><tr><th>#</th><th>병동</th><th className="num">환자</th><th>환자 이름</th><th>탭</th><th>URL</th><th></th></tr></thead>
+        <thead><tr><th>#</th><th>병동</th><th>게이트웨이</th><th>환자</th><th>탭</th><th>URL</th><th></th></tr></thead>
         <tbody>
-          {wards.map(({ ward, count, names }, i) => {
+          {wards.map(({ ward, count, names, gws }, i) => {
             const win = wins.current.get(ward)
             const open = win && !win.closed
             return (
               <tr key={ward} className={open ? '' : 'stale'}>
-                <td className="num muted">{i + 1}</td><td><b>{ward}</b></td><td className="num">{count}</td>
-                <td className="names" title={names.join(', ')}>{names.slice(0, 12).join(', ')}{names.length > 12 && <span className="muted"> 외 {names.length - 12}명</span>}</td>
+                <td className="num muted">{i + 1}</td><td><b>{ward}</b></td><td className="names mono" title={gws.join(', ')}><b>{gws.length}대</b> · {gws.slice(0, 16).join(' ')}{gws.length > 16 && <span className="muted"> 외 {gws.length - 16}</span>}</td>
+                <td className="names" title={names.join(', ')}><b>{count}명</b> · {names.slice(0, 12).join(', ')}{names.length > 12 && <span className="muted"> 외 {names.length - 12}명</span>}</td>
                 <td>{open ? <span className="tag ok small">열림</span> : <span className="tag small">닫힘</span>}</td>
                 <td className="mono muted">{urlOf(ward)}</td>
                 <td>{open ? <button className="icon" onClick={() => { win.focus() }}>보기</button> : <a href={urlOf(ward)} target={`viewer-${ward}`} rel="noopener" onClick={(e) => { e.preventDefault(); openOne(ward); tick((x) => x + 1) }}>열기</a>}</td>
