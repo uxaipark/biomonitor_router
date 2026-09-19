@@ -33,7 +33,10 @@ export default function Viewers({ alarms }) {
   const [tpl, setTpl] = useState(() => pref('viewers.tpl', TEMPLATES[0].id))
   const [q, setQ] = useState('')
   const [bld, setBld] = useState('') // ward tab sub-category: building ('' = all)
-  const [sort, setSort] = useState(['label', 'asc']) // [column, dir]; column: label | cond | count | alarms | gws
+  // sort per category, remembered: { ward: ['count','desc'], ... }
+  const [sorts, setSorts] = useState(() => { try { return JSON.parse(localStorage.getItem('viewers.sorts') || '{}') } catch { return {} } })
+  const sort = sorts[kind] || ['label', 'asc'] // [column, dir]; column: label | building | floor | cond | count | alarms | gws
+  const setSort = (v) => setSorts((o) => { const n = { ...o, [kind]: v }; try { localStorage.setItem('viewers.sorts', JSON.stringify(n)) } catch { /* ignore */ } return n })
   const [editing, setEditing] = useState(null) // group being edited (null = closed, {} = new)
   useEffect(() => { try { localStorage.setItem('viewers.kind', kind); localStorage.setItem('viewers.tpl', tpl) } catch { /* ignore */ } }, [kind, tpl])
   useEffect(() => { api.staff().then((d) => setStaff(new Map((d?.staff || []).map((s) => [s.id, s])))).catch(() => {}) }, [])
