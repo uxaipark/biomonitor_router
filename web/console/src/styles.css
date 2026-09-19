@@ -126,8 +126,8 @@ table.tbl { width: 100%; border-collapse: collapse; background: var(--panel); bo
 .card.compact .card-head .tag { font-size: 9.5px; padding: 0 5px; line-height: 15px; }
 /* compact: wave strip on the left, a fixed 2×3 number block on the right; both exactly 50 px tall so the
    strip never pushes the numbers past the card edge (units are dropped, values never wrap) */
-.card.compact .card-body { gap: 6px; align-items: center; }
-.card.compact .wave-col { flex: 1 1 0; min-width: 0; }
+.card.compact .card-body { gap: 6px; align-items: stretch; }
+.card.compact .wave-col { flex: 1 1 0; min-width: 0; align-self: stretch; }
 .card.compact .vitals { flex: none; width: 108px; height: 50px; display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; align-content: space-between; overflow: hidden; }
 .card.compact .vital { min-width: 0; white-space: nowrap; gap: 3px; line-height: 16px; }
 .card.compact .vital small { font-size: 9px; min-width: 0; }
