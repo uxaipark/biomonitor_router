@@ -50,7 +50,7 @@ check('Events', <Events.default />)
 check('LiveModal', <LiveModal.LiveModal channelId="65538" alarms={alarms} onClose={() => {}} />)
 check('WaveCard', <WaveCard.WaveCard row={row} density="normal" alarm={alarms.alarms[0]} waves={row.channels} />)
 check('WaveCard dense', <WaveCard.WaveCard row={row} density="dense" alarm={alarms.alarms[0]} />)
-check('WaveCard dense', <WaveCard.WaveCard row={{ ...row, vitals: {}, patient: null }} density="dense" />)
+check('WaveCard dense (empty)', <WaveCard.WaveCard row={{ ...row, vitals: {}, patient: null }} density="dense" />)
 globalThis.ResizeObserver = class { observe() {} disconnect() {} }
 check('Viewers', <Viewers.default />)
 check('Viewer route', <Viewer.default alarms={alarms} hash="#/viewer?tpl=central&gw=895" />)
