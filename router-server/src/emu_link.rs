@@ -143,6 +143,7 @@ pub fn apply_patients(state: &Arc<AppState>, v: &serde_json::Value) -> usize {
         if !dis.is_empty() {
             p.diagnosis = dis;
         }
+        apply_home(&mut p, a);
         if prev != p {
             state.registry.upsert_meta(&channel_id, p);
             state.recompute_channel_groups(&channel_id);
@@ -150,6 +151,34 @@ pub fn apply_patients(state: &Arc<AppState>, v: &serde_json::Value) -> usize {
         }
     }
     n
+}
+
+/// Home address from an EMR record, tolerant of the field shapes the emulator may use:
+/// `home_region` / `region` (short area name), `home_address` / `address` (string, or an object with
+/// `region`/`city`/`district`/`full`). Only overwrites when a value is present.
+fn apply_home(p: &mut crate::protocol::Patient, a: &serde_json::Value) {
+    let region = ["home_region", "region", "area"].iter().map(|k| s(a, k)).find(|v| !v.is_empty());
+    let addr = a.get("home_address").or_else(|| a.get("address"));
+    let (obj_region, full) = match addr {
+        Some(serde_json::Value::String(x)) => (None, x.clone()),
+        Some(o @ serde_json::Value::Object(_)) => {
+            let r = ["region", "district", "city"].iter().map(|k| s(o, k)).filter(|v| !v.is_empty()).collect::<Vec<_>>();
+            let region = if r.is_empty() { None } else { Some(r.join(" ")) };
+            let full = ["full", "text", "line"].iter().map(|k| s(o, k)).find(|v| !v.is_empty()).unwrap_or_default();
+            (region, full)
+        }
+        _ => (None, String::new()),
+    };
+    if let Some(r) = region.or(obj_region) {
+        p.home_region = r;
+    }
+    if !full.is_empty() {
+        p.home_address = full;
+    }
+    if p.home_region.is_empty() && !p.home_address.is_empty() {
+        // "서울특별시 강남구 역삼동 …" → "서울특별시 강남구"
+        p.home_region = p.home_address.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+    }
 }
 
 fn s(v: &serde_json::Value, k: &str) -> String {
@@ -174,6 +203,7 @@ pub fn apply_admissions(state: &Arc<AppState>, v: &serde_json::Value) -> usize {
         p.doctor = s(a, "doctor");
         p.nurse = s(a, "nurse");
         p.mode = s(a, "mode");
+        apply_home(&mut p, a);
         // admissions rarely carry a department; the patients feed fills specialty — do not wipe it here
         if !s(a, "department").is_empty() {
             p.department = s(a, "department");

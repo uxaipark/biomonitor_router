@@ -33,6 +33,11 @@ pub struct Patient {
     /// 재원 형태 (admissions.mode: inpatient | mcot …)
     #[serde(default)]
     pub mode: String,
+    /// 집주소 지역명(원외/MCOT 환자 위치 표기용, 예 "서울 강남구") / 전체 주소 — EMR 이 주면 채움
+    #[serde(default)]
+    pub home_region: String,
+    #[serde(default)]
+    pub home_address: String,
     #[serde(default)]
     pub nurse: String,
     /// 프로필 번호 — 얼굴 이미지(faces/<n>.png) 지정 (에뮬레이터가 전달)

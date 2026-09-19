@@ -13,7 +13,8 @@ export const BatIcon = ({ pct }) => {
   return <svg width="18" height="10" viewBox="0 0 18 10" style={{ display: 'inline-block', verticalAlign: '-1px' }}><rect x="0.5" y="0.5" width="14" height="9" fill="none" stroke={col} strokeWidth="1" /><rect x="15" y="3" width="2" height="4" fill={col} /><rect x="2" y="2" width={(11 * lvl / 100).toFixed(1)} height="6" fill={col} /></svg>
 }
 export const Dec = ({ v, cls = 'cs-dec' }) => { const t = String(v); const i = t.indexOf('.'); return i < 0 ? t : <>{t.slice(0, i)}<span className={cls}>{t.slice(i)}</span></> }
-export const bedOf = (row) => row.patient?.bed || row.bed || row.patient?.room || row.space || ''
+// bed / room label; an outside (MCOT) patient has no bed, so the home region stands in for the location
+export const bedOf = (row) => row.patient?.bed || row.bed || row.patient?.room || row.space || (row.patient?.home_region ? `외부 · ${row.patient.home_region}` : '')
 export const useClock = () => { const [t, setT] = useState(''); useEffect(() => { const f = () => setT(new Date().toTimeString().slice(0, 8)); f(); const i = setInterval(f, 1000); return () => clearInterval(i) }, []); return t }
 
 /** Tile vitals column (full / midv / grid2 forms are CSS-driven). */

@@ -416,6 +416,8 @@ fn apply_meta_patches(state: &Arc<AppState>, gw_id: u32, meta: &serde_json::Valu
             department: prev.as_ref().map(|q| q.department.clone()).unwrap_or_default(),
             diagnosis: prev.as_ref().map(|q| q.diagnosis.clone()).unwrap_or_default(),
             mode: prev.as_ref().map(|q| q.mode.clone()).unwrap_or_default(),
+            home_region: prev.as_ref().map(|q| q.home_region.clone()).unwrap_or_default(),
+            home_address: prev.as_ref().map(|q| q.home_address.clone()).unwrap_or_default(),
             nurse: prev.as_ref().map(|q| q.nurse.clone()).unwrap_or_default(),
             profile_no: profile_id,
             sex: prev.as_ref().map(|q| q.sex.clone()).unwrap_or_default(),

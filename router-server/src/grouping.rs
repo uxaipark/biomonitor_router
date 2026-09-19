@@ -44,6 +44,7 @@ fn patient_attr<'a>(p: &'a Patient, key: &str) -> Option<&'a str> {
         "nurse" => &p.nurse,
         "diagnosis" => &p.diagnosis,
         "mode" => &p.mode,
+        "home_region" => &p.home_region,
         _ => return None,
     })
 }
