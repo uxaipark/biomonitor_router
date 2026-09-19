@@ -317,6 +317,9 @@ struct Stats {
     queue_dropped_wave: u64,
     /// 느린 WS 구독자 때문에 건너뛴 메시지 누적 (클라이언트가 못 따라온 양)
     ws_lagged: u64,
+    /// 열린 출력 WS 세션 수 / 채널 단위로 구독된 패치 수 (세션 간 중복 제외)
+    ws_sessions: u64,
+    ws_subscribed_channels: usize,
     /// 저장 큐에 대기 중인 op 수 (상한 262,144; 0 근처가 정상)
     store_queue: usize,
     /// 라우터 프로세스 메모리 (working set)
@@ -326,6 +329,8 @@ struct Stats {
     mem_sys_total_bytes: u64,
     /// 시스템 전체 CPU 사용률 (%)
     cpu_percent: f32,
+    /// 라우터 프로세스 CPU 사용률 (1코어 = 100 %)
+    cpu_process_percent: f32,
     /// 스토리지 (라우터 드라이브) 전체/여유 바이트
     disk_total_bytes: u64,
     disk_free_bytes: u64,
@@ -391,11 +396,14 @@ async fn stats(State(state): State<Arc<AppState>>) -> Json<Stats> {
         queue_dropped_db: state.dropped_db.load(Ordering::Relaxed),
         queue_dropped_wave: state.dropped_wave.load(Ordering::Relaxed),
         ws_lagged: state.ws_lagged.load(Ordering::Relaxed),
+        ws_sessions: state.ws_sessions.load(Ordering::Relaxed),
+        ws_subscribed_channels: state.sub_channels.len(),
         store_queue: state.store_tx.max_capacity() - state.store_tx.capacity(),
         mem_process_bytes: mem_process,
         mem_sys_used_bytes: mem_used,
         mem_sys_total_bytes: mem_total,
         cpu_percent: crate::sysmon::cpu_percent(),
+        cpu_process_percent: crate::sysmon::proc_cpu_percent(),
         disk_total_bytes: disk_total,
         disk_free_bytes: disk_free,
         wave_store_bytes: crate::patch_store::STORE_BYTES.load(Ordering::Relaxed),

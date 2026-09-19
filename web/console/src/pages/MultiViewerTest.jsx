@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { api, usePoll } from '../api.js'
+import { api, usePoll, fmtBytes } from '../api.js'
 import { TEMPLATES, viewerUrl } from '../viewer/templates.js'
 import Dropdown from '../Dropdown.jsx'
 
@@ -8,6 +8,7 @@ import Dropdown from '../Dropdown.jsx'
  *  "open all" (needs the popup permission) and "open next" (one tab per click). */
 export default function MultiViewerTest() {
   const [rows] = usePoll(api.channels, 10000)
+  const [stats] = usePoll(api.stats, 2000)
   const [tpl, setTpl] = useState('central')
   const [next, setNext] = useState(0)
   const [log, setLog] = useState({ opened: 0, blocked: 0 })
@@ -42,7 +43,11 @@ export default function MultiViewerTest() {
     setNext(next + 1)
   }
   const closeAll = () => { for (const win of wins.current.values()) { try { win.close() } catch { /* ignore */ } } wins.current.clear(); setNext(0); setLog({ opened: 0, blocked: 0 }) }
-  const openCount = [...wins.current.values()].filter((w) => !w.closed).length
+  const openWards = [...wins.current.entries()].filter(([, w]) => !w.closed).map(([w]) => w)
+  const openCount = openWards.length
+  const countOf = new Map(wards.map((w) => [w.ward, w.count]))
+  const openPatients = openWards.reduce((n, w) => n + (countOf.get(w) || 0), 0)
+  const memPct = stats ? Math.round(stats.mem_sys_used_bytes / stats.mem_sys_total_bytes * 100) : null
   return (
     <div className="page">
       <h2 className="h">멀티 뷰어 테스트</h2>
@@ -53,6 +58,16 @@ export default function MultiViewerTest() {
         <button onClick={openNext} disabled={!wards.length}>{next >= wards.length ? '처음부터 다시' : `다음 병동 열기 (${next + 1}/${wards.length}: ${wards[next]?.ward})`}</button>
         <button onClick={closeAll} disabled={!openCount}>열린 탭 모두 닫기 ({openCount})</button>
         <span className="muted">열림 {openCount} · 차단 {log.blocked}</span>
+      </div>
+      <div className="stat-line">
+        <span className="stat"><small>열린 뷰어</small><b>{openCount}</b><small>/ {wards.length}</small></span>
+        <span className="stat"><small>표시 중인 환자 파형</small><b>{openPatients.toLocaleString()}</b><small>명</small></span>
+        <span className="stat"><small>라우터 WS 세션</small><b>{stats?.ws_sessions ?? '—'}</b><small>구독 채널 {stats?.ws_subscribed_channels?.toLocaleString() ?? '—'}</small></span>
+        <span className={'stat' + (stats?.cpu_process_percent > 150 ? ' warn' : '')}><small>라우터 CPU</small><b>{stats ? stats.cpu_process_percent.toFixed(0) : '—'}</b><small>% (1코어=100)</small></span>
+        <span className={'stat' + (stats?.cpu_percent > 70 ? ' warn' : '')}><small>시스템 CPU</small><b>{stats ? stats.cpu_percent.toFixed(0) : '—'}</b><small>%</small></span>
+        <span className="stat"><small>라우터 메모리</small><b>{stats ? fmtBytes(stats.mem_process_bytes) : '—'}</b></span>
+        <span className={'stat' + (memPct > 80 ? ' warn' : '')}><small>시스템 메모리</small><b>{memPct ?? '—'}</b><small>% ({stats ? fmtBytes(stats.mem_sys_used_bytes) : '—'} / {stats ? fmtBytes(stats.mem_sys_total_bytes) : '—'})</small></span>
+        <span className={'stat' + (stats?.ws_lagged > 0 ? ' warn' : '')}><small>WS 지연 건너뜀</small><b>{stats?.ws_lagged?.toLocaleString() ?? '—'}</b></span>
       </div>
       {log.blocked > 0 && <p className="err">팝업 {log.blocked}개가 브라우저에 막혔습니다. 주소창 오른쪽의 팝업 차단 아이콘에서 이 사이트의 팝업을 항상 허용한 뒤 다시 누르거나, "다음 병동 열기"로 한 번에 하나씩 여세요.</p>}
       <table className="tbl dense">

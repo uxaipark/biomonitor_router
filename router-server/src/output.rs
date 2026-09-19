@@ -30,6 +30,7 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
     let mut gw_subs: HashSet<String> = HashSet::new();
     let mut ch_subs: HashSet<String> = HashSet::new();
     let mut brx = state.out_tx.subscribe();
+    state.ws_sessions.fetch_add(1, Ordering::Relaxed);
 
     // 매칭된 stream 패킷을 모아 stream_batch 한 프레임으로 묶어 보낸다.
     // (membership/channel_event 는 즉시 전송 — 지연이 UI 상태 전환을 늦추면 안 됨)
@@ -147,6 +148,7 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
             }
         }
     }
+    state.ws_sessions.fetch_sub(1, Ordering::Relaxed);
     for g in subs {
         dec(&state.sub_groups, &g);
     }

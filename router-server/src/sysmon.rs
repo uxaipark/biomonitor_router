@@ -12,6 +12,13 @@ pub fn cpu_percent() -> f32 {
     CPU_PERMILLE.load(Ordering::Relaxed) as f32 / 10.0
 }
 
+/// 라우터 프로세스 자체의 CPU 사용률 (1코어 = 100 %, 퍼밀 단위; Linux 만 채워짐)
+pub static PROC_CPU_PERMILLE: AtomicU64 = AtomicU64::new(0);
+
+pub fn proc_cpu_percent() -> f32 {
+    PROC_CPU_PERMILLE.load(Ordering::Relaxed) as f32 / 10.0
+}
+
 #[cfg(windows)]
 fn system_times() -> Option<(u64, u64, u64)> {
     use windows_sys::Win32::Foundation::FILETIME;
@@ -236,6 +243,14 @@ mod linux {
         (rss, total.saturating_sub(avail), total)
     }
 
+    /// 프로세스 utime+stime 틱 — /proc/self/stat 14·15 번째 필드
+    pub fn proc_cpu_ticks() -> Option<u64> {
+        let s = std::fs::read_to_string("/proc/self/stat").ok()?;
+        let rest = &s[s.rfind(')')? + 2..];
+        let v: Vec<&str> = rest.split_whitespace().collect();
+        Some(v.get(11)?.parse::<u64>().ok()? + v.get(12)?.parse::<u64>().ok()?)
+    }
+
     /// (busy ticks, total ticks) — /proc/stat 첫 줄
     pub fn cpu_ticks() -> Option<(u64, u64)> {
         let s = std::fs::read_to_string("/proc/stat").ok()?;
@@ -288,6 +303,8 @@ pub async fn run_cpu_sampler() {
     #[cfg(target_os = "linux")]
     {
         let mut prev = linux::cpu_ticks();
+        let mut prev_proc = linux::proc_cpu_ticks();
+        let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as u64;
         loop {
             tokio::time::sleep(Duration::from_secs(2)).await;
             let cur = linux::cpu_ticks();
@@ -299,6 +316,12 @@ pub async fn run_cpu_sampler() {
                 }
             }
             prev = cur;
+            let cur_proc = linux::proc_cpu_ticks();
+            if let (Some(p), Some(c)) = (prev_proc, cur_proc) {
+                // ticks over a 2 s window → permille of one core
+                PROC_CPU_PERMILLE.store(c.wrapping_sub(p) * 1000 / (hz * 2), Ordering::Relaxed);
+            }
+            prev_proc = cur_proc;
         }
     }
     #[cfg(target_os = "macos")]
