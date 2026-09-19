@@ -52,6 +52,8 @@ main { flex: 1; overflow: auto; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .seg.wrap { flex-wrap: wrap; }
 .toolbar .gap-l { margin-left: 10px; }
+.toolbar.sub { margin-top: -4px; padding-left: 4px; }
+.toolbar.sub .seg button { padding: 4px 10px; font-size: 12.5px; }
 .mv-table, .vw-table { border-collapse: collapse; border: 1px solid var(--line); }
 .mv-table th, .mv-table td, .vw-table th, .vw-table td { border: 1px solid var(--line); }
 .tbl.mv-table th, .tbl.vw-table th { text-align: center; } /* must outrank .tbl th (left) declared later */

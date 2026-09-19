@@ -32,6 +32,7 @@ export default function Viewers({ alarms }) {
   const [kind, setKind] = useState(() => pref('viewers.kind', 'ward'))
   const [tpl, setTpl] = useState(() => pref('viewers.tpl', TEMPLATES[0].id))
   const [q, setQ] = useState('')
+  const [bld, setBld] = useState('') // ward tab sub-category: building ('' = all)
   const [sort, setSort] = useState(['label', 'asc']) // [column, dir]; column: label | cond | count | alarms | gws
   const [editing, setEditing] = useState(null) // group being edited (null = closed, {} = new)
   useEffect(() => { try { localStorage.setItem('viewers.kind', kind); localStorage.setItem('viewers.tpl', tpl) } catch { /* ignore */ } }, [kind, tpl])
@@ -86,16 +87,23 @@ export default function Viewers({ alarms }) {
     else v.sort((a, b) => a.label.localeCompare(b.label, 'ko'))
     return v
   }, [kind, live, groups, gws, staff, alarmIds, mobile])
+  const buildings = useMemo(() => {
+    if (kind !== 'ward') return []
+    const c = new Map()
+    for (const e of entries) { const b = e.building || '기타'; const n = c.get(b) || { wards: 0, patients: 0 }; n.wards++; n.patients += e.count; c.set(b, n) }
+    return [...c].sort((a, b) => a[0].localeCompare(b[0], 'ko')).map(([name, n]) => ({ name, ...n }))
+  }, [kind, entries])
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    const v = needle ? entries.filter((e) => [e.key, e.label, e.sub].some((x) => String(x || '').toLowerCase().includes(needle))) : entries
+    let v = needle ? entries.filter((e) => [e.key, e.label, e.sub].some((x) => String(x || '').toLowerCase().includes(needle))) : entries
+    if (kind === 'ward' && bld) v = v.filter((e) => (e.building || '기타') === bld)
     const key = sort[0] === 'gws' ? (e) => e.gws.size : sort[0] === 'cond' ? (e) => describeGroup(e.group) : sort[0] === 'floor' ? (e) => Number(e.floor) || 0 : sort[0] === 'label' && kind === 'gw' ? (e) => Number(e.key) : sort[0]
     const sorted = sortBy(v, key, sort[1])
     // the catch-all group stays on top whatever the order
     if (kind === 'group') return [...sorted.filter((e) => e.key === 'all'), ...sorted.filter((e) => e.key !== 'all')]
     if (BOOL_KIND[kind]) return [...sorted.filter((e) => e.key === ''), ...sorted.filter((e) => e.key !== '')]
     return sorted
-  }, [entries, q, sort, kind])
+  }, [entries, q, sort, kind, bld])
   const th = (col, label, cls = '') => (
     <th key={col} className={'sortable ' + cls} onClick={() => setSort([col, sort[0] === col && sort[1] === 'asc' ? 'desc' : 'asc'])}>{label}{sort[0] === col ? (sort[1] === 'asc' ? ' ▲' : ' ▼') : ''}</th>
   )
@@ -123,13 +131,22 @@ export default function Viewers({ alarms }) {
   return (
     <div className="page">
       <div className="toolbar">
-        <span className="seg wrap">{KINDS.map(([k, l]) => <button key={k} className={kind === k ? 'active' : ''} onClick={() => { setKind(k); setQ('') }}>{l}<small className="muted"> {kindCounts[k] ?? 0}</small></button>)}</span>
+        <span className="seg wrap">{KINDS.map(([k, l]) => <button key={k} className={kind === k ? 'active' : ''} onClick={() => { setKind(k); setQ(''); setBld('') }}>{l}<small className="muted"> {kindCounts[k] ?? 0}</small></button>)}</span>
         <input placeholder={`${kindLabel} 검색`} value={q} onChange={(e) => setQ(e.target.value)} />
         <span className="spacer" />
         <span className="muted">클릭 시 열 뷰어</span>
         <Dropdown value={tpl} options={tplOpts} onChange={setTpl} searchable={false} width={260} />
         {kind === 'group' && <button className="primary" onClick={() => setEditing({})}>＋ 새 그룹</button>}
       </div>
+      {kind === 'ward' && buildings.length > 0 && (
+        <div className="toolbar sub">
+          <span className="muted">건물</span>
+          <span className="seg wrap">
+            <button className={bld === '' ? 'active' : ''} onClick={() => setBld('')}>전체<small className="muted"> {entries.length}</small></button>
+            {buildings.map((b) => <button key={b.name} className={bld === b.name ? 'active' : ''} onClick={() => setBld(b.name)} title={`${b.wards}개 병동 · ${b.patients}명`}>{b.name}<small className="muted"> {b.wards}</small></button>)}
+          </span>
+        </div>
+      )}
       <p className="muted">{kindLabel}별 목록입니다. 행을 누르면 선택한 템플릿의 뷰어가 새 탭에서 전체 화면으로 열리고, 행의 버튼으로 다른 템플릿을 고를 수도 있습니다. 전체 연결 환자 {live.length.toLocaleString()}명.</p>
       <table className="tbl vw-table">
         <thead><tr><th className="w-idx">#</th>{th('label', kindLabel)}{kind === 'ward' && th('building', '건물')}{kind === 'ward' && th('floor', '층', 'num w-n')}{kind === 'group' && th('cond', '조건')}{th('count', '환자', 'num w-n')}{th('alarms', '알람', 'num w-n')}{kind !== 'gw' && kind !== 'group' && th('gws', 'GW', 'num w-n')}<th>뷰어</th>{kind === 'group' && <th></th>}</tr></thead>
