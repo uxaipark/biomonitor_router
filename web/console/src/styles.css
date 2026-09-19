@@ -255,7 +255,8 @@ svg.plan { width: 100%; height: 100%; background: var(--panel); border: 1px soli
 .dd-empty { padding: 8px 10px; color: var(--muted); }
 
 /* viewer picker: category list + group editor */
-.vw-table td.lbl { font-size: 15px; width: 40%; }
+.vw-table td.lbl { font-size: 15px; width: 100%; } /* the label column absorbs all spare width, so every other column stays at its fixed/compact width */
+.vw-table td.cond { white-space: normal; min-width: 220px; }
 .vw-table .w-idx { width: 44px; min-width: 44px; }
 .vw-table .w-n { width: 64px; min-width: 64px; }
 .vw-table td.lbl small { display: block; color: var(--muted); font-size: 12px; }

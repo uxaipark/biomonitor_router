@@ -104,7 +104,7 @@ export default function Viewers({ alarms }) {
             <tr key={e.key} className={'clickable' + (e.alarms ? ' sev-high' : '')} onClick={() => open(e)}>
               <td className="num muted w-idx">{i + 1}</td>
               <td className="lbl"><b>{e.label}</b>{e.sub && <small>{e.sub}</small>}</td>
-              {kind === 'group' && <td className="muted">{describeGroup(e.group)}</td>}
+              {kind === 'group' && <td className="muted cond">{describeGroup(e.group)}</td>}
               <td className="num w-n">{e.count.toLocaleString()}</td>
               <td className="num w-n">{e.alarms ? <span className="tag sev-high small">{e.alarms}</span> : <span className="muted">0</span>}</td>
               {kind !== 'gw' && kind !== 'group' && <td className="num w-n">{e.gws.size}</td>}
