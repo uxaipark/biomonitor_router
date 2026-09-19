@@ -27,7 +27,7 @@
 
 * **저장 형식** — `[ts_ms u64][gw_id u32][patient_id u32][seq u32][flags][battery][rssi][n_ch]` + 채널 블록 + `[crc32]`.
   에뮬레이터 저장소의 파이썬 초안 `router/store.py` 와 바이트 호환(`verify_file()` 로 교차 검증됨).
-  시간 파일이 닫히면 gzip(레벨 3), `ROUTER_STORE_MAX_GB` 초과 시 가장 오래된 시간 파일부터 삭제.
+  시간 파일이 닫히면 gzip(`ROUTER_STORE_GZIP` 수준, 0 = 압축 안 함 — SD 카드 권장), `ROUTER_STORE_MAX_GB` 초과 시 가장 오래된 시간 파일부터 삭제.
 * **NACK 정책** — 게이트웨이당 0.5 s 에 1회, 같은 seq 최대 3회, 한 번에 200 프레임, 10 s 미응답 → `resend_lost`.
   CRC 불일치 프레임은 헤더 seq 로 재요청. 복구 프레임의 패치 seq 는 이상으로 세지 않음.
 * **연속 레코드** — 에뮬레이터는 페이스마크(ch 10)를 같은 패치·같은 seq 의 두 번째 레코드로 보냄.
@@ -47,6 +47,7 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 | `ROUTER_INGEST_ADDR` | `0.0.0.0:9100` | 게이트웨이 TCP 수신 (에뮬레이터 `transport.target_port`) |
 | `ROUTER_HTTP_ADDR` | `0.0.0.0:7300` | REST + WS |
 | `ROUTER_STORE_DIR` / `ROUTER_STORE_MAX_GB` | `data/store` / `200` | 패치 저장소 루트 / 상한 (0 = 무제한) |
+| `ROUTER_STORE_GZIP` | `1` | 닫힌 시간 파일 gzip 수준. `0` = 압축 안 함(SD 카드: 쓰기 +50 %·정각 CPU 20 % 버스트 회피). SSD 면 1 |
 | `ROUTER_EMULATOR_ADDR` | (없음) | 에뮬레이터 HTTP. 설정 시 5 s 상태 보고(`POST /api/v1/router/status`) + 30 s EMR 동기화 + `/api/emr/*` 프록시 |
 | `ROUTER_WEB_DIR` | `../web/console/dist` | 웹 콘솔(vite build) 정적 디렉터리. `/` 로 서빙, 없으면 API 만 |
 | `ROUTER_ANALYSIS_ADDR` / `ROUTER_DB_ADDR` | `127.0.0.1:7100` / `:7601` | 레거시 분석·DB 링크 (없으면 재시도만) |

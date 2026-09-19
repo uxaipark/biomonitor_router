@@ -21,6 +21,9 @@ pub struct Config {
     pub store_dir: String,
     /// 저장소 용량 상한 (GB). 초과 시 오래된 시간 파일부터 삭제 (0 = 무제한)
     pub store_max_gb: u64,
+    /// 닫힌 시간 파일 gzip 수준 (0 = 압축 안 함). SD 카드에서는 압축이 읽기 2 MB + 쓰기 1 MB 를 더 일으키고
+    /// 정각마다 CPU 한 코어의 20 % 를 수십 분 쓰므로 0 을 권장; SSD 면 1.
+    pub store_gzip: u32,
     /// 에뮬레이터 HTTP 주소 (host:port). 상태 보고 + EMR 동기화. None = 비활성
     pub emulator_addr: Option<String>,
     /// 상태 보고 주기 (초)
@@ -44,6 +47,7 @@ impl Config {
             ring_capacity: get("ROUTER_RING_CAPACITY", "512").parse().unwrap_or(512),
             store_dir: get("ROUTER_STORE_DIR", "data/store"),
             store_max_gb: get("ROUTER_STORE_MAX_GB", "200").parse().unwrap_or(200),
+            store_gzip: get("ROUTER_STORE_GZIP", "1").parse().unwrap_or(1),
             emulator_addr: env::var("ROUTER_EMULATOR_ADDR").ok().filter(|s| !s.is_empty()),
             report_every_s: get("ROUTER_REPORT_EVERY_S", "5").parse().unwrap_or(5),
             emr_sync_s: get("ROUTER_EMR_SYNC_S", "30").parse().unwrap_or(30),

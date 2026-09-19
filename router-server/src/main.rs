@@ -25,9 +25,10 @@ async fn main() -> anyhow::Result<()> {
     {
         let root = std::path::PathBuf::from(&cfg.store_dir);
         let cap = cfg.store_max_gb << 30;
+        let gz = cfg.store_gzip;
         std::thread::Builder::new()
             .name("patch-store".into())
-            .spawn(move || router_core::patch_store::run_writer(root, cap, store_rx))
+            .spawn(move || router_core::patch_store::run_writer(root, cap, gz, store_rx))
             .expect("store thread");
     }
 

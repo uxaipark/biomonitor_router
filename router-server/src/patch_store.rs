@@ -464,6 +464,11 @@ pub fn scan_bytes(root: &Path) -> (u64, u64) {
 
 impl PatchStore {
     pub fn new(root: PathBuf, max_bytes: u64) -> Self {
+        Self::with_gzip(root, max_bytes, 1)
+    }
+
+    /// `gzip_level` 0 = leave closed hour files uncompressed (SD-card friendly).
+    pub fn with_gzip(root: PathBuf, max_bytes: u64, gzip_level: u32) -> Self {
         fs::create_dir_all(root.join("patches")).ok();
         fs::create_dir_all(root.join("meta")).ok();
         let (total, patches) = scan_bytes(&root);
@@ -472,7 +477,7 @@ impl PatchStore {
         let (gzip_tx, gzip_rx) = std::sync::mpsc::channel::<PathBuf>();
         std::thread::Builder::new()
             .name("store-gzip".into())
-            .spawn(move || gzip_worker(gzip_rx))
+            .spawn(move || gzip_worker(gzip_rx, gzip_level))
             .expect("gzip thread");
         let (write_tx, write_rx) = std::sync::mpsc::channel::<WriteOp>();
         {
@@ -735,8 +740,11 @@ impl PatchStore {
     }
 }
 
-fn gzip_worker(rx: std::sync::mpsc::Receiver<PathBuf>) {
+fn gzip_worker(rx: std::sync::mpsc::Receiver<PathBuf>, level: u32) {
     while let Ok(path) = rx.recv() {
+        if level == 0 {
+            continue; // compression disabled: the .rec stays as written (read paths handle both)
+        }
         if !path.exists() {
             continue;
         }
@@ -745,7 +753,7 @@ fn gzip_worker(rx: std::sync::mpsc::Receiver<PathBuf>) {
         let res = (|| -> std::io::Result<(u64, u64)> {
             let mut src = File::open(&path)?;
             let before = src.metadata()?.len();
-            let mut enc = flate2::write::GzEncoder::new(File::create(&tmp)?, flate2::Compression::new(3));
+            let mut enc = flate2::write::GzEncoder::new(File::create(&tmp)?, flate2::Compression::new(level));
             std::io::copy(&mut src, &mut enc)?;
             let out = enc.finish()?;
             out.sync_all()?;
@@ -768,9 +776,9 @@ fn gzip_worker(rx: std::sync::mpsc::Receiver<PathBuf>) {
 }
 
 /// Writer thread: drains the store queue; flushes every second even when idle.
-pub fn run_writer(root: PathBuf, max_bytes: u64, mut rx: tokio::sync::mpsc::Receiver<StoreOp>) {
-    let mut store = PatchStore::new(root, max_bytes);
-    info!("patch store: {} (cap {} GB)", store.root.display(), max_bytes >> 30);
+pub fn run_writer(root: PathBuf, max_bytes: u64, gzip_level: u32, mut rx: tokio::sync::mpsc::Receiver<StoreOp>) {
+    let mut store = PatchStore::with_gzip(root, max_bytes, gzip_level);
+    info!("patch store: {} (cap {} GB, gzip level {})", store.root.display(), max_bytes >> 30, gzip_level);
     loop {
         match rx.blocking_recv() {
             Some(op) => store.handle(op),
