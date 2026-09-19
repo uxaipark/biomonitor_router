@@ -12,7 +12,8 @@ FIELDS = ["ts", "uptime_s", "pid", "pss_mb", "rss_mb", "anon_mb", "fds", "thread
           "ws_estab", "ws_close_wait", "listen_9100_backlog",
           "gw_rows", "gw_conn", "ch_rows", "ch_conn", "ingest_conns", "resend_pending", "store_mb", "queue_drop", "store_queue",
           "events", "alarms_active", "alarm_hist", "rx_mb", "cpu_pct", "sys_avail_mb",
-          "reg_pending", "store_bufs", "store_buffered_mb", "alarm_pending", "alarm_last_seen", "emr_cache_mb", "live_index"]
+          "reg_pending", "store_bufs", "store_buffered_mb", "alarm_pending", "alarm_last_seen", "emr_cache_mb", "live_index",
+          "cpu_proc", "ws_lagged", "ws_sessions", "ws_subs"]
 
 
 def router_pid():
@@ -101,7 +102,8 @@ def sample():
                 events=len(ev), alarms_active=(al.get("summary") or {}).get("active", 0), alarm_hist=len(hist),
                 rx_mb=round(st.get("total_bytes", 0) / 2**20), cpu_pct=round(st.get("cpu_percent", 0), 1), sys_avail_mb=round(avail),
                 reg_pending=dbg.get("registry_pending_packets", 0), store_bufs=dbg.get("store_patch_bufs", 0), store_buffered_mb=round(dbg.get("store_buffered_bytes", 0) / 2**20, 1),
-                alarm_pending=(dbg.get("alarms") or {}).get("pending", 0), alarm_last_seen=(dbg.get("alarms") or {}).get("last_seen", 0), emr_cache_mb=round(dbg.get("emr_cache_bytes", 0) / 2**20, 1), live_index=dbg.get("live_index_rows", 0))
+                alarm_pending=(dbg.get("alarms") or {}).get("pending", 0), alarm_last_seen=(dbg.get("alarms") or {}).get("last_seen", 0), emr_cache_mb=round(dbg.get("emr_cache_bytes", 0) / 2**20, 1), live_index=dbg.get("live_index_rows", 0),
+                cpu_proc=round(st.get("cpu_process_percent", 0), 1), ws_lagged=st.get("ws_lagged", 0), ws_sessions=st.get("ws_sessions", 0), ws_subs=st.get("ws_subscribed_channels", 0))
 
 
 def run(args):
@@ -131,8 +133,8 @@ def slope_per_hour(rows, key):
 def report(args):
     rows = []
     with open(args.out) as f:
-        for r in csv.DictReader(f):
-            rows.append({k: (float(v) if re.fullmatch(r"-?\d+(\.\d+)?", v or "") else v) for k, v in r.items()})
+        for r in csv.DictReader(f, restval=""):
+            rows.append({k: (float(v) if re.fullmatch(r"-?\d+(\.\d+)?", v or "") else 0.0) for k, v in r.items()})
     if not rows:
         print("no samples"); return
     pid = rows[-1]["pid"]
@@ -144,13 +146,13 @@ def report(args):
     print(f"{'metric':22} {'first':>10} {'last':>10} {'delta':>10} {'slope/h':>10}  verdict")
     checks = [("pss_mb", 5, "MB"), ("rss_mb", 5, "MB"), ("anon_mb", 5, "MB"), ("fds", 20, ""), ("threads", 2, ""),
               ("in_estab", 20, ""), ("in_close_wait", 1, ""), ("in_fin_wait", 5, ""), ("in_other", 5, ""), ("ws_estab", 3, ""), ("ws_close_wait", 1, ""),
-              ("gw_rows", 20, ""), ("ch_rows", 50, ""), ("resend_pending", 20, ""), ("store_queue", 1000, ""), ("reg_pending", 100, ""), ("store_bufs", 50, ""), ("store_buffered_mb", 5, ""), ("alarm_pending", 100, ""), ("alarm_last_seen", 100, ""), ("emr_cache_mb", 5, ""), ("live_index", 50, ""), ("events", 0, ""), ("alarm_hist", 0, ""), ("queue_drop", 1, "")]
+              ("gw_rows", 20, ""), ("ch_rows", 50, ""), ("resend_pending", 20, ""), ("store_queue", 1000, ""), ("reg_pending", 100, ""), ("store_bufs", 50, ""), ("store_buffered_mb", 5, ""), ("alarm_pending", 100, ""), ("alarm_last_seen", 100, ""), ("emr_cache_mb", 5, ""), ("live_index", 50, ""), ("cpu_proc", 30, "%"), ("ws_sessions", 5, ""), ("ws_subs", 200, ""), ("events", 0, ""), ("alarm_hist", 0, ""), ("queue_drop", 1, ""), ("ws_lagged", 1, "")]
     for k, tol, unit in checks:
         s = slope_per_hour(win, k); d = last[k] - first[k]
         if k in ("events", "alarm_hist"):
             verdict = "ring (capped)" if last[k] <= 500 else "GROWING?"
-        elif k in ("in_close_wait", "ws_close_wait", "queue_drop"):
-            verdict = "ok" if last[k] == 0 else "CHECK (should be 0)"
+        elif k in ("in_close_wait", "ws_close_wait", "queue_drop", "ws_lagged"):
+            verdict = "ok" if d == 0 else f"CHECK (+{d:.0f} in window)"
         else:
             verdict = "ok" if abs(s) <= tol else ("GROWING" if s > 0 else "shrinking")
         print(f"{k:22} {first[k]:>10.1f} {last[k]:>10.1f} {d:>+10.1f} {s:>+10.2f}  {verdict}")
