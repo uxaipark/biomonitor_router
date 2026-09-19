@@ -22,7 +22,7 @@ def rows(path):
     try:
         with open(path) as f:
             for r in csv.DictReader(f, restval=""):
-                out.append({k: (float(v) if re.fullmatch(r"-?\d+(\.\d+)?", v or "") else 0.0) for k, v in r.items()})
+                out.append({k: (float(v) if re.fullmatch(r"-?\d+(\.\d+)?", v or "") else 0.0) for k, v in r.items() if k is not None})
     except OSError:
         pass
     return out

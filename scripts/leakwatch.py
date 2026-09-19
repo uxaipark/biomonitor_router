@@ -134,7 +134,7 @@ def report(args):
     rows = []
     with open(args.out) as f:
         for r in csv.DictReader(f, restval=""):
-            rows.append({k: (float(v) if re.fullmatch(r"-?\d+(\.\d+)?", v or "") else 0.0) for k, v in r.items()})
+            rows.append({k: (float(v) if re.fullmatch(r"-?\d+(\.\d+)?", v or "") else 0.0) for k, v in r.items() if k is not None})
     if not rows:
         print("no samples"); return
     pid = rows[-1]["pid"]
