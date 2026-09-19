@@ -15,14 +15,14 @@ import { LiveModal } from './pages/LiveModal.jsx'
 
 const PAGES = [
   ['#/', '대시보드', Dashboard],
-  ['#/patients', '환자', Patients],
-  ['#/live', '실시간', Live],
-  ['#/map', '병원 지도', MapPage],
-  ['#/gateways', '게이트웨이', Gateways],
   ['#/alarms', '알람', Alarms],
   ['#/events', '이벤트', Events],
+  ['#/patients', '환자', Patients],
+  ['#/gateways', '게이트웨이', Gateways],
+  ['#/map', '병원 지도', MapPage],
   ['#/viewers', '뷰어', Viewers],
   // entries with a 4th element hang under that top-menu group (rendered as a custom nav menu)
+  ['#/live', '실시간', Live, '테스트'],
   ['#/test/multiviewer', '멀티 뷰어 테스트', MultiViewerTest, '테스트'],
 ]
 const MENUS = [...new Set(PAGES.map((p) => p[3]).filter(Boolean))]
