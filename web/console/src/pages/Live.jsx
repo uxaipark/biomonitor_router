@@ -69,7 +69,7 @@ export default function Live({ alarms }) {
   useEffect(() => onWs('stream', () => {}), [])
 
   return (
-    <div className="page">
+    <div className="page wide">
       <div className="toolbar">
         <Dropdown value={ward} options={wards} onChange={(v) => { setWard(v); setGw('') }} placeholder="병동 선택 (전체)" width={220} />
         <Dropdown value={gw} options={gws} onChange={setGw} placeholder="모든 게이트웨이" width={220} />

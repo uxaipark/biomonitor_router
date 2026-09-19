@@ -48,6 +48,8 @@ header nav .badge { background: var(--crit); color: #fff; border-radius: 10px; f
 .pill.crit { border-color: var(--crit); color: var(--crit); font-weight: 600; }
 main { flex: 1; overflow: auto; }
 .page { padding: 14px; max-width: 1900px; margin: 0 auto; }
+.page.wide { max-width: none; padding: 8px 8px 10px; } /* live page: cards fill the whole viewport width (render-smoothness test) */
+.page.wide .grid { gap: 6px; }
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .seg.wrap { flex-wrap: wrap; }
