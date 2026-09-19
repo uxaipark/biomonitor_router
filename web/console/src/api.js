@@ -33,6 +33,11 @@ export const api = {
   setAlarmRules: (r) => send('PUT', '/api/alarms/rules', r),
   ackAlarm: (id) => send('POST', `/api/alarms/${id}/ack`),
   patch: (id) => get(`/api/patches/${id}`),
+  groups: () => get('/api/groups'),
+  createGroup: (g) => send('POST', '/api/groups', g),
+  updateGroup: (id, g) => send('PUT', `/api/groups/${id}`, g),
+  deleteGroup: (id) => send('DELETE', `/api/groups/${id}`),
+  staff: () => get('/api/emr/staff'),
   verifyPatch: (id) => get(`/api/patches/${id}/verify`),
   emu: {
     status: () => get('/api/emu/status'),
@@ -50,6 +55,7 @@ import { useEffect, useState, useRef } from 'react'
 export function usePoll(fn, ms, deps = []) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
+  const [bump, setBump] = useState(0) // refresh(): re-run the poll now
   const alive = useRef(true)
   useEffect(() => {
     alive.current = true
@@ -68,8 +74,8 @@ export function usePoll(fn, ms, deps = []) {
     tick()
     return () => { alive.current = false; clearTimeout(timer) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps)
-  return [data, error]
+  }, [...deps, bump])
+  return [data, error, () => setBump((b) => b + 1)]
 }
 
 export const fmtBytes = (b) => {

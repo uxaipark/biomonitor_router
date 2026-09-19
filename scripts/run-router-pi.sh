@@ -12,6 +12,7 @@ export ROUTER_STORE_MAX_GB=${ROUTER_STORE_MAX_GB:-200}
 export ROUTER_STORE_GZIP=${ROUTER_STORE_GZIP:-0}
 export ROUTER_EMULATOR_ADDR=${ROUTER_EMULATOR_ADDR:-192.168.0.125:5445}
 export ROUTER_WEB_DIR=${ROUTER_WEB_DIR:-$PWD/web/console/dist}
+export ROUTER_DB_PATH=${ROUTER_DB_PATH:-$PWD/data/router.db}
 export ROUTER_GROUPS_PATH=${ROUTER_GROUPS_PATH:-$PWD/data/groups.json}
 export ROUTER_DISPLAYS_PATH=${ROUTER_DISPLAYS_PATH:-$PWD/data/displays.json}
 [ -e data/groups.json ] || cp router-server/groups.json data/groups.json

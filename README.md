@@ -48,6 +48,7 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 | `ROUTER_HTTP_ADDR` | `0.0.0.0:7300` | REST + WS |
 | `ROUTER_STORE_DIR` / `ROUTER_STORE_MAX_GB` | `data/store` / `200` | 패치 저장소 루트 / 상한 (0 = 무제한) |
 | `ROUTER_STORE_GZIP` | `1` | 닫힌 시간 파일 gzip 수준. `0` = 압축 안 함(SD 카드: 쓰기 +50 %·정각 CPU 20 % 버스트 회피). SSD 면 1 |
+| `ROUTER_DB_PATH` | `router.db` | 라우터 로컬 SQLite(그룹 정의 등 설정). 비어 있으면 `ROUTER_GROUPS_PATH`(예전 groups.json)를 1회 가져온다. 런처 기본 `data/router.db` |
 | `ROUTER_EMULATOR_ADDR` | (없음) | 에뮬레이터 HTTP. 설정 시 5 s 상태 보고(`POST /api/v1/router/status`) + 30 s EMR 동기화 + `/api/emr/*` 프록시 |
 | `ROUTER_WEB_DIR` | `../web/console/dist` | 웹 콘솔(vite build) 정적 디렉터리. `/` 로 서빙, 없으면 API 만 |
 | `ROUTER_ANALYSIS_ADDR` / `ROUTER_DB_ADDR` | `127.0.0.1:7100` / `:7601` | 레거시 분석·DB 링크 (없으면 재시도만) |

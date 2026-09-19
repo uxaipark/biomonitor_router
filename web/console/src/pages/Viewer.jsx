@@ -5,7 +5,8 @@ import { templateById } from '../viewer/templates.js'
 import '../viewer/ds.css'
 
 /**
- * Full-screen viewer route: `#/viewer?tpl=central&gw=895` | `ward=W110A` | `room=110A01` | `b=0&f=10` | `ids=1,2,3`.
+ * Full-screen viewer route: `#/viewer?tpl=central&gw=895` | `ward=W110A` | `room=110A01` | `b=0&f=10` | `ids=1,2,3`
+ *   | `doctor=D1300` | `nurse=N1301` | `dept=종양내과` | `dx=암` | `group=<id>`; `label=` overrides the caption.
  * Scopes the registry rows, enriches them with EMR facts (sex/age/diagnosis/bed) via the router's EMR proxy,
  * subscribes the shown patches on the shared WS and hands everything to the template component.
  */
@@ -38,6 +39,12 @@ export default function Viewer({ alarms, hash }) {
     if (ward) v = v.filter((r) => r.patient?.ward === ward)
     if (room) v = v.filter((r) => (r.patient?.room || r.space) === room)
     if (ids) { const set = new Set(ids.split(',')); v = v.filter((r) => set.has(r.channel_id)) }
+    const doctor = q.get('doctor'), nurse = q.get('nurse'), dept = q.get('dept'), dx = q.get('dx'), group = q.get('group')
+    if (doctor) v = v.filter((r) => r.patient?.doctor === doctor)
+    if (nurse) v = v.filter((r) => r.patient?.nurse === nurse)
+    if (dept) v = v.filter((r) => r.patient?.department === dept)
+    if (dx) v = v.filter((r) => r.patient?.diagnosis === dx)
+    if (group) v = v.filter((r) => (r.groups || []).includes(group))
     if (b != null && f != null) v = v.filter((r) => String(r.patient?.building_idx ?? '') === b && String(r.patient?.floor) === f)
     v = v.map((r) => ({ ...r, emr: emr.byPatient.get(String(r.patient_id)), bed: emr.bedByPatch.get(r.channel_id) }))
     return v.slice(0, tpl.maxRows || 200)
@@ -45,9 +52,10 @@ export default function Viewer({ alarms, hash }) {
   const ids = scoped.map((r) => r.channel_id).join(',')
   useEffect(() => { claimLive('viewer', ids ? ids.split(',') : []); return () => releaseLive('viewer') }, [ids])
   const unit = useMemo(() => {
+    if (q.get('label')) return q.get('label')
     const gw = q.get('gw')
     if (gw) { const g = (gws || []).find((x) => String(x.gw_id) === gw); return g ? `${g.location?.building || ''} ${g.location?.floor ? g.location.floor + 'F' : ''} · ${g.location?.room || ''} · ${g.name} #${g.gw_id}` : `GW #${gw}` }
-    return [q.get('ward') && `병동 ${q.get('ward')}`, q.get('room') && `병실 ${q.get('room')}`, q.get('b') != null && `건물 ${q.get('b')} · ${q.get('f')}F`, q.get('ids') && `선택 ${scoped.length}명`].filter(Boolean).join(' · ') || '전체'
+    return [q.get('ward') && `병동 ${q.get('ward')}`, q.get('room') && `병실 ${q.get('room')}`, q.get('doctor') && `담당의 ${q.get('doctor')}`, q.get('nurse') && `간호사 ${q.get('nurse')}`, q.get('dept') && `진료과 ${q.get('dept')}`, q.get('dx') && `주진단 ${q.get('dx')}`, q.get('group') && `그룹 ${q.get('group')}`, q.get('b') != null && `건물 ${q.get('b')} · ${q.get('f')}F`, q.get('ids') && `선택 ${scoped.length}명`].filter(Boolean).join(' · ') || '전체'
   }, [q, gws, scoped.length])
   const Template = tpl.component
   useEffect(() => { document.title = `${tpl.name} · ${unit}` ; return () => { document.title = 'Biomonitor Router' } }, [tpl, unit])

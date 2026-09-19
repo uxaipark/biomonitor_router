@@ -82,17 +82,40 @@ pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
                 continue;
             }
         }
-        // patients feed: specialty (진료과목) and disease (주진단) per patch — the admissions feed lacks both
-        match request(&addr, "GET", "/api/v1/emr/patients?status=admitted&limit=100000", None).await {
-            Ok((200, body)) => match serde_json::from_str::<serde_json::Value>(&body) {
-                Ok(v) => {
-                    let n = apply_patients(&state, &v);
-                    debug!("emr sync: {} patient records applied", n);
+        // patients feed: specialty (진료과목) and disease (주진단) per patch — the admissions feed lacks both.
+        // The emulator caps limit at 10,000; page by offset until `total` is covered.
+        let mut offset = 0usize;
+        let mut applied = 0usize;
+        loop {
+            let path = format!("/api/v1/emr/patients?status=admitted&limit=10000&offset={offset}");
+            match request(&addr, "GET", &path, None).await {
+                Ok((200, body)) => match serde_json::from_str::<serde_json::Value>(&body) {
+                    Ok(v) => {
+                        let got = v.get("patients").and_then(|a| a.as_array()).map(|a| a.len()).unwrap_or(0);
+                        let total = v.get("total").and_then(|t| t.as_u64()).unwrap_or(0) as usize;
+                        applied += apply_patients(&state, &v);
+                        offset += got;
+                        if got == 0 || offset >= total {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        warn!("emr sync (patients): bad JSON: {}", e);
+                        break;
+                    }
+                },
+                Ok((code, _)) => {
+                    debug!("emr sync (patients): HTTP {}", code);
+                    break;
                 }
-                Err(e) => warn!("emr sync (patients): bad JSON: {}", e),
-            },
-            Ok((code, _)) => debug!("emr sync (patients): HTTP {}", code),
-            Err(e) => debug!("emr sync (patients): {}", e),
+                Err(e) => {
+                    debug!("emr sync (patients): {}", e);
+                    break;
+                }
+            }
+        }
+        if applied > 0 {
+            info!("emr sync: {} patient records updated (specialty/diagnosis)", applied);
         }
     }
 }
@@ -150,7 +173,10 @@ pub fn apply_admissions(state: &Arc<AppState>, v: &serde_json::Value) -> usize {
         p.ward = s(a, "ward");
         p.doctor = s(a, "doctor");
         p.nurse = s(a, "nurse");
-        p.department = s(a, "department");
+        // admissions rarely carry a department; the patients feed fills specialty — do not wipe it here
+        if !s(a, "department").is_empty() {
+            p.department = s(a, "department");
+        }
         p.profile_no = a.get("profile_id").and_then(|x| x.as_u64()).unwrap_or(p.profile_no);
         if !s(a, "room").is_empty() {
             p.room = s(a, "room");
