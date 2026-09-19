@@ -41,8 +41,11 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
     let mut subs: HashSet<String> = HashSet::new();
     let mut gw_subs: HashSet<String> = HashSet::new();
     let mut ch_subs: HashSet<String> = HashSet::new();
-    // this session's envelope queue: the publisher routes only matching packets into it
-    let (env_tx, mut env_rx) = tokio::sync::mpsc::channel::<Arc<crate::state::OutEnvelope>>(8192);
+    // This session's envelope queue: the publisher routes only matching packets into it. Depth is what the
+    // session may buffer before packets are dropped for it alone — 512 envelopes is ~4 s for a 24-channel viewer
+    // (5 packets/s per channel), far beyond the 100 ms flush and the viewer's 1 s jitter buffer. It was 8192,
+    // which let 21 sessions hold ~170 MB of envelopes during a mass reconnect (observed: PSS 118 → 199 MB).
+    let (env_tx, mut env_rx) = tokio::sync::mpsc::channel::<Arc<crate::state::OutEnvelope>>(512);
     let sid = state.next_session.fetch_add(1, Ordering::Relaxed);
     let session = Arc::new(crate::state::Session { subs: std::sync::RwLock::new(Default::default()), tx: env_tx });
     state.sessions.insert(sid, session.clone());
