@@ -225,7 +225,8 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   // stored strip fills in under the live one
   const onRollover = useMemo(() => (w0) => {
     setTimeout(() => {
-      api.patch(id).then((d) => setInfo(d)).catch(() => {})
+      // refresh the index; if the latest hour was selected, follow a newly started hour file
+      api.patch(id).then((d) => { setInfo((old) => { const prevLatest = old?.files?.[old.files.length - 1]?.hour, latest = d?.files?.[d.files.length - 1]?.hour; if (latest && latest !== prevLatest) setHour((h) => (h === prevLatest ? latest : h)); return d }) }).catch(() => {})
       setChunks((m) => { const n = new Map(m); n.delete(Math.floor(w0 / CHUNK_MS)); n.delete(Math.floor((w0 + spanMs) / CHUNK_MS)); return n })
     }, 6000)
   }, [id, spanMs])
@@ -260,7 +261,8 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
     if (!hour || !ix) return []
     const h0 = hourStart(hour), h1 = h0 + 3600000
     // the window being filled live is not listed again below it
-    const from = Math.max(h0, Math.floor(ix.first_ts_ms / spanMs) * spanMs), to = Math.min(h1, ix.last_ts_ms, liveW0 != null ? liveW0 : Infinity)
+    // completed windows end at the live window's start; new ones appear at the top as soon as it rolls over
+    const from = Math.max(h0, Math.floor(ix.first_ts_ms / spanMs) * spanMs), to = Math.min(h1, liveW0 != null ? liveW0 : ix.last_ts_ms)
     const v = []
     for (let t = from; t < to; t += spanMs) v.push(t)
     return v.reverse()
