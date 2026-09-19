@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api, fmtTime } from '../api.js'
 import { ColumnTracer, ColumnStroker } from '../traceRender.js'
+import { getStream, playoutNow } from '../waveStore.js'
+import { latest } from '../ws.js'
 
 /**
  * Stored-waveform history for one patch. The router keeps every record in hourly files; this panel shows the
@@ -49,7 +51,7 @@ function slice(chunks, key, axis, t0, t1) {
 }
 
 /** Draw one window [t0, t0+span) of runs into a canvas with the pixel-column tracer; pace ticks along the top. */
-function drawStrip(canvas, { runs, pace, t0, spanMs, range, color, theme, lineWidth = 1.6, grid = true }) {
+function drawStrip(canvas, { runs, pace, t0, spanMs, range, color, theme, lineWidth = 1.6, grid = true, live = null }) {
   const box = canvas.parentElement
   const r = box.getBoundingClientRect()
   const W = Math.max(1, Math.round(r.width)), H = Math.max(1, Math.round(r.height))
@@ -83,6 +85,11 @@ function drawStrip(canvas, { runs, pace, t0, spanMs, range, color, theme, lineWi
   }
   if (tracer.col >= 0) tracer.flush(stroker.emit) // the last column too (nothing follows it)
   stroker.end()
+  if (live != null && live >= t0 && live < t0 + spanMs) { // sweep front of the live window
+    const x = Math.round(xOf(live)) + 0.5
+    ctx.strokeStyle = theme.paceLine[1] || '#fff'; ctx.lineWidth = 1; ctx.globalAlpha = 0.6
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); ctx.globalAlpha = 1
+  }
   for (const [t, ch] of pace) {
     if (t < t0 || t >= t0 + spanMs) continue
     const x = Math.round(xOf(t)) + 0.5, c = theme.paceLine[ch] || theme.paceLine[1]
@@ -129,6 +136,71 @@ function Window({ t0, spanMs, loaded, pace, theme, onVisible, keys }) {
   )
 }
 
+/** The newest window, drawn live: samples accumulate from the WS rings as they play out, filling the strip
+ *  left to right; when the playout clock crosses the next span boundary the window rolls over and the
+ *  completed one becomes the first stored strip (the parent refreshes the index and re-reads that chunk). */
+function LiveWindow({ id, spanMs, theme, keys, onRollover }) {
+  const canvases = useRef([])
+  const [t0, setT0] = useState(null)
+  const rows = useMemo(() => {
+    const r = [{ key: 'ecg', ring: 'ecg', range: [-1.5, 2.0], color: '#3ddc84', h: 'hx-ecg', lw: 1.6, grid: true, label: 'ECG' }]
+    if (keys.has('ppg')) r.push({ key: 'ppg', ring: 'ppg', range: [-1.2, 1.5], color: '#7cc4ff', h: 'hx-thin', lw: 1.1, label: 'Pleth' })
+    if (keys.has('accel')) r.push({ key: 'accel', ring: 'accel0', range: [-1.6, 1.6], color: '#ff9783', h: 'hx-thin', lw: 1.1, label: 'Accel' })
+    if (keys.has('resp_wave')) r.push({ key: 'resp_wave', ring: 'resp_wave', range: [-1.5, 1.5], color: '#f5d442', h: 'hx-thin', lw: 1.1, label: 'Resp' })
+    return r
+  }, [keys])
+  useEffect(() => {
+    const bufs = new Map() // ring key → { t: [], v: [], lastAbs, fs }
+    let cur = null, paceSeen = null
+    const pace = []
+    const tick = () => {
+      const T = playoutNow(performance.now())
+      if (T == null) return
+      const w0 = Math.floor(T / spanMs) * spanMs
+      if (cur !== w0) { const prev = cur; cur = w0; bufs.clear(); pace.length = 0; setT0(w0); if (prev != null) onRollover?.(prev) }
+      for (const row of rows) {
+        const st = getStream(`${id}:${row.ring}`)
+        if (!st || !st.len) continue
+        const b = bufs.get(row.ring) || { t: [], v: [], lastAbs: null, fs: st.sampleRate }
+        let i = b.lastAbs == null ? 0 : b.lastAbs - st.trimmed + 1
+        if (i < 0) i = 0
+        for (; i < st.len; i++) { const t = st.tAt(i); if (t > T) break; if (t >= cur) { b.t.push(t); b.v.push(st.vAt(i)) } b.lastAbs = st.trimmed + i }
+        bufs.set(row.ring, b)
+      }
+      const l = latest.get(id)
+      if (l?.pace?.length && l.paceSeq != null && l.paceSeq !== paceSeen) {
+        const st = getStream(`${id}:ecg`), fs = st?.sampleRate || 250, step = 1000 / fs, n = Math.round(fs * 0.2)
+        const p0 = (l.paceTs ?? l.ts_ms) - (n - 1) * step
+        for (const m of l.pace) pace.push([p0 + (m & 0x3fff) * step, (m >> 14) & 3])
+        paceSeen = l.paceSeq
+      }
+      rows.forEach((row, i) => {
+        const c = canvases.current[i]
+        const b = bufs.get(row.ring)
+        if (!c) return
+        // split the accumulated samples into uniformly spaced runs at gaps
+        const runs = []
+        if (b && b.t.length) {
+          const step = 1000 / b.fs
+          let s0 = 0
+          for (let k = 1; k <= b.t.length; k++) {
+            if (k === b.t.length || b.t[k] - b.t[k - 1] > step * 1.5) { runs.push({ t0: b.t[s0], step, scale: 1, axes: 1, axis: 0, data: b.v, i0: s0, i1: k }); s0 = k }
+          }
+        }
+        drawStrip(c, { runs, pace: row.key === 'ecg' ? pace : [], t0: cur, spanMs, range: row.range, color: row.color, theme, lineWidth: row.lw, grid: !!row.grid, live: T })
+      })
+    }
+    const iv = setInterval(tick, 50) // 20 fps is plenty for a strip that only grows at the right edge
+    return () => clearInterval(iv)
+  }, [id, spanMs, theme, rows, onRollover])
+  return (
+    <div className="hx-win hx-live">
+      <div className="hx-win-t"><b>{t0 != null ? fmtTime(t0) : '--:--:--'}</b><span className="ds-dim"> ~ {t0 != null ? fmtTime(t0 + spanMs) : ''}</span><span className="hx-live-tag">LIVE</span></div>
+      {rows.map((row, i) => <div key={row.key} className={'hx-box ' + row.h}><canvas ref={(el) => { canvases.current[i] = el }} /><span className="hx-lbl" style={{ color: row.color }}>{row.label}</span></div>)}
+    </div>
+  )
+}
+
 export default function HistoryPanel({ id, theme, onClose, compact }) {
   const th = { bg: '#000', grid: 'rgba(243,242,242,.10)', paceLine: ['#ffe34d', '#ffffff', '#ff9783'], ...(theme || {}) }
   const [info, setInfo] = useState(null) // { index, files }
@@ -145,6 +217,14 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
     api.patch(id).then((d) => { if (!alive) return; setInfo(d); const files = d?.files || []; if (files.length) setHour(files[files.length - 1].hour) }).catch((e) => setErr(e.message))
     return () => { alive = false }
   }, [id])
+  // a live window completed: 6 s later (writer flush) re-read the index and drop the cached chunk so the new
+  // stored strip fills in under the live one
+  const onRollover = useMemo(() => (w0) => {
+    setTimeout(() => {
+      api.patch(id).then((d) => setInfo(d)).catch(() => {})
+      setChunks((m) => { const n = new Map(m); n.delete(Math.floor(w0 / CHUNK_MS)); n.delete(Math.floor((w0 + spanMs) / CHUNK_MS)); return n })
+    }, 6000)
+  }, [id, spanMs])
   const ensureChunk = (c) => {
     setChunks((m) => {
       if (m.has(c)) return m
@@ -186,6 +266,7 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
       </div>
       <div className="hx-hours">{hours.map((f) => <button key={f.hour} className={f.hour === hour ? 'on' : ''} title={`${localHour(f.hour).day} ${localHour(f.hour).hh}시 · ${(f.bytes / 2 ** 20).toFixed(1)} MB`} onClick={() => setHour(f.hour)}>{localHour(f.hour).hh}시</button>)}</div>
       <div className="hx-list" style={{ '--hx-ecg': `${height}px`, '--hx-thin': `${Math.max(20, Math.round(height * 0.28))}px` }}>
+        <LiveWindow id={id} spanMs={spanMs} theme={th} keys={keys.size ? keys : new Set(['ecg', 'accel'])} onRollover={onRollover} />
         {windows.map((t0) => <Window key={t0} t0={t0} spanMs={spanMs} loaded={loaded} pace={pace} theme={th} onVisible={onVisible} keys={keys} />)}
         {!windows.length && <div className="ds-dim">이 시간에 저장된 구간이 없습니다.</div>}
       </div>
