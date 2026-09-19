@@ -98,16 +98,16 @@ export default function Viewers({ alarms }) {
       </div>
       <p className="muted">{kindLabel}별 목록입니다. 행을 누르면 선택한 템플릿의 뷰어가 새 탭에서 전체 화면으로 열리고, 행의 버튼으로 다른 템플릿을 고를 수도 있습니다. 전체 연결 환자 {live.length.toLocaleString()}명.</p>
       <table className="tbl vw-table">
-        <thead><tr><th>#</th><th>{kindLabel}</th>{kind === 'group' && <th>조건</th>}<th className="num">환자</th><th className="num">알람</th>{kind !== 'gw' && kind !== 'group' && <th className="num">GW</th>}<th>뷰어</th>{kind === 'group' && <th></th>}</tr></thead>
+        <thead><tr><th className="w-idx">#</th><th>{kindLabel}</th>{kind === 'group' && <th>조건</th>}<th className="num w-n">환자</th><th className="num w-n">알람</th>{kind !== 'gw' && kind !== 'group' && <th className="num w-n">GW</th>}<th>뷰어</th>{kind === 'group' && <th></th>}</tr></thead>
         <tbody>
           {shown.map((e, i) => (
             <tr key={e.key} className={'clickable' + (e.alarms ? ' sev-high' : '')} onClick={() => open(e)}>
-              <td className="num muted">{i + 1}</td>
+              <td className="num muted w-idx">{i + 1}</td>
               <td className="lbl"><b>{e.label}</b>{e.sub && <small>{e.sub}</small>}</td>
               {kind === 'group' && <td className="muted">{describeGroup(e.group)}</td>}
-              <td className="num">{e.count.toLocaleString()}</td>
-              <td className="num">{e.alarms ? <span className="tag sev-high small">{e.alarms}</span> : <span className="muted">0</span>}</td>
-              {kind !== 'gw' && kind !== 'group' && <td className="num">{e.gws.size}</td>}
+              <td className="num w-n">{e.count.toLocaleString()}</td>
+              <td className="num w-n">{e.alarms ? <span className="tag sev-high small">{e.alarms}</span> : <span className="muted">0</span>}</td>
+              {kind !== 'gw' && kind !== 'group' && <td className="num w-n">{e.gws.size}</td>}
               <td className="acts" onClick={(ev) => ev.stopPropagation()}>
                 {TEMPLATES.map((t) => <button key={t.id} className={t.id === tpl ? 'tpl-default' : ''} title={t.desc} onClick={() => open(e, t.id)}>{t.name.split(' (')[0]}</button>)}
               </td>
