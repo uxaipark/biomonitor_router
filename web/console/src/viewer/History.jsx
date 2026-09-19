@@ -298,17 +298,18 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
     setTimeout(() => {
       // refresh the index; if the latest hour was selected, follow a newly started hour file
       api.patch(id).then((d) => { setInfo((old) => { const prevLatest = old?.files?.[old.files.length - 1]?.hour, latest = d?.files?.[d.files.length - 1]?.hour; if (latest && latest !== prevLatest) setHour((h) => (h === prevLatest ? latest : h)); return d }) }).catch(() => {})
+      for (const c of [Math.floor(w0 / CHUNK_MS), Math.floor((w0 + spanMs) / CHUNK_MS)]) requested.current.delete(c)
       setChunks((m) => { const n = new Map(m); n.delete(Math.floor(w0 / CHUNK_MS)); n.delete(Math.floor((w0 + spanMs) / CHUNK_MS)); return n })
     }, 6000)
   }, [id, spanMs])
-  const ensureChunk = (c) => {
-    setChunks((m) => {
-      if (m.has(c)) return m
-      setLoading((n) => n + 1)
-      fetchChunk(id, c * CHUNK_MS, (c + 1) * CHUNK_MS).then((h) => setChunks((mm) => new Map(mm).set(c, h))).catch((e) => { setErr(e.message); setChunks((mm) => { const n = new Map(mm); n.delete(c); return n }) }).finally(() => setLoading((n) => n - 1))
-      return new Map(m).set(c, null)
-    })
+  // chunk requests are de-duplicated through a ref (not inside a state updater: React may re-run updaters, which
+  // re-issued fetches and made the loading text flicker)
+  const requested = useRef(new Set())
+  const load = (c) => {
+    setLoading((n) => n + 1)
+    fetchChunk(id, c * CHUNK_MS, (c + 1) * CHUNK_MS).then((h) => setChunks((m) => new Map(m).set(c, h))).catch((e) => { setErr(e.message); requested.current.delete(c) }).finally(() => setLoading((n) => n - 1))
   }
+  const ensureChunk = (c) => { if (requested.current.has(c)) return; requested.current.add(c); load(c) }
   // a window scrolled into view: make sure the chunks covering it are loaded
   const onVisible = useMemo(() => (t0) => { for (let c = Math.floor(t0 / CHUNK_MS); c <= Math.floor((t0 + spanMs - 1) / CHUNK_MS); c++) ensureChunk(c) }, [spanMs, id]) // eslint-disable-line react-hooks/exhaustive-deps
   const loaded = useMemo(() => [...chunks.values()].filter(Boolean), [chunks])
@@ -323,10 +324,7 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   const [liveW0, setLiveW0] = useState(null) // start of the window the live strip is filling
   // the live window (re)started: (re)read the chunk that holds it, so a cached copy fetched minutes ago does not
   // leave the part before the rings' oldest sample empty
-  const refetchChunk = (c) => {
-    setLoading((n) => n + 1)
-    fetchChunk(id, c * CHUNK_MS, (c + 1) * CHUNK_MS).then((h) => setChunks((m) => new Map(m).set(c, h))).catch((e) => setErr(e.message)).finally(() => setLoading((n) => n - 1))
-  }
+  const refetchChunk = (c) => { requested.current.add(c); load(c) }
   const onWindow = useMemo(() => (w0) => { setLiveW0(w0); for (let c = Math.floor(w0 / CHUNK_MS); c <= Math.floor((w0 + spanMs - 1) / CHUNK_MS); c++) refetchChunk(c) }, [spanMs, id]) // eslint-disable-line react-hooks/exhaustive-deps
   const windows = useMemo(() => {
     if (!hour || !ix) return []
