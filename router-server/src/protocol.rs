@@ -30,6 +30,9 @@ pub struct Patient {
     /// 주진단 (EMR patients 피드의 disease)
     #[serde(default)]
     pub diagnosis: String,
+    /// 재원 형태 (admissions.mode: inpatient | mcot …)
+    #[serde(default)]
+    pub mode: String,
     #[serde(default)]
     pub nurse: String,
     /// 프로필 번호 — 얼굴 이미지(faces/<n>.png) 지정 (에뮬레이터가 전달)

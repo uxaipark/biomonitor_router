@@ -173,6 +173,7 @@ pub fn apply_admissions(state: &Arc<AppState>, v: &serde_json::Value) -> usize {
         p.ward = s(a, "ward");
         p.doctor = s(a, "doctor");
         p.nurse = s(a, "nurse");
+        p.mode = s(a, "mode");
         // admissions rarely carry a department; the patients feed fills specialty — do not wipe it here
         if !s(a, "department").is_empty() {
             p.department = s(a, "department");

@@ -13,9 +13,13 @@ import '../viewer/ds.css'
  */
 const KINDS = [
   ['ward', '병동'], ['room', '병실'], ['doctor', '담당의'], ['nurse', '간호사'],
-  ['department', '진료과목'], ['diagnosis', '주진단'], ['gw', '게이트웨이'], ['group', '그룹'],
+  ['department', '진료과목'], ['diagnosis', '주진단'], ['pacemaker', '페이스메이커'], ['mcot', 'MCOT'], ['gw', '게이트웨이'], ['group', '그룹'],
 ]
-const SCOPE_KEY = { ward: 'ward', room: 'room', doctor: 'doctor', nurse: 'nurse', department: 'dept', diagnosis: 'dx', gw: 'gw', group: 'group' }
+const SCOPE_KEY = { ward: 'ward', room: 'room', doctor: 'doctor', nurse: 'nurse', department: 'dept', diagnosis: 'dx', gw: 'gw', group: 'group', pacemaker: 'ward', mcot: 'ward' }
+// boolean categories: rows are the wards holding such patients, plus an all-wards row (key '')
+const isPaced = (r) => (r.flags & 0x10) !== 0
+const isMcot = (r) => !!r.patient?.mode && r.patient.mode !== 'inpatient'
+const BOOL_KIND = { pacemaker: { test: isPaced, scope: { paced: '1' }, all: '페이스메이커 환자 전체' }, mcot: { test: isMcot, scope: { mode: 'mcot' }, all: 'MCOT 환자 전체' } }
 const pref = (k, d) => { try { return localStorage.getItem(k) || d } catch { return d } }
 
 export default function Viewers({ alarms }) {
@@ -49,6 +53,14 @@ export default function Viewers({ alarms }) {
       for (const r of live) for (const gid of r.groups || []) { const e = m.get(gid); if (e) { e.count++; if (alarmIds.has(r.channel_id)) e.alarms++ } }
       return [...m.values()].sort((a, b) => (a.key !== 'all') - (b.key !== 'all') || a.label.localeCompare(b.label, 'ko'))
     }
+    if (BOOL_KIND[kind]) {
+      const { test, all } = BOOL_KIND[kind]
+      const hits = live.filter(test)
+      for (const r of hits) add(' ' + (r.patient?.ward || '기타'), r, r.patient?.ward || '병동 미상', [r.patient?.building, r.patient?.floor && `${r.patient.floor}F`].filter(Boolean).join(' '))
+      const v = [...m.values()].sort((a, b) => a.label.localeCompare(b.label, 'ko'))
+      const total = { key: '', label: all, sub: `${[...m.keys()].length}개 병동`, count: hits.length, alarms: hits.filter((r) => alarmIds.has(r.channel_id)).length, gws: new Set(hits.map((r) => r.gateway_id).filter(Boolean)) }
+      return [total, ...v.map((e) => ({ ...e, key: e.key.trim() }))]
+    }
     for (const r of live) {
       const p = r.patient || {}
       if (kind === 'ward') add(p.ward, r, p.ward, [p.building, p.floor && `${p.floor}F`].filter(Boolean).join(' '))
@@ -70,7 +82,9 @@ export default function Viewers({ alarms }) {
     const key = sort[0] === 'gws' ? (e) => e.gws.size : sort[0] === 'cond' ? (e) => describeGroup(e.group) : sort[0] === 'label' && kind === 'gw' ? (e) => Number(e.key) : sort[0]
     const sorted = sortBy(v, key, sort[1])
     // the catch-all group stays on top whatever the order
-    return kind === 'group' ? [...sorted.filter((e) => e.key === 'all'), ...sorted.filter((e) => e.key !== 'all')] : sorted
+    if (kind === 'group') return [...sorted.filter((e) => e.key === 'all'), ...sorted.filter((e) => e.key !== 'all')]
+    if (BOOL_KIND[kind]) return [...sorted.filter((e) => e.key === ''), ...sorted.filter((e) => e.key !== '')]
+    return sorted
   }, [entries, q, sort, kind])
   const th = (col, label, cls = '') => (
     <th key={col} className={'sortable ' + cls} onClick={() => setSort([col, sort[0] === col && sort[1] === 'asc' ? 'desc' : 'asc'])}>{label}{sort[0] === col ? (sort[1] === 'asc' ? ' ▲' : ' ▼') : ''}</th>
@@ -79,6 +93,7 @@ export default function Viewers({ alarms }) {
     const c = {}
     for (const [k] of KINDS) {
       if (k === 'group') { c[k] = (groups || []).length; continue }
+      if (BOOL_KIND[k]) { c[k] = live.filter(BOOL_KIND[k].test).length; continue }
       const s = new Set()
       for (const r of live) { const p = r.patient || {}; const v = k === 'gw' ? r.gateway_id : k === 'room' ? (p.room || r.space) : p[k]; if (v) s.add(v) }
       c[k] = s.size
@@ -87,7 +102,7 @@ export default function Viewers({ alarms }) {
   }, [live, groups])
 
   const kindLabel = KINDS.find(([k]) => k === kind)[1]
-  const urlFor = (e, t) => viewerUrl({ tpl: t, [SCOPE_KEY[kind]]: e.key, label: `${kindLabel} ${e.label}` })
+  const urlFor = (e, t) => viewerUrl({ tpl: t, ...(BOOL_KIND[kind]?.scope || {}), [SCOPE_KEY[kind]]: e.key, label: BOOL_KIND[kind] ? (e.key ? `${kindLabel} · 병동 ${e.label}` : e.label) : `${kindLabel} ${e.label}` })
   const open = (e, t = tpl) => window.open(urlFor(e, t), '_blank', 'noopener')
   const tplOpts = TEMPLATES.map((t) => ({ value: t.id, label: t.name }))
   const removeGroup = async (g) => {
