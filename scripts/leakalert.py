@@ -72,12 +72,17 @@ def main():
             # drift checks only once the router has warmed up: the first ~15 min after a start are a ramp
             # (buffers, index, allocator arenas) and read as a false +20..30 MB/h slope
             warm = float(st.get("uptime_s", 0)) >= 1200
-            if len(w30) >= 10 and warm:
-                s_pss = slope_h(w30, "pss_mb"); s_fd = slope_h(w30, "fds")
-                if s_pss > 20:
-                    alert("pss", f"PSS growing {s_pss:+.1f} MB/h over 30 min (now {w30[-1]['pss_mb']:.0f} MB)")
-                if s_fd > 30:
-                    alert("fds", f"fds growing {s_fd:+.0f}/h over 30 min (now {int(w30[-1]['fds'])})")
+            if len(w30) >= 20 and warm:
+                # PSS is spiky (transient allocations from history reads / EMR sync return within minutes), so judge the
+                # floor: the lowest sample of the last third vs the lowest of the first third of the 30-min window
+                third = len(w30) // 3
+                def floor_rise(key):
+                    return min(r.get(key, 0) for r in w30[-third:]) - min(r.get(key, 0) for r in w30[:third])
+                d_pss, d_fd = floor_rise("pss_mb"), floor_rise("fds")
+                if d_pss > 12:
+                    alert("pss", f"PSS floor up {d_pss:+.1f} MB within 30 min (slope {slope_h(w30, 'pss_mb'):+.0f} MB/h, now {w30[-1]['pss_mb']:.0f} MB)")
+                if d_fd > 20:
+                    alert("fds", f"fd floor up {d_fd:+.0f} within 30 min (now {int(w30[-1]['fds'])})")
                 if w30[-1].get("queue_drop", 0) > w30[0].get("queue_drop", 0):
                     alert("drop", f"store queue drops +{w30[-1]['queue_drop'] - w30[0]['queue_drop']:.0f} in 30 min")
                 if w30[-1].get("ws_lagged", 0) > w30[0].get("ws_lagged", 0):
