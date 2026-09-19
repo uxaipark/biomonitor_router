@@ -18,6 +18,9 @@ export ROUTER_DISPLAYS_PATH=${ROUTER_DISPLAYS_PATH:-$PWD/data/displays.json}
 [ -e data/groups.json ] || cp router-server/groups.json data/groups.json
 [ -e data/displays.json ] || cp router-server/displays.json data/displays.json
 export RUST_LOG=${RUST_LOG:-info}
+# mimalloc: return freed pages to the OS promptly (default 10 ms delay keeps burst allocations — store-queue backlogs
+# during SD stalls, hour-file reads — as a raised RSS floor for a long time)
+export MIMALLOC_PURGE_DELAY=${MIMALLOC_PURGE_DELAY:-0}
 setsid nohup router-server/target/release/router-server > data/router.log 2>&1 < /dev/null &
 for _ in $(seq 1 30); do curl -sf "http://127.0.0.1:${ROUTER_HTTP_ADDR##*:}/api/health" >/dev/null && { echo "router-server up ($ROUTER_HTTP_ADDR)"; exit 0; }; sleep 1; done
 echo "router-server did not come up; see data/router.log" >&2; tail -20 data/router.log >&2; exit 1
