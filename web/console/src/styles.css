@@ -300,10 +300,12 @@ svg.plan { width: 100%; height: 100%; background: var(--panel); border: 1px soli
 .hx-win-t { font-size: 12px; margin-bottom: 2px; font-variant-numeric: tabular-nums; }
 .hx-box { position: relative; }
 .hx-box canvas { width: 100%; height: 100%; display: block; }
-.hx-box.hx-ecg { height: 120px; }
-.hx-box.hx-thin { height: 34px; margin-top: 1px; } /* thin strips glued right under the ECG */
+.hx-list { --hx-ecg: 120px; --hx-thin: 34px; }
+.hx-box.hx-ecg { height: var(--hx-ecg); }
+.hx-box.hx-thin { height: var(--hx-thin); margin-top: 1px; } /* thin strips glued right under the ECG */
+.hx-h { display: inline-flex; align-items: center; gap: 6px; }
+.hx-h input[type=range] { width: 140px; min-width: 0; margin: 0; padding: 0; background: transparent; border: 0; accent-color: var(--color-accent, #3b82f6); }
 .hx-lbl { position: absolute; left: 6px; top: 2px; font-size: 10px; opacity: .8; pointer-events: none; }
-.hx.compact .hx-box.hx-ecg { height: 100px; }
 .hx.compact .hx-list { max-height: 60vh; }
 .hx-host { color: var(--text); }
 

@@ -137,6 +137,8 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   const [err, setErr] = useState('')
   const [hour, setHour] = useState('') // selected hour key (YYYYMMDD-HH)
   const [span, setSpan] = useState(30)
+  const [height, setHeight] = useState(() => { try { return Number(localStorage.getItem('hx.height')) || 120 } catch { return 120 } }) // ECG strip px; thin strips scale with it
+  useEffect(() => { try { localStorage.setItem('hx.height', String(height)) } catch { /* ignore */ } }, [height])
   const spanMs = span * 1000
   useEffect(() => {
     let alive = true
@@ -177,12 +179,13 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
       <div className="hx-bar">
         <span className="hx-when"><b>{hour ? `${localHour(hour).day} ${localHour(hour).hh}시` : ''}</b><span className="ds-dim"> · {windows.length}개 구간</span></span>
         <span className="hx-seg">{SPANS.map((s) => <button key={s} className={span === s ? 'on' : ''} onClick={() => setSpan(s)}>{s}s</button>)}</span>
+        <label className="hx-h"><span className="ds-dim">높이</span><input type="range" min="60" max="320" step="10" value={height} onChange={(e) => setHeight(Number(e.target.value))} title={`ECG ${height}px`} /><span className="ds-dim">{height}px</span></label>
         <span className="ds-dim">{loading ? '불러오는 중…' : `${(ix.records || 0).toLocaleString()} 레코드 · ${hours.length}개 시간 파일`}</span>
         <span className="spacer" />
         <button className="btn btn-secondary" onClick={onClose}>실시간으로</button>
       </div>
       <div className="hx-hours">{hours.map((f) => <button key={f.hour} className={f.hour === hour ? 'on' : ''} title={`${localHour(f.hour).day} ${localHour(f.hour).hh}시 · ${(f.bytes / 2 ** 20).toFixed(1)} MB`} onClick={() => setHour(f.hour)}>{localHour(f.hour).hh}시</button>)}</div>
-      <div className="hx-list">
+      <div className="hx-list" style={{ '--hx-ecg': `${height}px`, '--hx-thin': `${Math.max(20, Math.round(height * 0.28))}px` }}>
         {windows.map((t0) => <Window key={t0} t0={t0} spanMs={spanMs} loaded={loaded} pace={pace} theme={th} onVisible={onVisible} keys={keys} />)}
         {!windows.length && <div className="ds-dim">이 시간에 저장된 구간이 없습니다.</div>}
       </div>
