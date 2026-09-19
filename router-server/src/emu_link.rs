@@ -76,6 +76,29 @@ pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
                 Ok(v) => {
                     let n = apply_admissions(&state, &v);
                     debug!("emr sync: {} admissions applied", n);
+                    // Patches the EMR no longer lists (discharged, replaced, or a rebuilt patient set) whose records
+                    // stopped ≥ 60 s ago: drop the row now instead of waiting for the 15-min prune, otherwise they
+                    // linger as connected-but-silent cards in the viewers.
+                    let listed: std::collections::HashSet<String> = v
+                        .get("admissions")
+                        .and_then(|a| a.as_array())
+                        .map(|a| a.iter().filter_map(|x| x.get("patch_id").and_then(|p| p.as_u64())).map(|p| p.to_string()).collect())
+                        .unwrap_or_default();
+                    if listed.len() >= 10 {
+                        let now = crate::protocol::now_ms();
+                        let mut gone = Vec::new();
+                        state.registry.for_each(|ch, st| {
+                            if !listed.contains(ch) && st.last_ts_ms > 0 && now.saturating_sub(st.last_ts_ms) > 60_000 {
+                                gone.push(ch.to_string());
+                            }
+                        });
+                        for ch in &gone {
+                            state.remove_channel(ch);
+                        }
+                        if !gone.is_empty() {
+                            info!("emr sync: removed {} silent patches no longer in admissions", gone.len());
+                        }
+                    }
                 }
                 Err(e) => warn!("emr sync: bad JSON: {}", e),
             },

@@ -58,6 +58,7 @@
 - [2026-09-19 23:05 RP5] MCOT 판정 기준을 RP5#1 안내대로 게이트웨이 메타로 변경: GW `type == "mobile"` 또는 `location.building` 에 원외/MCOT (환자 `mode` 는 보조). 현재 에뮬레이터는 `config.general.outpatient_count = 50` 이지만 상태 outpatients 0 — 환자 세트 재생성(`POST /api/v1/control/rebuild`) 전까지 MCOT 탭은 비어 있음(실행 여부는 사용자 결정 대기).
 - [2026-09-19 23:40 RP5] 모바일 GW(1773~, `type mobile`, 건물 `원외(MCOT)`)가 라우터에 잡히기 시작 → 뷰어 MCOT 탭 동작. 원외 환자 위치를 집주소 지역명으로 표기하기 위해 `Patient.home_region/home_address` 추가(EMR `home_region|region|area`, `home_address|address`(문자열 또는 {region|city|district, full}) 를 관대하게 파싱, 없으면 주소 앞 두 단어). 콘솔: 페이스메이커/MCOT 탭의 병동 없는 환자는 지역별 행(`외부 · 지역`), 지역도 없으면 '병동 외부'(패치 id 로 열기); 뷰어 스코프 `region=`; 중앙 모니터 타일 위치에 `외부 · 지역`. **에뮬레이터에 필드 추가 요청을 채팅 채널로 전달**(사용자: 에뮬레이터에서 집주소 포함 예정). 라우터 재시작(새 바이너리).
 - [2026-09-20 00:10 RP5] 에뮬레이터가 집주소를 넣어 줌: 환자 상세 `/api/v1/emr/patients/{profile}` 의 `address {sido, sigungu, dong, label}` (목록·admissions 에는 없음). 라우터 EMR 동기화가 원외 환자(모바일 GW 또는 mode≠inpatient)만 골라 상세를 1회 조회(프로필별 캐시, 1 h 갱신, 회당 최대 60건)해 `home_region`="시도 시군구", `home_address`=label 로 채움. 에뮬레이터가 환자 세트를 재생성해 패치 번호가 65537~ 로 바뀌었고 MCOT 50명(모바일 GW 50대) 모두 지역명 표시 확인. 라우터 재시작(새 바이너리).
+- [2026-09-20 00:35 RP5] MCOT 뷰어에 파형 없는 카드가 섞이던 원인: 에뮬레이터 환자 세트 재생성 후 이전 MCOT 패치 50개가 '연결됨·수신 없음'(모바일 GW 소켓 유지)으로 15분 정리 전까지 남음. EMR 동기화가 admissions 에 없고 60 s 이상 조용한 패치 행을 즉시 제거하도록 수정(admissions 10건 미만이면 안전상 건너뜀). 라우터 재시작(새 바이너리). 현재 에뮬레이터: 입원 1,500 + MCOT 50 = 1,550, 라우터 행 1,550 전부 수신 중.
 
 ## 4. MAC → RP5#2 전달 사항
 
