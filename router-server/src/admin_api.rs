@@ -552,6 +552,7 @@ async fn wave_read(
 
     // raw: 과도한 응답 방지를 위해 120초로 제한
     let to = to.min(from + 120_000);
+    let _permit = hist_sem().acquire().await;
     let sr = state.registry.sample_rate_of(&channel_id).unwrap_or(250);
     let r: Vec<(u64, u32, Vec<f32>)> = tokio::task::spawn_blocking(move || {
         crate::patch_store::read_ecg_range(&root, pid, from, to)
@@ -592,6 +593,13 @@ async fn wave_read(
 ///   header = {"from_ms","to_ms","records","segments":[{key,fs,axes,scale,t0_ms,n,off}],"pace":[[t_ms,mark],…]}
 /// 세그먼트 = 연속 레코드 묶음(seq 연속 · 시간 간격 정상); n 은 축당 샘플 수, off 는 블롭의 i16 인덱스, 값 = raw × scale.
 /// 레코드의 ts_ms 는 번들 마지막 샘플 시각(스트림/링 버퍼와 같은 규약)이므로 t0_ms = ts − (n−1)/fs, 페이스 t 도 절대 시각.
+/// At most this many stored-waveform reads run at once: each loads a whole hour file (a few MB) and a burst of
+/// a dozen concurrent requests from a scrolling history list left ~40 MB of allocator-retained memory behind.
+static HIST_SEM: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+fn hist_sem() -> &'static tokio::sync::Semaphore {
+    HIST_SEM.get_or_init(|| tokio::sync::Semaphore::new(2))
+}
+
 async fn wave_read_all(
     State(state): State<Arc<AppState>>,
     Path(channel_id): Path<String>,
@@ -603,6 +611,7 @@ async fn wave_read_all(
     let to = getn("to_ms", now).min(from + 600_000);
     let root = std::path::PathBuf::from(&state.cfg.store_dir);
     let Some(pid) = patch_id_of(&channel_id) else { return (StatusCode::BAD_REQUEST, "bad patch id").into_response() };
+    let _permit = hist_sem().acquire().await;
     let recs = tokio::task::spawn_blocking(move || crate::patch_store::read_wave_range(&root, pid, from, to)).await.unwrap_or_default();
     // per-channel run detection: a new segment when the seq jumps or the time gap is not one bundle
     // each segment keeps its own samples (records interleave channels); the blob is laid out segment by segment

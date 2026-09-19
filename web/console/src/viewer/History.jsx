@@ -308,10 +308,18 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   // chunk requests are de-duplicated through a ref (not inside a state updater: React may re-run updaters, which
   // re-issued fetches and made the loading text flicker)
   const requested = useRef(new Set())
-  const load = (c) => {
-    setLoading((n) => n + 1)
-    fetchChunk(id, c * CHUNK_MS, (c + 1) * CHUNK_MS).then((h) => setChunks((m) => new Map(m).set(c, h))).catch((e) => { setErr(e.message); requested.current.delete(c) }).finally(() => setLoading((n) => n - 1))
+  // at most 2 chunk requests in flight: a fast scroll through an hour queued a dozen at once, each making the
+  // router load a whole hour file
+  const inflight = useRef(0)
+  const queue = useRef([])
+  const pump = () => {
+    while (inflight.current < 2 && queue.current.length) {
+      const c = queue.current.shift()
+      inflight.current++
+      fetchChunk(id, c * CHUNK_MS, (c + 1) * CHUNK_MS).then((h) => setChunks((m) => new Map(m).set(c, h))).catch((e) => { setErr(e.message); requested.current.delete(c) }).finally(() => { inflight.current--; setLoading((n) => n - 1); pump() })
+    }
   }
+  const load = (c) => { setLoading((n) => n + 1); queue.current.push(c); pump() }
   const ensureChunk = (c) => { if (requested.current.has(c)) return; requested.current.add(c); load(c) }
   // a window scrolled into view: make sure the chunks covering it are loaded
   const onVisible = useMemo(() => (t0) => { for (let c = Math.floor(t0 / CHUNK_MS); c <= Math.floor((t0 + spanMs - 1) / CHUNK_MS); c++) ensureChunk(c) }, [spanMs, id]) // eslint-disable-line react-hooks/exhaustive-deps
