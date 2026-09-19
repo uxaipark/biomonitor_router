@@ -420,8 +420,7 @@ pub fn read_ecg_range(root: &Path, patch_id: u32, from_ms: u64, to_ms: u64) -> V
         if key < from_key || key > to_key {
             continue;
         }
-        let Ok(buf) = read_file(&path) else { continue };
-        walk_entries_in(&buf, from_ms, to_ms, |e| {
+        let _ = stream_entries_in(&path, from_ms, to_ms, |e| {
             if let Some((_, dt, _, data)) = e.channels.iter().find(|c| c.0 == CH_ECG) {
                 if *dt == 1 {
                     let s: Vec<f32> = data
@@ -444,6 +443,76 @@ pub struct WaveRec {
     pub pace: Vec<u16>,
 }
 
+/// Stream one hour file entry by entry with a small buffer, calling `f` for entries with ts in [from_ms, to_ms).
+/// Out-of-range entries are skipped with a relative seek, so a 5-minute read of a 4 MB file never holds the file
+/// in memory (a burst of such reads used to leave tens of MB of allocator-retained memory). Gzipped files (old
+/// hours written with ROUTER_STORE_GZIP > 0) fall back to a full decompress + walk.
+pub fn stream_entries_in(path: &Path, from_ms: u64, to_ms: u64, mut f: impl FnMut(&Entry)) -> std::io::Result<()> {
+    use std::io::{BufRead, Read};
+    if path.extension().map(|e| e == "gz").unwrap_or(false) {
+        let buf = read_file(path)?;
+        walk_entries_in(&buf, from_ms, to_ms, f);
+        return Ok(());
+    }
+    let mut r = std::io::BufReader::with_capacity(256 << 10, File::open(path)?);
+    let mut hdr = [0u8; ENTRY_HDR_LEN];
+    let mut body: Vec<u8> = Vec::with_capacity(4096);
+    loop {
+        if r.read_exact(&mut hdr).is_err() {
+            break;
+        }
+        let ts_ms = u64::from_le_bytes(hdr[0..8].try_into().unwrap());
+        let n_ch = hdr[23] as usize;
+        let wanted = ts_ms >= from_ms && ts_ms < to_ms;
+        body.clear();
+        body.extend_from_slice(&hdr);
+        let mut channels = Vec::with_capacity(if wanted { n_ch } else { 0 });
+        let mut ok = true;
+        for _ in 0..n_ch {
+            let mut ch = [0u8; wire::CH_HDR_LEN];
+            if r.read_exact(&mut ch).is_err() {
+                ok = false;
+                break;
+            }
+            let size = u16::from_le_bytes([ch[2], ch[3]]) as usize * wire::axes(ch[0]) * wire::item_size(ch[1]);
+            if wanted {
+                let start = body.len() + wire::CH_HDR_LEN;
+                body.extend_from_slice(&ch);
+                body.resize(start + size, 0);
+                if r.read_exact(&mut body[start..]).is_err() {
+                    ok = false;
+                    break;
+                }
+                channels.push((ch[0], ch[1], u16::from_le_bytes([ch[2], ch[3]]), body[start..].to_vec()));
+            } else if r.seek_relative(size as i64).is_err() {
+                ok = false;
+                break;
+            }
+        }
+        if !ok {
+            break;
+        }
+        let mut crc = [0u8; 4];
+        if r.read_exact(&mut crc).is_err() {
+            break;
+        }
+        if wanted && wire::crc32(&body) == u32::from_le_bytes(crc) {
+            f(&Entry {
+                ts_ms,
+                gw_id: u32::from_le_bytes(hdr[8..12].try_into().unwrap()),
+                patient_id: u32::from_le_bytes(hdr[12..16].try_into().unwrap()),
+                seq: u32::from_le_bytes(hdr[16..20].try_into().unwrap()),
+                flags: hdr[20],
+                battery: hdr[21],
+                rssi: hdr[22] as i8,
+                channels,
+            });
+        }
+        let _ = r.fill_buf(); // keep the buffer warm; no-op if already filled
+    }
+    Ok(())
+}
+
 /// All waveform channels (int16: ECG, accel, PPG, resp wave) and pace marks of a patch in [from_ms, to_ms).
 pub fn read_wave_range(root: &Path, patch_id: u32, from_ms: u64, to_ms: u64) -> Vec<WaveRec> {
     let mut out = Vec::new();
@@ -453,8 +522,7 @@ pub fn read_wave_range(root: &Path, patch_id: u32, from_ms: u64, to_ms: u64) -> 
         if key < from_key || key > to_key {
             continue;
         }
-        let Ok(buf) = read_file(&path) else { continue };
-        walk_entries_in(&buf, from_ms, to_ms, |e| {
+        let _ = stream_entries_in(&path, from_ms, to_ms, |e| {
             let mut rec = WaveRec { ts_ms: e.ts_ms, seq: e.seq, blocks: Vec::new(), pace: Vec::new() };
             for (ch, dt, n, data) in &e.channels {
                 if *ch == wire::CH_PACE && *dt == 3 {
