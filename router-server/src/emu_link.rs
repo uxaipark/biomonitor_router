@@ -66,6 +66,9 @@ pub async fn run_reporter(state: Arc<AppState>, every: u64) {
 pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
     let Some(addr) = state.cfg.emulator_addr.clone() else { return };
     let mut tick = tokio::time::interval(Duration::from_secs(every.max(5)));
+    // home address lives only in the per-patient detail (`/emr/patients/{profile}` → address{sido,sigungu,dong,label});
+    // fetched for outside (MCOT) patients only and remembered per profile id, refreshed hourly
+    let mut home_cache: std::collections::HashMap<u64, (std::time::Instant, String, String)> = std::collections::HashMap::new();
     loop {
         tick.tick().await;
         match request(&addr, "GET", "/api/v1/emr/admissions", None).await {
@@ -117,6 +120,7 @@ pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
         if applied > 0 {
             info!("emr sync: {} patient records updated (specialty/diagnosis)", applied);
         }
+        sync_home_addresses(&state, &addr, &mut home_cache).await;
     }
 }
 
@@ -162,9 +166,13 @@ fn apply_home(p: &mut crate::protocol::Patient, a: &serde_json::Value) {
     let (obj_region, full) = match addr {
         Some(serde_json::Value::String(x)) => (None, x.clone()),
         Some(o @ serde_json::Value::Object(_)) => {
-            let r = ["region", "district", "city"].iter().map(|k| s(o, k)).filter(|v| !v.is_empty()).collect::<Vec<_>>();
+            // emulator shape: {sido, sigungu, dong, label} → region "인천 부평구", full = label; generic keys as fallback
+            let mut r = ["sido", "sigungu"].iter().map(|k| s(o, k)).filter(|v| !v.is_empty()).collect::<Vec<_>>();
+            if r.is_empty() {
+                r = ["region", "city", "district"].iter().map(|k| s(o, k)).filter(|v| !v.is_empty()).collect();
+            }
             let region = if r.is_empty() { None } else { Some(r.join(" ")) };
-            let full = ["full", "text", "line"].iter().map(|k| s(o, k)).find(|v| !v.is_empty()).unwrap_or_default();
+            let full = ["label", "full", "text", "line"].iter().map(|k| s(o, k)).find(|v| !v.is_empty()).unwrap_or_default();
             (region, full)
         }
         _ => (None, String::new()),
@@ -178,6 +186,69 @@ fn apply_home(p: &mut crate::protocol::Patient, a: &serde_json::Value) {
     if p.home_region.is_empty() && !p.home_address.is_empty() {
         // "서울특별시 강남구 역삼동 …" → "서울특별시 강남구"
         p.home_region = p.home_address.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+    }
+}
+
+/// Outside (MCOT) patients: rows on a mobile gateway or with mode != inpatient. Fetch each one's EMR detail once
+/// (per profile id, hourly refresh) and apply the home address; the list/admissions feeds do not carry it.
+async fn sync_home_addresses(state: &Arc<AppState>, addr: &str, cache: &mut std::collections::HashMap<u64, (std::time::Instant, String, String)>) {
+    let mobile: std::collections::HashSet<String> = {
+        let mut set = std::collections::HashSet::new();
+        state.gateways.for_each(|g| {
+            if g.gw_type == "mobile" || g.location.building.contains("원외") || g.location.building.to_uppercase().contains("MCOT") {
+                set.insert(g.gw_id.to_string());
+            }
+        });
+        set
+    };
+    let mut targets: Vec<(String, u64)> = Vec::new(); // (channel, profile id)
+    state.registry.for_each(|ch, st| {
+        let outside = mobile.contains(&st.gateway_id) || st.patient.as_ref().map(|p| !p.mode.is_empty() && p.mode != "inpatient").unwrap_or(false);
+        if outside && st.profile_id > 0 {
+            targets.push((ch.to_string(), st.profile_id));
+        }
+    });
+    let mut fetched = 0usize;
+    for (channel, profile) in targets {
+        let fresh = cache.get(&profile).map(|(t, _, _)| t.elapsed() < Duration::from_secs(3600)).unwrap_or(false);
+        if !fresh {
+            if fetched >= 60 {
+                break; // spread a large first batch over several sync rounds
+            }
+            let path = format!("/api/v1/emr/patients/{profile}");
+            match request(addr, "GET", &path, None).await {
+                Ok((200, body)) => {
+                    let v: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
+                    let mut tmp = crate::protocol::Patient::default();
+                    apply_home(&mut tmp, &v);
+                    cache.insert(profile, (std::time::Instant::now(), tmp.home_region, tmp.home_address));
+                    fetched += 1;
+                }
+                Ok((code, _)) => debug!("emr home {}: HTTP {}", profile, code),
+                Err(e) => {
+                    debug!("emr home {}: {}", profile, e);
+                    break;
+                }
+            }
+        }
+        if let Some((_, region, full)) = cache.get(&profile) {
+            if let Some(prev) = state.registry.patient_of(&channel) {
+                if (!region.is_empty() && prev.home_region != *region) || (!full.is_empty() && prev.home_address != *full) {
+                    let mut p = prev.clone();
+                    if !region.is_empty() {
+                        p.home_region = region.clone();
+                    }
+                    if !full.is_empty() {
+                        p.home_address = full.clone();
+                    }
+                    state.registry.upsert_meta(&channel, p);
+                    state.recompute_channel_groups(&channel);
+                }
+            }
+        }
+    }
+    if fetched > 0 {
+        info!("emr sync: home address fetched for {} outside patients", fetched);
     }
 }
 
