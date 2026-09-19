@@ -139,7 +139,7 @@ function Window({ t0, spanMs, loaded, pace, theme, onVisible, keys }) {
 /** The newest window, drawn live: samples accumulate from the WS rings as they play out, filling the strip
  *  left to right; when the playout clock crosses the next span boundary the window rolls over and the
  *  completed one becomes the first stored strip (the parent refreshes the index and re-reads that chunk). */
-function LiveWindow({ id, spanMs, theme, keys, onRollover }) {
+function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
   const canvases = useRef([])
   const [t0, setT0] = useState(null)
   const rows = useMemo(() => {
@@ -149,6 +149,7 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover }) {
     if (keys.has('resp_wave')) r.push({ key: 'resp_wave', ring: 'resp_wave', range: [-1.5, 1.5], color: '#f5d442', h: 'hx-thin', lw: 1.1, label: 'Resp' })
     return r
   }, [keys])
+  const loadedRef = useRef(loaded); loadedRef.current = loaded
   useEffect(() => {
     const bufs = new Map() // ring key → { t: [], v: [], lastAbs, fs }
     let cur = null, paceSeen = null
@@ -157,7 +158,7 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover }) {
       const T = playoutNow(performance.now())
       if (T == null) return
       const w0 = Math.floor(T / spanMs) * spanMs
-      if (cur !== w0) { const prev = cur; cur = w0; bufs.clear(); pace.length = 0; setT0(w0); if (prev != null) onRollover?.(prev) }
+      if (cur !== w0) { const prev = cur; cur = w0; bufs.clear(); pace.length = 0; setT0(w0); onWindow?.(w0); if (prev != null) onRollover?.(prev) }
       for (const row of rows) {
         const st = getStream(`${id}:${row.ring}`)
         if (!st || !st.len) continue
@@ -178,8 +179,10 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover }) {
         const c = canvases.current[i]
         const b = bufs.get(row.ring)
         if (!c) return
-        // split the accumulated samples into uniformly spaced runs at gaps
-        const runs = []
+        // the part of this window before the rings' oldest sample (the panel opened mid-window, or the ring's
+        // 8 s retention) comes from the stored chunk; the rest from the accumulated ring samples
+        const ringStart = b && b.t.length ? b.t[0] : T
+        const runs = ringStart > cur ? slice(loadedRef.current, row.key, 0, cur, ringStart) : []
         if (b && b.t.length) {
           const step = 1000 / b.fs
           let s0 = 0
@@ -245,14 +248,23 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   const hourStart = (key) => Date.UTC(+key.slice(0, 4), +key.slice(4, 6) - 1, +key.slice(6, 8), +key.slice(9, 11))
   const localHour = (key) => { const d = new Date(hourStart(key)); return { day: d.toLocaleDateString('ko-KR'), hh: String(d.getHours()).padStart(2, '0') } }
   // windows of the selected hour, newest first, clipped to the stored range
+  const [liveW0, setLiveW0] = useState(null) // start of the window the live strip is filling
+  // the live window (re)started: (re)read the chunk that holds it, so a cached copy fetched minutes ago does not
+  // leave the part before the rings' oldest sample empty
+  const refetchChunk = (c) => {
+    setLoading((n) => n + 1)
+    fetchChunk(id, c * CHUNK_MS, (c + 1) * CHUNK_MS).then((h) => setChunks((m) => new Map(m).set(c, h))).catch((e) => setErr(e.message)).finally(() => setLoading((n) => n - 1))
+  }
+  const onWindow = useMemo(() => (w0) => { setLiveW0(w0); for (let c = Math.floor(w0 / CHUNK_MS); c <= Math.floor((w0 + spanMs - 1) / CHUNK_MS); c++) refetchChunk(c) }, [spanMs, id]) // eslint-disable-line react-hooks/exhaustive-deps
   const windows = useMemo(() => {
     if (!hour || !ix) return []
     const h0 = hourStart(hour), h1 = h0 + 3600000
-    const from = Math.max(h0, Math.floor(ix.first_ts_ms / spanMs) * spanMs), to = Math.min(h1, ix.last_ts_ms)
+    // the window being filled live is not listed again below it
+    const from = Math.max(h0, Math.floor(ix.first_ts_ms / spanMs) * spanMs), to = Math.min(h1, ix.last_ts_ms, liveW0 != null ? liveW0 : Infinity)
     const v = []
     for (let t = from; t < to; t += spanMs) v.push(t)
     return v.reverse()
-  }, [hour, ix, spanMs])
+  }, [hour, ix, spanMs, liveW0])
   if (err) return <div className="hx"><div className="hx-bar"><span className="ds-dim">이력을 불러오지 못했습니다: {err}</span><span className="spacer" /><button className="btn btn-secondary" onClick={onClose}>실시간으로</button></div></div>
   if (!ix) return <div className="hx"><div className="hx-bar"><span className="ds-dim">{info && !ix ? '저장된 파형이 없습니다.' : '저장 색인 읽는 중…'}</span><span className="spacer" /><button className="btn btn-secondary" onClick={onClose}>실시간으로</button></div></div>
   return (
@@ -267,7 +279,7 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
       </div>
       <div className="hx-hours">{hours.map((f) => <button key={f.hour} className={f.hour === hour ? 'on' : ''} title={`${localHour(f.hour).day} ${localHour(f.hour).hh}시 · ${(f.bytes / 2 ** 20).toFixed(1)} MB`} onClick={() => setHour(f.hour)}>{localHour(f.hour).hh}시</button>)}</div>
       <div className="hx-list" style={{ '--hx-ecg': `${height}px`, '--hx-thin': `${Math.max(20, Math.round(height * 0.28))}px` }}>
-        <LiveWindow id={id} spanMs={spanMs} theme={th} keys={keys.size ? keys : new Set(['ecg', 'accel'])} onRollover={onRollover} />
+        <LiveWindow id={id} spanMs={spanMs} theme={th} keys={keys.size ? keys : new Set(['ecg', 'accel'])} onRollover={onRollover} loaded={loaded} onWindow={onWindow} />
         {windows.map((t0) => <Window key={t0} t0={t0} spanMs={spanMs} loaded={loaded} pace={pace} theme={th} onVisible={onVisible} keys={keys} />)}
         {!windows.length && <div className="ds-dim">이 시간에 저장된 구간이 없습니다.</div>}
       </div>
