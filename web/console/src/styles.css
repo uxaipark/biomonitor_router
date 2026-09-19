@@ -123,9 +123,15 @@ table.tbl { width: 100%; border-collapse: collapse; background: var(--panel); bo
 .card.compact .card-head .pname { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; }
 .card.compact .card-head .ploc { overflow: hidden; text-overflow: ellipsis; }
 .card.compact .card-head .tag { font-size: 9.5px; padding: 0 5px; line-height: 15px; }
-.card.compact .card-body { gap: 6px; }
-.card.compact .vitals { min-width: 0; width: 88px; display: grid; grid-template-columns: 1fr 1fr; gap: 1px 6px; align-content: center; }
+/* compact: wave strip on the left, a fixed 2×3 number block on the right; both exactly 50 px tall so the
+   strip never pushes the numbers past the card edge (units are dropped, values never wrap) */
+.card.compact .card-body { gap: 6px; align-items: center; }
+.card.compact .wave-col { flex: 1 1 0; min-width: 0; }
+.card.compact canvas.wave { height: 50px; }
+.card.compact .vitals { flex: none; width: 108px; height: 50px; display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; align-content: space-between; overflow: hidden; }
+.card.compact .vital { min-width: 0; white-space: nowrap; gap: 3px; line-height: 16px; }
 .card.compact .vital small { font-size: 9px; min-width: 0; }
+.card.compact .vital small:last-child { display: none; }
 .card.compact .vital.small { grid-column: span 1; }
 .card.dense { padding: 3px 6px 2px; border-radius: 6px; }
 .card.dense .card-head { font-size: 10.5px; margin-bottom: 1px; gap: 5px; flex-wrap: nowrap; overflow: hidden; white-space: nowrap; line-height: 1.3; }
