@@ -72,7 +72,10 @@ function handleItems(items) {
     }
     const prev = latest.get(id) || {}
     const vitals = { ...(prev.vitals || {}), ...(it.vitals || {}) }
-    latest.set(id, { ...prev, ...it, vitals, patient: it.patient || prev.patient, rx: Date.now() })
+    // pace marks arrive as their own record (no ECG block); keep the last set with the seq/ts they belong to,
+    // so a viewer draws each spike once instead of re-drawing it under every later packet's timestamp
+    const hasPace = Array.isArray(it.pace) && it.pace.length > 0
+    latest.set(id, { ...prev, ...it, vitals, patient: it.patient || prev.patient, rx: Date.now(), pace: hasPace ? it.pace : prev.pace, paceSeq: hasPace ? it.seq : prev.paceSeq, paceTs: hasPace ? it.ts_ms : prev.paceTs })
   }
   emit('stream', items)
 }

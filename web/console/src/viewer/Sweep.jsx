@@ -63,10 +63,11 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
       blit(a, w1)
       if (len > w1) blit(0, len - w1)
     }
+    let paceDrawn = null // paceSeq of the last drawn pace record (the latest map is replaced per packet)
     const paceMarks = (l, tFirst, step, n) => {
       // pace: bits 0-13 = sample offset within this bundle's ECG block, bits 14-15 = chamber (0 A, 1 V, 2 LV)
-      if (!pace || wave !== 'ecg' || !l?.pace?.length || l._paceDrawn === l.seq) return
-      const t0 = l.ts_ms - (n - 1) * step
+      if (!pace || wave !== 'ecg' || !l?.pace?.length || l.paceSeq == null || l.paceSeq === paceDrawn) return
+      const t0 = (l.paceTs ?? l.ts_ms) - (n - 1) * step
       for (const m of l.pace) {
         const off = m & 0x3fff, ch = (m >> 14) & 3
         const t = t0 + off * step
@@ -76,7 +77,7 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
         ctx.beginPath(); ctx.moveTo(x, 2); ctx.lineTo(x, H - 2); ctx.stroke(); ctx.restore()
         ctx.fillStyle = th.paceLine[ch] || th.paceLine[1]; ctx.fillRect(x - 1, 2, 3, 8)
       }
-      l._paceDrawn = l.seq
+      paceDrawn = l.paceSeq
     }
     const renderFull = (T, st, step) => {
       ctx.drawImage(grid, 0, 0, W, H)
