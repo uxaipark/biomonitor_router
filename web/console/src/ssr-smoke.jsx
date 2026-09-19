@@ -25,8 +25,9 @@ const mods = await Promise.all([
   import('./App.jsx'), import('./pages/Dashboard.jsx'), import('./pages/Patients.jsx'), import('./pages/Live.jsx'),
   import('./pages/MapPage.jsx'), import('./pages/Gateways.jsx'), import('./pages/Alarms.jsx'), import('./pages/Events.jsx'),
   import('./pages/LiveModal.jsx'), import('./WaveCard.jsx'), import('./pages/Viewer.jsx'), import('./pages/Viewers.jsx'), import('./viewer/CentralStation.jsx'), import('./viewer/BedViewer.jsx'),
+  import('./pages/MultiViewerTest.jsx'),
 ])
-const [App, Dashboard, Patients, Live, MapPage, Gateways, Alarms, Events, LiveModal, WaveCard, Viewer, Viewers, Central, Bed] = mods
+const [App, Dashboard, Patients, Live, MapPage, Gateways, Alarms, Events, LiveModal, WaveCard, Viewer, Viewers, Central, Bed, MultiViewerTest] = mods
 const alarms = { alarms: [{ id: 1, kind: 'hr_high', severity: 'high', channel_id: '65538', gateway_id: '895', patient_id: 39905, patient_name: '조상호', room: '209A01', value: '159 bpm', message: '빈맥 159 bpm', since_ms: Date.now() - 5000, last_ms: Date.now(), acked: false }], summary: { active: 1, unacked: 1, high: 1 } }
 const row = { channel_id: '65538', connected: true, stale: false, quality: 'good', moving: false, gateway_id: '895', space: '209A01', last_seq: 10, last_ts_ms: Date.now(), patient: { id: '39905', name: '조상호', building: '본관', floor: '9', ward: 'W209A', zone: 'GW-209-0894', room: '209A01', doctor: 'D0001', nurse: 'N0001' }, groups: ['all'], patient_id: 39905, mrn: 'MRN-11200001', profile_id: 2, sample_rate: 250, flags: 0x10, battery: 87, rssi: -50, channels: ['ecg', 'hr', 'resp', 'spo2', 'accel', 'pace'], vitals: { hr: 72, spo2: 97, resp: 16, temp: 36.6 }, vitals_ts_ms: Date.now(), pseq_reorder: 0 }
 let failed = 0
@@ -53,6 +54,7 @@ check('WaveCard dense', <WaveCard.WaveCard row={row} density="dense" alarm={alar
 check('WaveCard dense (empty)', <WaveCard.WaveCard row={{ ...row, vitals: {}, patient: null }} density="dense" />)
 globalThis.ResizeObserver = class { observe() {} disconnect() {} }
 check('Viewers', <Viewers.default />)
+check('MultiViewerTest', <MultiViewerTest.default />)
 check('Viewer route', <Viewer.default alarms={alarms} hash="#/viewer?tpl=central&gw=895" />)
 check('CentralStation', <Central.default rows={[row, { ...row, channel_id: '65539', flags: 0x01 }]} alarms={alarms} unit="TEST" onClose={() => {}} />)
 check('CentralStation numeric', <Central.default rows={Array.from({ length: 60 }, (_, i) => ({ ...row, channel_id: String(70000 + i) }))} alarms={alarms} unit="TEST" />)

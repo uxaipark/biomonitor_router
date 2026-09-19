@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { api, usePoll } from './api.js'
 import { ensureOpen, onWs, subscribeGroup, wsStatus } from './ws.js'
 import Dashboard from './pages/Dashboard.jsx'
@@ -10,6 +10,7 @@ import Alarms from './pages/Alarms.jsx'
 import Events from './pages/Events.jsx'
 import Viewers from './pages/Viewers.jsx'
 import Viewer from './pages/Viewer.jsx'
+import MultiViewerTest from './pages/MultiViewerTest.jsx'
 import { LiveModal } from './pages/LiveModal.jsx'
 
 const PAGES = [
@@ -21,7 +22,30 @@ const PAGES = [
   ['#/alarms', '알람', Alarms],
   ['#/events', '이벤트', Events],
   ['#/viewers', '뷰어', Viewers],
+  // entries with a 4th element hang under that top-menu group (rendered as a custom nav menu)
+  ['#/test/multiviewer', '멀티 뷰어 테스트', MultiViewerTest, '테스트'],
 ]
+const MENUS = [...new Set(PAGES.map((p) => p[3]).filter(Boolean))]
+
+/** Top-nav group with a click-to-open submenu (no native controls); closes on outside click / Esc / pick. */
+function NavMenu({ label, items, base }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
+  }, [open])
+  const active = items.some(([h]) => h === base)
+  return (
+    <span ref={ref} className={'nav-menu' + (open ? ' open' : '')}>
+      <a href="#" className={active ? 'active' : ''} onClick={(e) => { e.preventDefault(); setOpen(!open) }} aria-haspopup="menu" aria-expanded={open}>{label} <i className="dd-caret" /></a>
+      {open && <div className="nav-sub" role="menu">{items.map(([h, l]) => <a key={h} href={h} role="menuitem" className={base === h ? 'active' : ''} onClick={() => setOpen(false)}>{l}</a>)}</div>}
+    </span>
+  )
+}
 
 function useHash() {
   const [h, setH] = useState(location.hash || '#/')
@@ -94,9 +118,10 @@ export default function App() {
       <header className="top">
         <a className="brand" href="#/">🫀 Biomonitor Router</a>
         <nav>
-          {PAGES.map(([h, label]) => (
+          {PAGES.filter((p) => !p[3]).map(([h, label]) => (
             <a key={h} href={h} className={base === h ? 'active' : ''}>{label}{h === '#/alarms' && s.unacked > 0 && <span className="badge">{s.unacked}</span>}</a>
           ))}
+          {MENUS.map((m) => <NavMenu key={m} label={m} base={base} items={PAGES.filter((p) => p[3] === m)} />)}
         </nav>
         <span className="spacer" />
         <span className={'pill ' + (health?.ok ? 'ok' : 'err')} title="라우터 API">라우터 {health?.ok ? '정상' : '응답 없음'}</span>
