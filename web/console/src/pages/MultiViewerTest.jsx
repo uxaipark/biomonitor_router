@@ -81,8 +81,8 @@ export default function MultiViewerTest() {
             const open = win && !win.closed
             return (
               <tr key={ward} className={open ? '' : 'stale'}>
-                <td className="num muted">{i + 1}</td><td><b>{ward}</b></td><td className="names mono" title={gws.join(', ')}><b>{gws.length}대</b> · {gws.slice(0, 16).join(' ')}{gws.length > 16 && <span className="muted"> 외 {gws.length - 16}</span>}</td>
-                <td className="names" title={names.join(', ')}><b>{count}명</b> · {names.slice(0, 12).join(', ')}{names.length > 12 && <span className="muted"> 외 {names.length - 12}명</span>}</td>
+                <td className="num muted">{i + 1}</td><td><b>{ward}</b></td><td className="names mono"><b>{gws.length}대</b><div className="list">{gws.join(' ')}</div></td>
+                <td className="names"><b>{count}명</b><div className="list">{names.join(', ')}</div></td>
                 <td>{open ? <span className="tag ok small">열림</span> : <span className="tag small">닫힘</span>}</td>
                 <td className="mono muted">{urlOf(ward)}</td>
                 <td>{open ? <button className="icon" onClick={() => { win.focus() }}>보기</button> : <a href={urlOf(ward)} target={`viewer-${ward}`} rel="noopener" onClick={(e) => { e.preventDefault(); openOne(ward); tick((x) => x + 1) }}>열기</a>}</td>
