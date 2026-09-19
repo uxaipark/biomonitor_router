@@ -58,6 +58,9 @@ struct Conn {
     id: u64,
     addr: String,
     tx: mpsc::Sender<Vec<u8>>,
+    /// (gw_id, gw_id as string, room, refreshed) — one socket carries one gateway, so the per-frame
+    /// `gw_id.to_string()` and room lookup are cached and refreshed every 2 s.
+    cache: std::cell::RefCell<(u32, String, String, std::time::Instant)>,
 }
 
 async fn handle_conn(state: Arc<AppState>, stream: TcpStream, peer: std::net::SocketAddr) -> anyhow::Result<()> {
@@ -73,7 +76,7 @@ async fn handle_conn(state: Arc<AppState>, stream: TcpStream, peer: std::net::So
             }
         }
     });
-    let conn = Conn { id: CONN_SEQ.fetch_add(1, Ordering::Relaxed), addr: peer.to_string(), tx };
+    let conn = Conn { id: CONN_SEQ.fetch_add(1, Ordering::Relaxed), addr: peer.to_string(), tx, cache: std::cell::RefCell::new((u32::MAX, String::new(), String::new(), std::time::Instant::now())) };
     let peer_ip = peer.ip();
     state.ingest_conns.fetch_add(1, Ordering::Relaxed);
     *state.ingest_sources.lock().unwrap().entry(peer_ip).or_insert(0) += 1;
@@ -202,7 +205,13 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) ->
     if let Some(st) = frame.gw_status {
         state.gateways.on_status(hdr.gw_id, st);
     }
-    let gw_key = hdr.gw_id.to_string();
+    let (gw_key, space) = {
+        let mut c = conn.cache.borrow_mut();
+        if c.0 != hdr.gw_id || c.3.elapsed() > std::time::Duration::from_secs(2) || frame.meta_json.is_some() {
+            *c = (hdr.gw_id, hdr.gw_id.to_string(), state.gateways.room_of(hdr.gw_id).unwrap_or_default(), std::time::Instant::now());
+        }
+        (c.1.clone(), c.2.clone())
+    };
     if let Some(json) = frame.meta_json {
         match serde_json::from_slice::<serde_json::Value>(json) {
             Ok(meta) => {
@@ -218,7 +227,6 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) ->
     if frame.records.is_empty() {
         return ops;
     }
-    let space = state.gateways.room_of(hdr.gw_id).unwrap_or_default();
     // Nobody consumes stream packets without an analysis server or a WS session: update the registry row
     // from the raw record and skip building EcgPacket (samples, blob, JSON) for 10k records/s.
     let want_stream = state.analysis_up() || state.out_tx.receiver_count() > 0;
@@ -227,6 +235,33 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) ->
         state.total_packets.fetch_add(1, Ordering::Relaxed);
         batch.push(rec.raw);
         let channel_id = rec.patch_id.to_string();
+        if !want_stream && verdict != SeqVerdict::Recovered {
+            let mut vit = Vitals::default();
+            for c in &rec.channels {
+                match (c.ch, c.dtype) {
+                    (wire::CH_HR, 2) => vit.hr = c.data.first().copied().filter(|v| *v > 0),
+                    (wire::CH_RESP, 2) => vit.resp = c.data.first().copied().filter(|v| *v > 0),
+                    (wire::CH_SPO2, 2) => vit.spo2 = c.data.first().copied().filter(|v| *v > 0),
+                    (wire::CH_TEMP, 1) => vit.temp = c.data.chunks_exact(2).next().map(|b| i16::from_le_bytes([b[0], b[1]])).filter(|v| *v != 0).map(|v| v as f32 * 0.01),
+                    (wire::CH_GLUCOSE, 3) => vit.glucose = c.data.chunks_exact(2).next().map(|b| u16::from_le_bytes([b[0], b[1]])).filter(|v| *v != 0).map(|v| v as f32 * 0.1),
+                    _ => {}
+                }
+            }
+            match state.registry.observe_record(&channel_id, rec.patient_id, rec.flags, rec.battery, rec.rssi, rec.seq, hdr.ts_ms, &vit, &gw_key, &space) {
+                crate::registry::PatchSeq::Gap(n) => {
+                    wire_inc(&state.gateways.totals.patch_seq_gap);
+                    state.gateways.totals.patch_seq_missing.fetch_add(n as u64, Ordering::Relaxed);
+                    state.total_lost_packets.fetch_add(n as u64, Ordering::Relaxed);
+                }
+                crate::registry::PatchSeq::Dup => {
+                    if rec.channels.iter().any(|c| c.ch == wire::CH_ECG) { wire_inc(&state.gateways.totals.patch_seq_dup); } else { wire_inc(&state.gateways.totals.patch_cont); }
+                }
+                crate::registry::PatchSeq::Restart => wire_inc(&state.gateways.totals.patch_seq_restart),
+                crate::registry::PatchSeq::Reorder => wire_inc(&state.gateways.totals.patch_seq_reorder),
+                _ => {}
+            }
+            continue;
+        }
         // Per-patch packet counter: a gap here = packets lost anywhere between patch and router.
         // A frame that answers a NACK carries older patch seqs by design: store it, skip the seq check.
         let pseq = if verdict == SeqVerdict::Recovered {
@@ -257,22 +292,6 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) ->
                 continue;
             }
             _ => {}
-        }
-        if !want_stream {
-            let mut vit = Vitals::default();
-            for c in &rec.channels {
-                match (c.ch, c.dtype) {
-                    (wire::CH_HR, 2) => vit.hr = c.data.first().copied().filter(|v| *v > 0),
-                    (wire::CH_RESP, 2) => vit.resp = c.data.first().copied().filter(|v| *v > 0),
-                    (wire::CH_SPO2, 2) => vit.spo2 = c.data.first().copied().filter(|v| *v > 0),
-                    (wire::CH_TEMP, 1) => vit.temp = c.data.chunks_exact(2).next().map(|b| i16::from_le_bytes([b[0], b[1]])).filter(|v| *v != 0).map(|v| v as f32 * 0.01),
-                    (wire::CH_GLUCOSE, 3) => vit.glucose = c.data.chunks_exact(2).next().map(|b| u16::from_le_bytes([b[0], b[1]])).filter(|v| *v != 0).map(|v| v as f32 * 0.1),
-                    _ => {}
-                }
-            }
-            state.registry.note_patch(&channel_id, rec.patient_id, rec.flags, rec.battery, rec.rssi);
-            state.registry.note_record(&channel_id, rec.seq as u64, hdr.ts_ms, rec.flags, &vit, &gw_key, &space);
-            continue;
         }
         let bundle_ms = state.registry.bundle_ms_of(&channel_id).unwrap_or(200).max(1) as u32;
         let mut pkt = EcgPacket {

@@ -574,7 +574,14 @@ impl PatchStore {
             pb.hour = key;
             pb.index.files += 1;
         }
-        let e = encode_entry(ts_ms, gw_id, raw);
+        // entry = [ts u64][gw u32][raw minus patch_id][crc32] written straight into the patch buffer
+        let start = pb.buf.len();
+        pb.buf.extend_from_slice(&ts_ms.to_le_bytes());
+        pb.buf.extend_from_slice(&gw_id.to_le_bytes());
+        pb.buf.extend_from_slice(&raw[4..]);
+        let c = wire::crc32(&pb.buf[start..]);
+        pb.buf.extend_from_slice(&c.to_le_bytes());
+        let e_len = (pb.buf.len() - start) as u64;
         let ix = &mut pb.index;
         if ix.records > 0 && ix.last_seq != 0 {
             let d = seq.wrapping_sub(ix.last_seq);
@@ -588,11 +595,10 @@ impl PatchStore {
         ix.last_ts_ms = ix.last_ts_ms.max(ts_ms);
         ix.last_seq = seq;
         ix.records += 1;
-        ix.bytes += e.len() as u64;
+        ix.bytes += e_len;
         ix.patient_id = patient_id;
         ix.gw_id = gw_id;
         pb.index_dirty = true;
-        pb.buf.extend_from_slice(&e);
         pb.last_used = Instant::now();
     }
 

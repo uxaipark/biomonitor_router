@@ -206,6 +206,58 @@ impl Registry {
         }
     }
 
+    /// Fast path (no listener): patch seq check + header fields + vitals in ONE map lookup.
+    /// Returns the seq verdict; on Dup/Reorder the row is left untouched (as the stream path does).
+    #[allow(clippy::too_many_arguments)]
+    pub fn observe_record(&self, channel_id: &str, patient_id: u32, flags: u8, battery: u8, rssi: i8, seq: u32, ts_ms: u64, vitals: &Vitals, gateway_id: &str, space: &str) -> PatchSeq {
+        let mut ch = self.channels.entry(channel_id.to_string()).or_insert_with(ChannelState::new);
+        let verdict = match ch.last_pseq {
+            None => { ch.last_pseq = Some(seq); PatchSeq::Ok }
+            Some(last) => {
+                let d = seq.wrapping_sub(last);
+                if d == 1 { ch.last_pseq = Some(seq); PatchSeq::Ok }
+                else if d == 0 { PatchSeq::Dup }
+                else if d < 1 << 31 { ch.last_pseq = Some(seq); PatchSeq::Gap(d - 1) }
+                else if last.wrapping_sub(seq) > crate::gateways::SEQ_RESTART_BACK { ch.last_pseq = Some(seq); PatchSeq::Restart }
+                else { ch.pseq_reorder += 1; PatchSeq::Reorder }
+            }
+        };
+        if matches!(verdict, PatchSeq::Reorder) {
+            return verdict;
+        }
+        ch.patient_id = patient_id;
+        ch.flags = flags;
+        ch.battery = battery;
+        ch.rssi = rssi;
+        if matches!(verdict, PatchSeq::Dup) {
+            return verdict; // pace-mark continuation: header fields only
+        }
+        ch.connected = true;
+        let q = if flags & crate::wire::R_LEAD_OFF != 0 { "leadoff" } else if flags & crate::wire::R_MOTION != 0 { "noisy" } else { "good" };
+        if ch.quality != q {
+            ch.quality = q.to_string();
+        }
+        ch.moving = flags & crate::wire::R_MOTION != 0;
+        if !gateway_id.is_empty() && ch.gateway_id != gateway_id {
+            ch.gateway_id = gateway_id.to_string();
+            ch.space = space.to_string();
+        }
+        ch.last_seq = seq as u64;
+        ch.last_ts_ms = ts_ms;
+        if !vitals.is_empty() {
+            if vitals.hr.is_some() { ch.vitals.hr = vitals.hr; }
+            if vitals.temp.is_some() { ch.vitals.temp = vitals.temp; }
+            if vitals.resp.is_some() { ch.vitals.resp = vitals.resp; }
+            if vitals.spo2.is_some() { ch.vitals.spo2 = vitals.spo2; }
+            if vitals.glucose.is_some() { ch.vitals.glucose = vitals.glucose; }
+            ch.vitals_ts_ms = ts_ms;
+        }
+        if !ch.pending.is_empty() {
+            ch.pending.clear();
+        }
+        verdict
+    }
+
     /// Visit every row by reference (alarm engine): no per-row clones.
     pub fn for_each(&self, mut f: impl FnMut(&str, &ChannelState)) {
         for e in self.channels.iter() {
