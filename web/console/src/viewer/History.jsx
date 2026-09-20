@@ -330,13 +330,15 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   // leave the part before the rings' oldest sample empty
   const refetchChunk = (c) => { requested.current.add(c); load(c) }
   const onRollover = useMemo(() => (w0) => {
+    // Re-read (never drop) the chunks holding the window that just finished: the cached copy was fetched while
+    // that minute was still being recorded, so it ends early — a strip drawn from it shows grid only. Fetch at
+    // once (the store has the finished minute within ~2 s) and again after its next flush for the tail.
+    const cs = new Set([Math.floor(w0 / CHUNK_MS), Math.floor((w0 + spanMs) / CHUNK_MS)])
+    for (const c of cs) refetchChunk(c)
     setTimeout(() => {
       // refresh the index; if the latest hour was selected, follow a newly started hour file
       api.patch(id).then((d) => { setInfo((old) => { const prevLatest = old?.files?.[old.files.length - 1]?.hour, latest = d?.files?.[d.files.length - 1]?.hour; if (latest && latest !== prevLatest) setHour((h) => (h === prevLatest ? latest : h)); return d }) }).catch(() => {})
-      // Re-read (never drop) the chunks holding the finished window: the cached copy was fetched while that
-      // minute was still being recorded, so it ends early. Dropping it blanked the strips below the live one
-      // until a scroll happened to re-request them; replacing it on arrival keeps them drawn throughout.
-      for (const c of new Set([Math.floor(w0 / CHUNK_MS), Math.floor((w0 + spanMs) / CHUNK_MS)])) refetchChunk(c)
+      for (const c of cs) refetchChunk(c)
     }, 6000)
   }, [id, spanMs])
   const onWindow = useMemo(() => (w0) => { setLiveW0(w0); for (let c = Math.floor(w0 / CHUNK_MS); c <= Math.floor((w0 + spanMs - 1) / CHUNK_MS); c++) refetchChunk(c) }, [spanMs, id]) // eslint-disable-line react-hooks/exhaustive-deps
