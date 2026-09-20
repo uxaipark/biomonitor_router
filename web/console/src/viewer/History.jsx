@@ -223,6 +223,18 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
       }
       st.stroker.end()
     }
+    // append ring samples in [from, upTo] to each row's buffer (the rings are per wave key)
+    const pull = (upTo, from) => {
+      rows.forEach((row, i) => {
+        const st = S[i]
+        const rg = getStream(`${id}:${row.ring}`)
+        if (!rg || !rg.len) return
+        st.fs = rg.sampleRate
+        let k = st.lastAbs == null ? 0 : st.lastAbs - rg.trimmed + 1
+        if (k < 0) k = 0
+        for (; k < rg.len; k++) { const t = rg.tAt(k); if (t > upTo) break; if (t >= from) { st.t.push(t); st.v.push(rg.vAt(k)) } st.lastAbs = rg.trimmed + k }
+      })
+    }
     const tick = () => {
       raf = requestAnimationFrame(tick)
       const T = playoutNow(performance.now())
@@ -230,6 +242,10 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
       const w0 = Math.floor(T / spanMs) * spanMs
       if (cur !== w0) {
         const prev = cur
+        // Top the finished window up to its last sample before handing it over: the per-frame pull stops at the
+        // playout clock, so everything between the previous frame and the boundary (a whole second or more when
+        // the browser stalls) would otherwise be dropped — that is the cut-off tail on the strip below.
+        if (prev != null) pull(w0 - 1, cur)
         // hand the finished window's own samples over: the store needs up to ~15 s to hold that last minute,
         // and until then a strip drawn from it is missing its tail
         const snap = prev == null ? null : rows.map((row, i) => ({ key: row.key, fs: S[i].fs, t: S[i].t.slice(), v: S[i].v.slice() }))
@@ -245,6 +261,7 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
         for (const m of l.pace) pace.push([p0 + (m & 0x3fff) * step, (m >> 14) & 3])
         paceSeen = l.paceSeq
       }
+      pull(T, cur)
       rows.forEach((row, i) => {
         const st = S[i]
         if (prep(i)) { // resized: repaint everything drawn so far
@@ -252,14 +269,6 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
           if (st.t.length) { st.seeded = true; traceRuns(i, splitRuns(st)); st.drawn = st.t.length }
         }
         if (!st.ctx) return
-        // accumulate new ring samples (from the window start, or from the oldest retained sample)
-        const rg = getStream(`${id}:${row.ring}`)
-        if (rg && rg.len) {
-          st.fs = rg.sampleRate
-          let k = st.lastAbs == null ? 0 : st.lastAbs - rg.trimmed + 1
-          if (k < 0) k = 0
-          for (; k < rg.len; k++) { const t = rg.tAt(k); if (t > T) break; if (t >= cur) { st.t.push(t); st.v.push(rg.vAt(k)) } st.lastAbs = rg.trimmed + k }
-        }
         // seed: the part of the window before the oldest ring sample comes from the stored chunk — wait up to
         // 2.5 s for it (the chunk is being re-read), then give up and draw from the rings only
         if (!st.seeded) {
