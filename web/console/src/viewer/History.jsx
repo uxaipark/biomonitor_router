@@ -323,7 +323,7 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   const [chunks, setChunks] = useState(new Map()) // chunk index → decoded header (with segments); null = in flight
   const [loading, setLoading] = useState(0)
   const [err, setErr] = useState('')
-  const [hour, setHour] = useState('') // selected hour key (YYYYMMDD-HH)
+  const [anchor, setAnchor] = useState(null) // list start (ms); null = follow the live window
   const [span, setSpan] = useState(() => { try { return Number(localStorage.getItem('hx.span')) || 60 } catch { return 60 } })
   useEffect(() => { try { localStorage.setItem('hx.span', String(span)) } catch { /* ignore */ } }, [span])
   const [height, setHeight] = useState(() => { try { return Number(localStorage.getItem('hx.height')) || 60 } catch { return 60 } }) // ECG strip px (default = slider minimum); thin strips scale with it
@@ -331,7 +331,7 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   const spanMs = span * 1000
   useEffect(() => {
     let alive = true
-    api.patch(id).then((d) => { if (!alive) return; setInfo(d); const files = d?.files || []; if (files.length) setHour(files[files.length - 1].hour) }).catch((e) => setErr(e.message))
+    api.patch(id).then((d) => { if (!alive) return; setInfo(d) }).catch((e) => setErr(e.message))
     return () => { alive = false }
   }, [id])
   // a live window completed: 6 s later (writer flush) re-read the index and drop the cached chunk so the new
@@ -384,38 +384,50 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
     for (const c of cs) refetchChunk(c)
     setTimeout(() => {
       // refresh the index; if the latest hour was selected, follow a newly started hour file
-      api.patch(id).then((d) => { setInfo((old) => { const prevLatest = old?.files?.[old.files.length - 1]?.hour, latest = d?.files?.[d.files.length - 1]?.hour; if (latest && latest !== prevLatest) setHour((h) => (h === prevLatest ? latest : h)); return d }) }).catch(() => {})
+      api.patch(id).then(setInfo).catch(() => {})
       for (const c of cs) refetchChunk(c)
     }, 6000)
   }, [id, spanMs])
   const onWindow = useMemo(() => (w0) => { setLiveW0(w0); for (let c = Math.floor(w0 / CHUNK_MS); c <= Math.floor((w0 + spanMs - 1) / CHUNK_MS); c++) refetchChunk(c) }, [spanMs, id]) // eslint-disable-line react-hooks/exhaustive-deps
+  // The list runs continuously back in time from `anchor` (null = follow the live window), across hour-file
+  // boundaries — grouping by hour file made every strip vanish at the top of the hour. Hour buttons jump the
+  // anchor; scrolling to the bottom extends the list further back.
+  const [count, setCount] = useState(40)
+  useEffect(() => { setCount(40) }, [anchor, spanMs])
+  const top = anchor != null ? anchor : liveW0 != null ? liveW0 : ix ? ix.last_ts_ms : null
   const windows = useMemo(() => {
-    if (!hour || !ix) return []
-    const h0 = hourStart(hour), h1 = h0 + 3600000
-    // the window being filled live is not listed again below it
-    // completed windows end at the live window's start; new ones appear at the top as soon as it rolls over
-    const from = Math.max(h0, Math.floor(ix.first_ts_ms / spanMs) * spanMs), to = Math.min(h1, liveW0 != null ? liveW0 : ix.last_ts_ms)
+    if (!ix || top == null) return []
+    const first = Math.floor(ix.first_ts_ms / spanMs) * spanMs
     const v = []
-    for (let t = from; t < to; t += spanMs) v.push(t)
-    return v.reverse()
-  }, [hour, ix, spanMs, liveW0])
+    for (let t = Math.floor(top / spanMs) * spanMs - spanMs; t >= first && v.length < count; t -= spanMs) v.push(t)
+    return v
+  }, [ix, top, spanMs, count])
+  const more = () => setCount((c) => Math.min(c + 30, 600))
+  const onListScroll = (e) => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 800) more() }
   if (err) return <div className="hx"><div className="hx-bar"><span className="ds-dim">이력을 불러오지 못했습니다: {err}</span><span className="spacer" /><button className="btn btn-secondary" onClick={onClose}>실시간으로</button></div></div>
   if (!ix) return <div className="hx"><div className="hx-bar"><span className="ds-dim">{info && !ix ? '저장된 파형이 없습니다.' : '저장 색인 읽는 중…'}</span><span className="spacer" /><button className="btn btn-secondary" onClick={onClose}>실시간으로</button></div></div>
   return (
     <div className={'hx' + (compact ? ' compact' : '')}>
       <div className="hx-bar">
-        <span className="hx-when"><b>{hour ? `${localHour(hour).day} ${localHour(hour).hh}시` : ''}</b><span className="ds-dim"> · {windows.length}개 구간</span></span>
+        <span className="hx-when"><b>{top != null ? `${new Date(top).toLocaleDateString('ko-KR')} ${fmtTime(windows.length ? windows[windows.length - 1] : top)} ~ ${fmtTime(top)}` : ''}</b><span className="ds-dim"> · {windows.length}개 구간{anchor == null ? ' · 실시간 따라감' : ''}</span></span>
         <span className="hx-seg">{SPANS.map((s) => <button key={s} className={span === s ? 'on' : ''} onClick={() => setSpan(s)}>{s}s</button>)}</span>
+        {anchor != null && <button className="btn btn-secondary" onClick={() => setAnchor(null)}>지금으로</button>}
         <label className="hx-h"><span className="ds-dim">높이</span><input type="range" min="60" max="320" step="10" value={height} onChange={(e) => setHeight(Number(e.target.value))} title={`ECG ${height}px`} /><span className="ds-dim">{height}px</span></label>
         <span className="ds-dim">{loading ? '불러오는 중…' : `${(ix.records || 0).toLocaleString()} 레코드 · ${hours.length}개 시간 파일`}</span>
         <span className="spacer" />
         <button className="btn btn-secondary" onClick={onClose}>실시간으로</button>
       </div>
-      <div className="hx-hours">{hours.map((f) => <button key={f.hour} className={f.hour === hour ? 'on' : ''} title={`${localHour(f.hour).day} ${localHour(f.hour).hh}시 · ${(f.bytes / 2 ** 20).toFixed(1)} MB`} onClick={() => setHour(f.hour)}>{localHour(f.hour).hh}시</button>)}</div>
-      <div className="hx-list" style={{ '--hx-ecg': `${height}px`, '--hx-thin': `${Math.max(20, Math.round(height * 0.28))}px` }}>
-        <LiveWindow id={id} spanMs={spanMs} theme={th} keys={keys.size ? keys : DEFAULT_KEYS} onRollover={onRollover} loaded={loaded} onWindow={onWindow} />
+      <div className="hx-hours">{hours.map((f, i) => {
+        const start = hourStart(f.hour), end = start + 3600000
+        const cur = top != null && top > start && top <= end
+        const newest = i === hours.length - 1
+        return <button key={f.hour} className={cur ? 'on' : ''} title={`${localHour(f.hour).day} ${localHour(f.hour).hh}시 · ${(f.bytes / 2 ** 20).toFixed(1)} MB`} onClick={() => setAnchor(newest ? null : end)}>{localHour(f.hour).hh}시</button>
+      })}</div>
+      <div className="hx-list" onScroll={onListScroll} style={{ '--hx-ecg': `${height}px`, '--hx-thin': `${Math.max(20, Math.round(height * 0.28))}px` }}>
+        {anchor == null && <LiveWindow id={id} spanMs={spanMs} theme={th} keys={keys.size ? keys : DEFAULT_KEYS} onRollover={onRollover} loaded={loaded} onWindow={onWindow} />}
         {windows.map((t0) => <Window key={t0} t0={t0} spanMs={spanMs} loaded={loaded} pace={pace} theme={th} onVisible={onVisible} keys={keys} fresh={fresh.get(t0)} />)}
-        {!windows.length && <div className="ds-dim">이 시간에 저장된 구간이 없습니다.</div>}
+        {!windows.length && <div className="ds-dim">저장된 구간이 없습니다.</div>}
+        {windows.length >= count && <button className="btn btn-secondary" onClick={more}>더 보기</button>}
       </div>
     </div>
   )
