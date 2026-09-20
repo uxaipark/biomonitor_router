@@ -644,7 +644,10 @@ impl PatchStore {
                 }
             }
             StoreOp::Meta { gw_id, json } => self.meta(gw_id, &json),
-            StoreOp::Flush => self.flush(true),
+            StoreOp::Flush => {
+                self.flush(true);
+                self.wait_writer(); // shutdown: the file writer must have it on disk before we return
+            }
             StoreOp::Reset => self.reset(),
         }
         if self.last_flush.elapsed() >= FLUSH_EVERY {

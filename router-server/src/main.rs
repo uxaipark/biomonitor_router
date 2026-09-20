@@ -87,6 +87,46 @@ async fn main() -> anyhow::Result<()> {
     let app = admin_api::router(state.clone());
     let listener = tokio::net::TcpListener::bind(&cfg.http_addr).await?;
     info!("http/ws listening on {}", cfg.http_addr);
-    axum::serve(listener, app).await?;
+    // Graceful shutdown: a 24/7 service is restarted for upgrades, and killing it outright threw away the
+    // store batcher's buffer (up to 5 s of records for every patch) and left index.json stale. On SIGTERM /
+    // Ctrl-C we stop accepting, flush the store and wait for the file writer before exiting.
+    let store_tx = state.store_tx.clone();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            shutdown_signal().await;
+            info!("shutdown: flushing patch store");
+            let t0 = std::time::Instant::now();
+            let _ = store_tx.send(router_core::patch_store::StoreOp::Flush).await;
+            // the batcher answers only once the writer has the data on disk; bound the wait anyway
+            for _ in 0..200 {
+                if store_tx.capacity() == store_tx.max_capacity() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            info!("shutdown: store flushed in {} ms", t0.elapsed().as_millis());
+        })
+        .await?;
     Ok(())
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut term = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(s) => s,
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+                return;
+            }
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }
