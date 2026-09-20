@@ -33,6 +33,27 @@ async function fetchChunk(id, from, to) {
   return h
 }
 
+/** Runs from the live strip's accumulated samples (already physical values), clipped to [t0, t1). */
+function runsFromSamples(rec, t0, t1) {
+  if (!rec || !rec.t.length) return []
+  const step = 1000 / (rec.fs || 250)
+  const runs = []
+  let s0 = null
+  for (let k = 0; k < rec.t.length; k++) {
+    const inside = rec.t[k] >= t0 && rec.t[k] < t1
+    const brk = k > 0 && rec.t[k] - rec.t[k - 1] > step * 1.5
+    if (!inside || brk) {
+      if (s0 != null && k > s0) runs.push({ t0: rec.t[s0], step, scale: 1, axes: 1, axis: 0, data: rec.v, i0: s0, i1: k })
+      s0 = inside ? k : null
+      continue
+    }
+    if (s0 == null) s0 = k
+  }
+  if (s0 != null) runs.push({ t0: rec.t[s0], step, scale: 1, axes: 1, axis: 0, data: rec.v, i0: s0, i1: rec.t.length })
+  return runs
+}
+const samplesIn = (runs) => runs.reduce((n, r) => n + (r.i1 - r.i0), 0)
+
 /** Samples of one wave key inside [t0, t1): list of { t, v } runs (per segment, per axis). */
 function slice(chunks, key, axis, t0, t1) {
   const runs = []
@@ -101,7 +122,7 @@ function drawStrip(canvas, { runs, pace, t0, spanMs, range, color, theme, lineWi
 }
 
 /** One window in the list: ECG on top, accel / resp as thin strips glued underneath. Draws only while visible. */
-function Window({ t0, spanMs, loaded, pace, theme, onVisible, keys }) {
+function Window({ t0, spanMs, loaded, pace, theme, onVisible, keys, fresh }) {
   const ref = useRef(null)
   const [visible, setVisible] = useState(false)
   useEffect(() => {
@@ -125,9 +146,14 @@ function Window({ t0, spanMs, loaded, pace, theme, onVisible, keys }) {
     rows.forEach((row, i) => {
       const c = canvases.current[i]
       if (!c) return
-      drawStrip(c, { runs: slice(loaded, row.key, row.axis || 0, t0, t1), pace: row.key === 'ecg' ? pace : [], t0, spanMs, range: row.range, color: row.color, theme, lineWidth: row.lw, grid: !!row.grid })
+      // stored copy vs the live strip's handoff: take whichever covers more of this window (the store lags by
+      // seconds right after a rollover; the handoff has gaps if the viewer stalled while it was live)
+      const stored = slice(loaded, row.key, row.axis || 0, t0, t1)
+      const live = runsFromSamples(fresh?.find((x) => x.key === row.key), t0, t1)
+      const runs = samplesIn(live) > samplesIn(stored) ? live : stored
+      drawStrip(c, { runs, pace: row.key === 'ecg' ? pace : [], t0, spanMs, range: row.range, color: row.color, theme, lineWidth: row.lw, grid: !!row.grid })
     })
-  }, [visible, loaded, pace, rows, t0, t1, spanMs, theme])
+  }, [visible, loaded, pace, rows, t0, t1, spanMs, theme, fresh])
   const has = loaded.length > 0
   return (
     <div ref={ref} className="hx-win">
@@ -203,9 +229,13 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
       if (T == null) return
       const w0 = Math.floor(T / spanMs) * spanMs
       if (cur !== w0) {
-        const prev = cur; cur = w0; curAt = performance.now(); pace.length = 0; paceDrawn.clear()
+        const prev = cur
+        // hand the finished window's own samples over: the store needs up to ~15 s to hold that last minute,
+        // and until then a strip drawn from it is missing its tail
+        const snap = prev == null ? null : rows.map((row, i) => ({ key: row.key, fs: S[i].fs, t: S[i].t.slice(), v: S[i].v.slice() }))
+        cur = w0; curAt = performance.now(); pace.length = 0; paceDrawn.clear()
         for (let i = 0; i < S.length; i++) { S[i].t = []; S[i].v = []; S[i].lastAbs = null; prep(i); restart(i) }
-        setT0(w0); onWindow?.(w0); if (prev != null) onRollover?.(prev)
+        setT0(w0); onWindow?.(w0); if (prev != null) onRollover?.(prev, snap)
       }
       // pace marks of this window from the latest map (each record once)
       const l = latest.get(id)
@@ -326,10 +356,18 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   const localHour = (key) => { const d = new Date(hourStart(key)); return { day: d.toLocaleDateString('ko-KR'), hh: String(d.getHours()).padStart(2, '0') } }
   // windows of the selected hour, newest first, clipped to the stored range
   const [liveW0, setLiveW0] = useState(null) // start of the window the live strip is filling
+  const [fresh, setFresh] = useState(new Map()) // window start → samples handed over by the live strip (last 4)
   // the live window (re)started: (re)read the chunk that holds it, so a cached copy fetched minutes ago does not
   // leave the part before the rings' oldest sample empty
   const refetchChunk = (c) => { requested.current.add(c); load(c) }
-  const onRollover = useMemo(() => (w0) => {
+  const onRollover = useMemo(() => (w0, snap) => {
+    if (snap) {
+      setFresh((m) => {
+        const n = new Map(m).set(w0, snap)
+        for (const k of [...n.keys()].sort((a, b) => b - a).slice(4)) n.delete(k)
+        return n
+      })
+    }
     // Re-read (never drop) the chunks holding the window that just finished: the cached copy was fetched while
     // that minute was still being recorded, so it ends early — a strip drawn from it shows grid only. Fetch at
     // once (the store has the finished minute within ~2 s) and again after its next flush for the tail.
@@ -367,7 +405,7 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
       <div className="hx-hours">{hours.map((f) => <button key={f.hour} className={f.hour === hour ? 'on' : ''} title={`${localHour(f.hour).day} ${localHour(f.hour).hh}시 · ${(f.bytes / 2 ** 20).toFixed(1)} MB`} onClick={() => setHour(f.hour)}>{localHour(f.hour).hh}시</button>)}</div>
       <div className="hx-list" style={{ '--hx-ecg': `${height}px`, '--hx-thin': `${Math.max(20, Math.round(height * 0.28))}px` }}>
         <LiveWindow id={id} spanMs={spanMs} theme={th} keys={keys.size ? keys : DEFAULT_KEYS} onRollover={onRollover} loaded={loaded} onWindow={onWindow} />
-        {windows.map((t0) => <Window key={t0} t0={t0} spanMs={spanMs} loaded={loaded} pace={pace} theme={th} onVisible={onVisible} keys={keys} />)}
+        {windows.map((t0) => <Window key={t0} t0={t0} spanMs={spanMs} loaded={loaded} pace={pace} theme={th} onVisible={onVisible} keys={keys} fresh={fresh.get(t0)} />)}
         {!windows.length && <div className="ds-dim">이 시간에 저장된 구간이 없습니다.</div>}
       </div>
     </div>
