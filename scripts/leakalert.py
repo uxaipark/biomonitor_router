@@ -103,7 +103,8 @@ def main():
                     # stalled, not the router
                     qmax = max(r.get("store_queue", 0) for r in w30)
                     cmax = max(r.get("cpu_proc", 0) for r in w30)
-                    side = "router side (store stall)" if qmax > 5000 else ("router side (CPU)" if cmax > 80 else "viewer side")
+                    # even a 1-2 k backlog is an SD write stall; below that the router was keeping up
+                    side = "router side (store stall)" if qmax > 1000 else ("router side (CPU)" if cmax > 80 else "viewer side")
                     alert("lag", f"WS lag skipped +{w30[-1]['ws_lagged'] - w30[0]['ws_lagged']:.0f} messages in 30 min — {side} (store queue max {int(qmax)}, router CPU max {cmax:.0f} %)")
                 if w30[-1].get("in_close_wait", 0) > 0 or w30[-1].get("ws_close_wait", 0) > 0:
                     alert("cw", f"CLOSE_WAIT sockets: ingest {int(w30[-1]['in_close_wait'])} ws {int(w30[-1]['ws_close_wait'])}")
