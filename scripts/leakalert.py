@@ -99,13 +99,17 @@ def main():
                 if w30[-1].get("queue_drop", 0) > w30[0].get("queue_drop", 0):
                     alert("drop", f"store queue drops +{w30[-1]['queue_drop'] - w30[0]['queue_drop']:.0f} in 30 min")
                 if w30[-1].get("ws_lagged", 0) > w30[0].get("ws_lagged", 0):
-                    # say which side was busy: an idle store queue and normal router CPU means the viewer PC
-                    # stalled, not the router
-                    qmax = max(r.get("store_queue", 0) for r in w30)
-                    cmax = max(r.get("cpu_proc", 0) for r in w30)
-                    # even a 1-2 k backlog is an SD write stall; below that the router was keeping up
-                    side = "router side (store stall)" if qmax > 1000 else ("router side (CPU)" if cmax > 80 else "viewer side")
-                    alert("lag", f"WS lag skipped +{w30[-1]['ws_lagged'] - w30[0]['ws_lagged']:.0f} messages in 30 min — {side} (store queue max {int(qmax)}, router CPU max {cmax:.0f} %)")
+                    # attribute from the minute the counter jumped, not the whole window: an idle store queue and
+                    # normal router CPU in that minute means the viewer PC stalled, not the router
+                    worst, step = w30[-1], 0
+                    for a_, b_ in zip(w30, w30[1:]):
+                        d = b_.get("ws_lagged", 0) - a_.get("ws_lagged", 0)
+                        if d > step:
+                            worst, step = b_, d
+                    q, c = worst.get("store_queue", 0), worst.get("cpu_proc", 0)
+                    side = "router side (store stall)" if q > 1000 else ("router side (CPU)" if c > 80 else "viewer side")
+                    when = time.strftime("%H:%M", time.localtime(worst["ts"]))
+                    alert("lag", f"WS lag skipped +{w30[-1]['ws_lagged'] - w30[0]['ws_lagged']:.0f} in 30 min — {side}; worst minute {when} +{int(step)} (store queue {int(q)}, router CPU {c:.0f} %, sessions {int(worst.get('ws_sessions', 0))})")
                 if w30[-1].get("in_close_wait", 0) > 0 or w30[-1].get("ws_close_wait", 0) > 0:
                     alert("cw", f"CLOSE_WAIT sockets: ingest {int(w30[-1]['in_close_wait'])} ws {int(w30[-1]['ws_close_wait'])}")
                 if abs(w30[-1].get("ch_rows", 0) - w30[-1].get("ch_conn", 0)) > 50:
