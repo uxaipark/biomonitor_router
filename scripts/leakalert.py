@@ -91,7 +91,9 @@ def main():
                 if len(w60) >= 40:
                     t60 = len(w60) // 3
                     d_ws60 = min(r.get("ws_sessions", 0) for r in w60[-t60:]) - min(r.get("ws_sessions", 0) for r in w60[:t60])
-                    d_pss = (min(r.get("pss_mb", 0) for r in w60[-t60:]) - min(r.get("pss_mb", 0) for r in w60[:t60])) - 0.6 * d_ws60
+                    # allowance only for sessions that JOINED: memory a leaving session frees is not returned
+                    # to the OS straight away, so crediting it back invents a rise that is not there
+                    d_pss = (min(r.get("pss_mb", 0) for r in w60[-t60:]) - min(r.get("pss_mb", 0) for r in w60[:t60])) - 0.6 * max(0, d_ws60)
                     if d_pss > 25:
                         alert("pss", f"PSS floor up {d_pss:+.1f} MB within 60 min (sessions {int(d_ws60):+d}, now {w60[-1]['pss_mb']:.0f} MB)")
                 if d_fd > 20:
