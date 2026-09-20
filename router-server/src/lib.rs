@@ -9,6 +9,7 @@ pub mod config;
 pub mod db_link;
 pub mod grouping;
 pub mod ingest;
+pub mod metrics;
 pub mod output;
 pub mod protocol;
 pub mod registry;

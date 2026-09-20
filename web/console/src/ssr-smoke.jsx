@@ -58,6 +58,8 @@ const SettingsPage = (await import('./pages/Settings.jsx')).default
 check('Settings', <SettingsPage />)
 const DataAdminPage = (await import('./pages/DataAdmin.jsx')).default
 check('DataAdmin', <DataAdminPage />)
+const OpsPage = (await import('./pages/OpsStats.jsx')).default
+check('OpsStats', <OpsPage />)
 check('MultiViewerTest', <MultiViewerTest.default />)
 check('Viewer route', <Viewer.default alarms={alarms} hash="#/viewer?tpl=central&gw=895" />)
 check('CentralStation', <Central.default rows={[row, { ...row, channel_id: '65539', flags: 0x01 }]} alarms={alarms} unit="TEST" onClose={() => {}} />)

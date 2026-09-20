@@ -41,6 +41,9 @@ export const api = {
   deleteGroup: (id) => send('DELETE', `/api/groups/${id}`),
   staff: () => get('/api/emr/staff'),
   waveReset: () => send('POST', '/api/wave/reset'),
+  metrics: (range) => get(`/api/metrics?range=${range}`),
+  metricsInfo: () => get('/api/metrics/info'),
+  metricsReset: () => send('POST', '/api/metrics/reset'),
   verifyPatch: (id) => get(`/api/patches/${id}/verify`),
   emu: {
     status: () => get('/api/emu/status'),

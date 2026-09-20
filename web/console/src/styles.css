@@ -313,3 +313,21 @@ svg.plan { width: 100%; height: 100%; background: var(--panel); border: 1px soli
 
 button.danger { border-color: var(--err); color: var(--err); }
 button.danger:hover { background: var(--err); color: #fff; }
+
+/* ops statistics page */
+.ops-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.ops-tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 1px; }
+.ops-tile small { color: var(--muted); font-size: 11.5px; }
+.ops-tile b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.ops-tile span { color: var(--muted); font-size: 11.5px; }
+.ops-tile.warn { border-color: var(--warn); }
+.ops-tile.warn b { color: var(--warn); }
+.ops-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.ops-grid2 section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px 6px; }
+.ops-grid2 h4 { margin: 0 0 4px; font-size: 13px; }
+.ops-chart svg { width: 100%; height: 130px; display: block; background: var(--wave-bg); border-radius: 6px; }
+.ops-grid { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ops-ytick { fill: var(--muted); font-size: 11px; text-anchor: end; }
+.ops-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 4px; font-size: 11.5px; color: var(--muted); }
+.ops-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.ops-legend b { color: var(--text); font-variant-numeric: tabular-nums; }

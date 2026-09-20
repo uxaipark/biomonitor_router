@@ -105,7 +105,9 @@ impl GroupStore {
                 rusqlite::Connection::open_in_memory().expect("in-memory sqlite")
             }
         };
-        let _ = db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+        // WAL lets readers run while one writer works; busy_timeout makes a second writer (the metrics
+        // collector shares this file) wait its turn instead of failing with SQLITE_BUSY
+        let _ = db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;");
         if let Err(e) = db.execute_batch(SCHEMA) {
             warn!("group db schema: {}", e);
         }

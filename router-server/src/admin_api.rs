@@ -40,6 +40,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/ingest/allow", put(set_ingest_allow))
         .route("/ws", get(output::ws_handler))
         .route("/api/debug/sizes", get(debug_sizes))
+        .route("/api/metrics", get(metrics_series))
+        .route("/api/metrics/info", get(metrics_info))
+        .route("/api/metrics/reset", post(metrics_reset))
         .route("/api/alarms", get(alarms_active))
         .route("/api/alarms/history", get(alarms_history))
         .route("/api/alarms/rules", get(alarm_rules).put(set_alarm_rules))
@@ -740,6 +743,48 @@ async fn wave_read_all(
     body.extend_from_slice(header.as_bytes());
     for v in &blob { body.extend_from_slice(&v.to_le_bytes()); }
     ([(axum::http::header::CONTENT_TYPE, "application/octet-stream"), (axum::http::header::CACHE_CONTROL, "no-store")], body).into_response()
+}
+
+/// 장기 운영 통계: `?range=hour|day|week|month|quarter|year`.
+/// A year range aggregates thousands of rows, so the answer is cached per range for 15 s — several open pages
+/// (or tabs) then cost one query, and the query itself runs on a blocking thread, never on the async runtime.
+static SERIES_CACHE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, axum::body::Bytes)>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+async fn metrics_series(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let range = q.get("range").cloned().unwrap_or_else(|| "day".into());
+    if let Some((at, body)) = SERIES_CACHE.lock().unwrap().get(&range).cloned() {
+        if at.elapsed() < std::time::Duration::from_secs(15) {
+            return body_with_type(body, "application/json; charset=utf-8");
+        }
+    }
+    let s = state.clone();
+    let r2 = range.clone();
+    let v = tokio::task::spawn_blocking(move || crate::metrics::series(&s.metrics, &r2))
+        .await
+        .unwrap_or_else(|_| serde_json::json!({ "points": [] }));
+    let body = axum::body::Bytes::from(serde_json::to_string(&v).unwrap_or_else(|_| "{}".into()));
+    SERIES_CACHE.lock().unwrap().insert(range, (std::time::Instant::now(), body.clone()));
+    body_with_type(body, "application/json; charset=utf-8")
+}
+
+async fn metrics_info(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let s = state.clone();
+    let v = tokio::task::spawn_blocking(move || crate::metrics::info(&s.metrics, &s.cfg.db_path))
+        .await
+        .unwrap_or_else(|_| serde_json::json!({}));
+    Json(v)
+}
+
+async fn metrics_reset(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    SERIES_CACHE.lock().unwrap().clear();
+    let s = state.clone();
+    let ok = tokio::task::spawn_blocking(move || crate::metrics::reset(&s.metrics)).await.unwrap_or(false);
+    state.push_event("metrics_reset", None, "운영 통계 초기화".into());
+    Json(serde_json::json!({ "ok": ok }))
 }
 
 /// 수신/송신/패킷 누적 카운터 리셋 (어드민 채널 초기화 시 함께 호출)

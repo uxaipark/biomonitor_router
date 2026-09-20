@@ -77,6 +77,9 @@ async fn main() -> anyhow::Result<()> {
     // CPU 사용률 샘플러 (어드민 시스템 모니터링)
     tokio::spawn(router_core::sysmon::run_cpu_sampler());
 
+    // 장기 운영 통계: 2 s 샘플 → 분 단위 행 → 시간 롤업 (자체 스레드, SQLite 쓰기)
+    router_core::metrics::spawn(state.clone());
+
     // DB API 링크: 환자 메타/패치 재고를 SQLite 로 실시간 push
     tokio::spawn(db_link::run(state.clone(), db_rx));
 
