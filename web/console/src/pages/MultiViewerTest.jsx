@@ -41,15 +41,24 @@ export default function MultiViewerTest() {
   // tabs are keyed by ward plus a slot number, so asking for more tabs than wards opens the wards again
   const slotKey = (w, slot) => (slot ? `${w}#${slot}` : w)
   const wardOfKey = (k) => k.split('#')[0]
-  const openSlot = (w, slot = 0) => {
+  // Independent windows (not tabs): a background tab is throttled by the browser and then bursts, which shows
+  // up as WS lag and distorts the load test; separate windows can also be spread over monitors like real viewer
+  // stations. Each gets a cascaded position so they do not land exactly on top of each other.
+  const WIN_W = 1280, WIN_H = 800
+  const openSlot = (w, slot = 0, index = 0) => {
     const key = slotKey(w, slot)
     const cur = wins.current.get(key)
     if (cur && !cur.closed) { cur.focus(); return cur }
-    const win = window.open(urlOf(w), `viewer-${key}`)
+    const cols = Math.max(1, Math.floor((window.screen.availWidth - 240) / 40))
+    const left = (index % cols) * 40
+    const top = (Math.floor(index / cols) % 8) * 40
+    const w2 = Math.min(WIN_W, window.screen.availWidth - left)
+    const h2 = Math.min(WIN_H, window.screen.availHeight - top)
+    const win = window.open(urlOf(w), `viewer-${key}`, `popup=yes,width=${w2},height=${h2},left=${left},top=${top}`)
     if (win) wins.current.set(key, win)
     return win
   }
-  const openOne = (w) => !!openSlot(w, 0)
+  const openOne = (w, index = 0) => !!openSlot(w, 0, index)
   const sleep = (ms) => new Promise((r) => { timerRef.current = setTimeout(r, ms) })
   /** wait until the new tab reports a finished load (same-origin), then out the rest of the 3 s gap */
   const waitReady = async (win, openedAt) => {
@@ -73,7 +82,7 @@ export default function MultiViewerTest() {
       const ward = wards[i % wards.length].ward
       setBulk({ total: n, done: i, ward })
       const at = performance.now()
-      const win = openSlot(ward, Math.floor(i / wards.length))
+      const win = openSlot(ward, Math.floor(i / wards.length), i)
       if (win) opened++; else blocked++
       setLog({ opened, blocked })
       if (!win) break // popup blocked: stop instead of firing the rest into the void
@@ -87,7 +96,7 @@ export default function MultiViewerTest() {
   useEffect(() => () => { stopRef.current = true; clearTimeout(timerRef.current) }, [])
   const openNext = () => {
     if (next >= wards.length) { setNext(0); return }
-    const ok = openOne(wards[next].ward)
+    const ok = openOne(wards[next].ward, next)
     setLog((l) => ({ opened: l.opened + (ok ? 1 : 0), blocked: l.blocked + (ok ? 0 : 1) }))
     setNext(next + 1)
   }
@@ -103,7 +112,7 @@ export default function MultiViewerTest() {
   return (
     <div className="page">
       <div className="stat-line">
-        <span className="stat"><small>열린 뷰어 탭</small><b style={{ minWidth: '3ch' }}>{openCount}</b><small>병동 {wards.length}곳</small></span>
+        <span className="stat"><small>열린 뷰어 창</small><b style={{ minWidth: '3ch' }}>{openCount}</b><small>병동 {wards.length}곳</small></span>
         <span className="stat"><small>표시 중인 환자 파형</small><b style={{ minWidth: '5ch' }}>{openPatients.toLocaleString()}</b><small>명</small></span>
         <span className="stat"><small>라우터 WS 세션</small><b style={{ minWidth: '3ch' }}>{stats?.ws_sessions ?? '—'}</b><small>구독 채널 {stats?.ws_subscribed_channels?.toLocaleString() ?? '—'}</small></span>
         <span className={'stat' + (stats?.cpu_process_percent > 150 ? ' warn' : '')}><small>라우터 CPU</small><b style={{ minWidth: '3ch' }}>{stats ? stats.cpu_process_percent.toFixed(0) : '—'}</b><small>% (1코어=100)</small></span>
@@ -113,7 +122,7 @@ export default function MultiViewerTest() {
         <span className={'stat' + (stats?.ws_lagged > 0 ? ' warn' : '')}><small>WS 지연 건너뜀</small><b style={{ minWidth: '7ch' }}>{stats?.ws_lagged?.toLocaleString() ?? '—'}</b></span>
       </div>
       <h2 className="h">멀티 뷰어 테스트</h2>
-      <p className="muted">병동마다 브라우저 탭을 하나씩 열고 그 병동의 뷰어를 띄웁니다. 병동 {wards.length}곳 · 환자 {live.length.toLocaleString()}명. 탭은 3초 간격으로 하나씩, 앞 탭이 다 뜬 뒤에 열립니다. 요청 개수가 병동 수보다 많으면 병동을 다시 돌며 엽니다. 탭마다 WebSocket 1개를 열어 그 병동 채널만 구독하므로 라우터 WS 세션·구독 채널 수와 브라우저 부하를 함께 볼 수 있습니다.</p>
+      <p className="muted">병동마다 독립 창을 하나씩 열고 그 병동의 뷰어를 띄웁니다. 병동 {wards.length}곳 · 환자 {live.length.toLocaleString()}명. 창은 3초 간격으로 하나씩, 앞 창이 다 뜬 뒤에 열립니다. 창은 계단식으로 배치되어 모니터로 나눠 옮길 수 있습니다. 요청 개수가 병동 수보다 많으면 병동을 다시 돌며 엽니다. 창마다 WebSocket 1개를 열어 그 병동 채널만 구독하므로 라우터 WS 세션·구독 채널 수와 브라우저 부하를 함께 볼 수 있습니다.</p>
       <div className="toolbar">
         <Dropdown value={tpl} options={tplOpts} onChange={setTpl} searchable={false} width={300} />
         <span className="muted">순차 열기 (3초 간격)</span>
@@ -124,12 +133,12 @@ export default function MultiViewerTest() {
         {bulk
           ? <button className="danger" onClick={stopBulk}>중지 ({bulk.done + 1}/{bulk.total} · {bulk.ward})</button>
           : <button onClick={openNext} disabled={!wards.length}>{next >= wards.length ? '처음부터 다시' : `다음 병동 열기 (${next + 1}/${wards.length}: ${wards[next]?.ward})`}</button>}
-        <button onClick={closeAll} disabled={!openCount && !bulk}>열린 탭 모두 닫기 ({openCount})</button>
+        <button onClick={closeAll} disabled={!openCount && !bulk}>열린 창 모두 닫기 ({openCount})</button>
         <span className="muted">열림 {openCount} · 차단 {log.blocked}</span>
       </div>
-      {log.blocked > 0 && <p className="err">팝업이 브라우저에 막혀 순차 열기를 멈췄습니다. 주소창 오른쪽의 팝업 차단 아이콘에서 이 사이트의 팝업을 항상 허용한 뒤 다시 누르거나, "다음 병동 열기"로 한 번에 하나씩 여세요.</p>}
+      {log.blocked > 0 && <p className="err">창 열기가 브라우저에 막혀 순차 열기를 멈췄습니다. 주소창 오른쪽의 팝업 차단 아이콘에서 이 사이트의 팝업을 항상 허용한 뒤 다시 누르거나, "다음 병동 열기"로 한 번에 하나씩 여세요.</p>}
       <table className="tbl dense mv-table">
-        <thead><tr><th>#</th>{th('ward', '병동')}{th('gws', '게이트웨이')}{th('count', '환자')}{th('open', '탭')}<th></th></tr></thead>
+        <thead><tr><th>#</th>{th('ward', '병동')}{th('gws', '게이트웨이')}{th('count', '환자')}{th('open', '창')}<th></th></tr></thead>
         <tbody>
           {sortedWards.map(({ ward, count, names, gws }, i) => {
             const win = wins.current.get(ward)
@@ -139,7 +148,7 @@ export default function MultiViewerTest() {
                 <td className="num muted idx">{i + 1}</td><td className="ward"><b>{ward}</b></td><td className="names mono"><b>{gws.length}대</b><div className="list">{gws.join(' ')}</div></td>
                 <td className="names"><b>{count}명</b><div className="list">{names.join(', ')}</div></td>
                 <td className="tab">{open ? <span className="tag ok">열림</span> : <span className="tag">닫힘</span>}</td>
-                <td className="act">{open ? <button onClick={() => { win.focus() }}>보기</button> : <a href={urlOf(ward)} target={`viewer-${ward}`} rel="noopener" onClick={(e) => { e.preventDefault(); openOne(ward); tick((x) => x + 1) }}>열기</a>}</td>
+                <td className="act">{open ? <button onClick={() => { win.focus() }}>보기</button> : <a href={urlOf(ward)} target={`viewer-${ward}`} rel="noopener" onClick={(e) => { e.preventDefault(); openOne(ward, i); tick((x) => x + 1) }}>열기</a>}</td>
               </tr>
             )
           })}
