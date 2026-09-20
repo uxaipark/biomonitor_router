@@ -297,14 +297,6 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   }, [id])
   // a live window completed: 6 s later (writer flush) re-read the index and drop the cached chunk so the new
   // stored strip fills in under the live one
-  const onRollover = useMemo(() => (w0) => {
-    setTimeout(() => {
-      // refresh the index; if the latest hour was selected, follow a newly started hour file
-      api.patch(id).then((d) => { setInfo((old) => { const prevLatest = old?.files?.[old.files.length - 1]?.hour, latest = d?.files?.[d.files.length - 1]?.hour; if (latest && latest !== prevLatest) setHour((h) => (h === prevLatest ? latest : h)); return d }) }).catch(() => {})
-      for (const c of [Math.floor(w0 / CHUNK_MS), Math.floor((w0 + spanMs) / CHUNK_MS)]) requested.current.delete(c)
-      setChunks((m) => { const n = new Map(m); n.delete(Math.floor(w0 / CHUNK_MS)); n.delete(Math.floor((w0 + spanMs) / CHUNK_MS)); return n })
-    }, 6000)
-  }, [id, spanMs])
   // chunk requests are de-duplicated through a ref (not inside a state updater: React may re-run updaters, which
   // re-issued fetches and made the loading text flicker)
   const requested = useRef(new Set())
@@ -337,6 +329,16 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   // the live window (re)started: (re)read the chunk that holds it, so a cached copy fetched minutes ago does not
   // leave the part before the rings' oldest sample empty
   const refetchChunk = (c) => { requested.current.add(c); load(c) }
+  const onRollover = useMemo(() => (w0) => {
+    setTimeout(() => {
+      // refresh the index; if the latest hour was selected, follow a newly started hour file
+      api.patch(id).then((d) => { setInfo((old) => { const prevLatest = old?.files?.[old.files.length - 1]?.hour, latest = d?.files?.[d.files.length - 1]?.hour; if (latest && latest !== prevLatest) setHour((h) => (h === prevLatest ? latest : h)); return d }) }).catch(() => {})
+      // Re-read (never drop) the chunks holding the finished window: the cached copy was fetched while that
+      // minute was still being recorded, so it ends early. Dropping it blanked the strips below the live one
+      // until a scroll happened to re-request them; replacing it on arrival keeps them drawn throughout.
+      for (const c of new Set([Math.floor(w0 / CHUNK_MS), Math.floor((w0 + spanMs) / CHUNK_MS)])) refetchChunk(c)
+    }, 6000)
+  }, [id, spanMs])
   const onWindow = useMemo(() => (w0) => { setLiveW0(w0); for (let c = Math.floor(w0 / CHUNK_MS); c <= Math.floor((w0 + spanMs - 1) / CHUNK_MS); c++) refetchChunk(c) }, [spanMs, id]) // eslint-disable-line react-hooks/exhaustive-deps
   const windows = useMemo(() => {
     if (!hour || !ix) return []
