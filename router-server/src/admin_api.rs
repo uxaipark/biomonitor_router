@@ -131,7 +131,7 @@ async fn emr_get(state: &Arc<AppState>, path: &str, ttl_ms: u64) -> axum::respon
     }
     match crate::emu_link::request(&addr, "GET", path, None).await {
         Ok((200, body)) => {
-            let body = Arc::new(body);
+            let body = axum::body::Bytes::from(body);
             if ttl_ms > 0 {
                 let mut c = state.emr_cache.lock().unwrap();
                 c.retain(|_, (exp, _)| *exp > now);
@@ -149,8 +149,10 @@ fn ctype_of(path: &str) -> &'static str {
     if path.split('?').next().unwrap_or("").ends_with(".svg") { "image/svg+xml" } else { "application/json; charset=utf-8" }
 }
 
-fn body_with_type(body: Arc<String>, ctype: &'static str) -> axum::response::Response {
-    ([(axum::http::header::CONTENT_TYPE, ctype)], body.as_str().to_owned()).into_response()
+/// `Bytes` is refcounted, so a cached body is shared with every response instead of copied per request
+/// (42 viewer tabs polling the 1 MB channel snapshot used to allocate ~46 MB per poll round).
+fn body_with_type(body: axum::body::Bytes, ctype: &'static str) -> axum::response::Response {
+    ([(axum::http::header::CONTENT_TYPE, ctype)], body).into_response()
 }
 
 async fn emr_proxy(State(state): State<Arc<AppState>>, Path(path): Path<String>, axum::extract::RawQuery(q): axum::extract::RawQuery) -> impl IntoResponse {
@@ -195,9 +197,9 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
 
 /// The console polls /api/channels and /api/gateways from several pages (2,000 rows ≈ 1.6 MB JSON each):
 /// one serialisation per second serves every client.
-static SNAP_CACHE: std::sync::LazyLock<std::sync::Mutex<[(std::time::Instant, Arc<String>); 2]>> = std::sync::LazyLock::new(|| {
+static SNAP_CACHE: std::sync::LazyLock<std::sync::Mutex<[(std::time::Instant, axum::body::Bytes); 2]>> = std::sync::LazyLock::new(|| {
     let t = std::time::Instant::now() - std::time::Duration::from_secs(10);
-    std::sync::Mutex::new([(t, Arc::new(String::new())), (t, Arc::new(String::new()))])
+    std::sync::Mutex::new([(t, axum::body::Bytes::new()), (t, axum::body::Bytes::new())])
 });
 
 fn cached_json(slot: usize, build: impl FnOnce() -> String) -> axum::response::Response {
@@ -208,7 +210,7 @@ fn cached_json(slot: usize, build: impl FnOnce() -> String) -> axum::response::R
             return body_with_type(c[slot].1.clone(), "application/json; charset=utf-8");
         }
     }
-    let body = Arc::new(build());
+    let body = axum::body::Bytes::from(build());
     SNAP_CACHE.lock().unwrap()[slot] = (now, body.clone());
     body_with_type(body, "application/json; charset=utf-8")
 }

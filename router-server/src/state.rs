@@ -130,7 +130,8 @@ pub struct AppState {
     pub sub_groups: dashmap::DashMap<String, usize>,
     pub sub_gateways: dashmap::DashMap<String, usize>,
     /// 에뮬레이터 EMR 프록시 캐시: path → (만료 시각 ms, 본문)
-    pub emr_cache: Mutex<std::collections::HashMap<String, (u64, Arc<String>)>>,
+    /// EMR 프록시 TTL 캐시. 값은 `Bytes` — 42개 뷰어 탭이 같은 1 MB 응답을 폴링할 때 요청마다 복사하지 않는다.
+    pub emr_cache: Mutex<std::collections::HashMap<String, (u64, axum::body::Bytes)>>,
 }
 
 impl AppState {
