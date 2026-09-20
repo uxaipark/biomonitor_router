@@ -79,14 +79,29 @@ export function useAlarms() {
   useEffect(() => { if (snap) setLive(snap) }, [snap])
   useEffect(() => {
     const un = subscribeGroup('alarms')
-    const off = onWs('alarm', (m) => {
+    // Alarm events arrive ~3/s across a busy hospital and each used to re-render the whole page (every bed tile
+    // and waveform card), which froze the draw loop for a moment. Batch them into one update per 500 ms.
+    let pending = []
+    let timer = 0
+    const flush = () => {
+      timer = 0
+      const batch = pending
+      pending = []
+      if (!batch.length) return
       setLive((cur) => {
-        const rest = cur.alarms.filter((a) => a.id !== m.alarm.id)
-        const alarms = m.event === 'raise' ? [m.alarm, ...rest] : rest
-        return { ...cur, alarms }
+        const byId = new Map(cur.alarms.map((a) => [a.id, a]))
+        for (const m of batch) {
+          if (m.event === 'raise') byId.set(m.alarm.id, m.alarm)
+          else byId.delete(m.alarm.id)
+        }
+        return { ...cur, alarms: [...byId.values()] }
       })
+    }
+    const off = onWs('alarm', (m) => {
+      pending.push(m)
+      if (!timer) timer = setTimeout(flush, 500)
     })
-    return () => { un(); off() }
+    return () => { un(); off(); if (timer) clearTimeout(timer) }
   }, [])
   return live
 }

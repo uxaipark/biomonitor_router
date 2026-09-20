@@ -107,7 +107,7 @@ export default function CentralStation({ rows, alarms, unit, onClose }) {
   const aidx = useMemo(() => alarmIndex(alarms?.alarms), [alarms])
   const sorted = useMemo(() => [...rows].sort((a, b) => bedOf(a).localeCompare(bedOf(b), 'ko') || Number(a.channel_id) - Number(b.channel_id)), [rows])
   useEffect(() => { try { localStorage.setItem('cs:preset', preset ? preset.id : 'auto') } catch { /* ignore */ } }, [preset])
-  useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 250); return () => clearInterval(t) }, [])
+  useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(t) }, []) // vitals are 1 Hz; re-rendering 4×/s only stole frames from the traces
   useLayoutEffect(() => {
     const el = gridRef.current
     if (!el) return

@@ -14,7 +14,16 @@ import '../viewer/ds.css'
 export default function Viewer({ alarms, hash }) {
   const q = useMemo(() => new URLSearchParams((hash.split('?')[1] || '')), [hash])
   const tpl = templateById(q.get('tpl'))
-  const [rows] = usePoll(api.channels, 4000)
+  // server-side scope: only params the router can filter on; b/f (floor plan) and mode stay client-side, and
+  // with those the full list is still needed
+  const scopeQs = useMemo(() => {
+    const keys = ['ward', 'room', 'gw', 'ids', 'doctor', 'nurse', 'dept', 'dx', 'group', 'region', 'paced']
+    if (q.get('b') != null || q.get('mode')) return ''
+    const p = new URLSearchParams()
+    for (const k of keys) { const v = q.get(k); if (v) p.set(k, v) }
+    return p.toString()
+  }, [q])
+  const [rows] = usePoll(() => api.channelsScoped(scopeQs), 4000, [scopeQs])
   const [gws] = usePoll(api.gateways, 15000)
   const [emr, setEmr] = useState({ byPatient: new Map(), bedByPatch: new Map() })
   useEffect(() => {

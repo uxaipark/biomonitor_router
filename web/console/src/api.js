@@ -24,6 +24,8 @@ export const api = {
   stats: () => get('/api/stats'),
   health: () => get('/api/health'),
   channels: () => get('/api/channels'),
+  // scoped list: the router filters, so a viewer tab parses ~20 KB instead of the 1.2 MB full registry
+  channelsScoped: (qs) => get('/api/channels' + (qs ? '?' + qs : '')),
   gateways: () => get('/api/gateways'),
   gatewaySummary: () => get('/api/gateways/summary'),
   events: () => get('/api/events'),

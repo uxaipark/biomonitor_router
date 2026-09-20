@@ -215,8 +215,63 @@ fn cached_json(slot: usize, build: impl FnOnce() -> String) -> axum::response::R
     body_with_type(body, "application/json; charset=utf-8")
 }
 
-async fn list_channels(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    cached_json(0, || serde_json::to_string(&state.registry.snapshot()).unwrap_or_else(|_| "[]".into()))
+/// `/api/channels` — the whole registry (1 s cache), or just the rows of a viewer's scope when the same query
+/// params the viewer URL uses are passed: ward, room, gw, ids, doctor, nurse, dept, dx, group, region, paced.
+async fn list_channels(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    const KEYS: [&str; 11] = ["ward", "room", "gw", "ids", "doctor", "nurse", "dept", "dx", "group", "region", "paced"];
+    if !KEYS.iter().any(|k| q.contains_key(*k)) {
+        return cached_json(0, || serde_json::to_string(&state.registry.snapshot()).unwrap_or_else(|_| "[]".into()));
+    }
+    let get = |k: &str| q.get(k).map(|s| s.as_str()).filter(|s| !s.is_empty());
+    let ids: Option<std::collections::HashSet<&str>> = get("ids").map(|v| v.split(',').collect());
+    let rows = state.registry.snapshot_where(|id, st| {
+        if let Some(set) = &ids {
+            if !set.contains(id) {
+                return false;
+            }
+        }
+        if let Some(g) = get("gw") {
+            if st.gateway_id != g {
+                return false;
+            }
+        }
+        if let Some(g) = get("group") {
+            if !st.groups.iter().any(|x| x == g) {
+                return false;
+            }
+        }
+        if get("paced").is_some() && st.flags & crate::wire::R_PACEMAKER == 0 {
+            return false;
+        }
+        let p = st.patient.as_ref();
+        let field = |v: Option<&str>, f: fn(&crate::protocol::Patient) -> &String| match v {
+            None => true,
+            Some(want) => p.map(|p| f(p) == want).unwrap_or(false),
+        };
+        if !field(get("ward"), |p| &p.ward)
+            || !field(get("doctor"), |p| &p.doctor)
+            || !field(get("nurse"), |p| &p.nurse)
+            || !field(get("dept"), |p| &p.department)
+            || !field(get("dx"), |p| &p.diagnosis)
+            || !field(get("region"), |p| &p.home_region)
+        {
+            return false;
+        }
+        if let Some(room) = get("room") {
+            let ok = p.map(|p| p.room == room).unwrap_or(false) || st.space == room;
+            if !ok {
+                return false;
+            }
+        }
+        true
+    });
+    body_with_type(
+        axum::body::Bytes::from(serde_json::to_string(&rows).unwrap_or_else(|_| "[]".into())),
+        "application/json; charset=utf-8",
+    )
 }
 
 #[derive(Serialize)]

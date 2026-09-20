@@ -36,7 +36,7 @@ export default function BedViewer({ row, alarms, unit, onBack }) {
   const [ahist] = usePoll(() => api.alarmHistory(300), 10000)
   const aidx = useMemo(() => alarmIndex(alarms?.alarms), [alarms])
   useEffect(() => { try { localStorage.setItem('vm:night', night ? '1' : '0') } catch { /* ignore */ } }, [night])
-  useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 250); return () => clearInterval(t) }, [])
+  useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(t) }, []) // vitals are 1 Hz; re-rendering 4×/s only stole frames from the traces
   useEffect(() => { const f = (e) => { if (e.key === 'Escape') onBack() }; window.addEventListener('keydown', f); return () => window.removeEventListener('keydown', f) }, [onBack])
   const pid = row?.profile_id || row?.patient?.profile_no
   useEffect(() => { if (pid) api.emu.patient(pid).then(setEmr).catch(() => setEmr(null)) }, [pid])

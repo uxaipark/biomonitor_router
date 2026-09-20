@@ -497,10 +497,17 @@ impl Registry {
     }
 
     pub fn snapshot(&self) -> Vec<ChannelInfo> {
+        self.snapshot_where(|_, _| true)
+    }
+
+    /// Snapshot of the rows matching `keep` — a scoped viewer asks for its ~24 patches instead of all 1,500
+    /// (the full list is 1.2 MB of JSON, and every tab parsing that on its main thread stalls the waveforms).
+    pub fn snapshot_where(&self, keep: impl Fn(&str, &ChannelState) -> bool) -> Vec<ChannelInfo> {
         let now = crate::protocol::now_ms();
         let mut v: Vec<ChannelInfo> = self
             .channels
             .iter()
+            .filter(|e| keep(e.key(), e.value()))
             .map(|e| ChannelInfo {
                 channel_id: e.key().clone(),
                 connected: e.connected,
