@@ -71,6 +71,9 @@ def main():
             same = [r for r in all_rows if r["pid"] == pid]
             # only samples taken after the 15-min startup ramp count towards drift slopes
             w30 = [r for r in same if r["ts"] >= all_rows[-1]["ts"] - 1800 and r.get("uptime_s", 0) >= 900]
+            # memory is judged over an hour: every store stall / viewer stall burst steps the floor up a few MB
+            # and plateaus, so a 30-min window flags those steps as drift
+            w60 = [r for r in same if r["ts"] >= all_rows[-1]["ts"] - 3600 and r.get("uptime_s", 0) >= 900]
             w10 = [r for r in same if r["ts"] >= all_rows[-1]["ts"] - 600]
             # drift checks only once the router has warmed up: the first ~15 min after a start are a ramp
             # (buffers, index, allocator arenas) and read as a false +20..30 MB/h slope
@@ -84,9 +87,13 @@ def main():
                 # each WS session costs one fd and ~0.6 MB of per-connection buffers (tungstenite write buffer,
                 # session queue, stream batch Vec) — discount session count changes before judging drift
                 d_ws = floor_rise("ws_sessions")
-                d_pss, d_fd = floor_rise("pss_mb") - 0.6 * d_ws, floor_rise("fds") - d_ws
-                if d_pss > 12:
-                    alert("pss", f"PSS floor up {d_pss:+.1f} MB within 30 min (sessions {int(d_ws):+d}) (slope {slope_h(w30, 'pss_mb'):+.0f} MB/h, now {w30[-1]['pss_mb']:.0f} MB)")
+                d_fd = floor_rise("fds") - d_ws
+                if len(w60) >= 40:
+                    t60 = len(w60) // 3
+                    d_ws60 = min(r.get("ws_sessions", 0) for r in w60[-t60:]) - min(r.get("ws_sessions", 0) for r in w60[:t60])
+                    d_pss = (min(r.get("pss_mb", 0) for r in w60[-t60:]) - min(r.get("pss_mb", 0) for r in w60[:t60])) - 0.6 * d_ws60
+                    if d_pss > 25:
+                        alert("pss", f"PSS floor up {d_pss:+.1f} MB within 60 min (sessions {int(d_ws60):+d}, now {w60[-1]['pss_mb']:.0f} MB)")
                 if d_fd > 20:
                     alert("fds", f"fd floor up {d_fd:+.0f} within 30 min (now {int(w30[-1]['fds'])})")
                 if w30[-1].get("queue_drop", 0) > w30[0].get("queue_drop", 0):
