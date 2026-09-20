@@ -49,7 +49,13 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
     // alarms / membership / channel events ride their own queue so a waveform flood never drops them
     let (ctrl_tx, mut ctrl_rx) = tokio::sync::mpsc::channel::<Arc<crate::state::OutEnvelope>>(1024);
     let sid = state.next_session.fetch_add(1, Ordering::Relaxed);
-    let session = Arc::new(crate::state::Session { subs: std::sync::RwLock::new(Default::default()), tx: env_tx, ctrl: ctrl_tx });
+    let session = Arc::new(crate::state::Session {
+        subs: std::sync::RwLock::new(Default::default()),
+        lagged: std::sync::atomic::AtomicU64::new(0),
+        opened_at: std::time::Instant::now(),
+        tx: env_tx,
+        ctrl: ctrl_tx,
+    });
     state.sessions.insert(sid, session.clone());
     state.ws_sessions.fetch_add(1, Ordering::Relaxed);
     let sync_subs = |session: &crate::state::Session, subs: &HashSet<String>, gw_subs: &HashSet<String>, ch_subs: &HashSet<String>| {

@@ -54,6 +54,9 @@ pub struct SessionSubs {
 /// session consume every packet and lag together on ingest bursts.
 pub struct Session {
     pub subs: std::sync::RwLock<SessionSubs>,
+    /// 이 세션이 받지 못하고 버린 파형 패킷 누적 — 어느 뷰어가 밀리는지 구분용
+    pub lagged: AtomicU64,
+    pub opened_at: std::time::Instant,
     /// 파형 스트림 큐 — 가득 차면 그 세션 몫만 버린다 (뷰어가 잠깐 멈춰도 라우터 메모리는 고정)
     pub tx: mpsc::Sender<Arc<OutEnvelope>>,
     /// 알람·멤버십·채널 이벤트 큐. 파형과 분리해 두어야 폭주 중에도 알람이 버려지지 않는다.
@@ -387,6 +390,7 @@ impl AppState {
             if let Err(mpsc::error::TrySendError::Full(_)) = q.try_send(env.clone()) {
                 let counter = if env.is_stream { &self.ws_lagged } else { &self.ws_ctrl_dropped };
                 counter.fetch_add(1, Ordering::Relaxed);
+                s.lagged.fetch_add(1, Ordering::Relaxed);
             }
         }
     }

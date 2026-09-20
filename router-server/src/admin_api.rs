@@ -63,6 +63,29 @@ fn spa(dir: &str) -> tower_http::services::ServeDir<tower_http::services::ServeF
 
 /// Sizes of every in-memory structure that could grow (leak hunting). Cheap; safe to poll each minute.
 async fn debug_sizes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    // per session: how many packets it could not take, what it watches and how full its queue is — a single
+    // struggling viewer shows up here instead of only in the global counter
+    let session_detail = {
+        let mut v: Vec<serde_json::Value> = state
+            .sessions
+            .iter()
+            .map(|s| {
+                let subs = s.subs.read().unwrap();
+                serde_json::json!({
+                    "id": *s.key(),
+                    "age_s": s.opened_at.elapsed().as_secs(),
+                    "channels": subs.channels.len(),
+                    "groups": subs.groups.len(),
+                    "gateways": subs.gws.len(),
+                    "lagged": s.lagged.load(Ordering::Relaxed),
+                    "queued": s.tx.max_capacity() - s.tx.capacity(),
+                })
+            })
+            .collect();
+        v.sort_by_key(|x| std::cmp::Reverse(x["lagged"].as_u64().unwrap_or(0)));
+        v.truncate(12);
+        serde_json::Value::Array(v)
+    };
     let (emr_n, emr_bytes) = {
         let c = state.emr_cache.lock().unwrap();
         (c.len(), c.values().map(|(_, b)| b.len()).sum::<usize>())
@@ -82,6 +105,7 @@ async fn debug_sizes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         "store_buffered_bytes": crate::patch_store::STORE_BUFFERED.load(Ordering::Relaxed),
         "live_index_rows": crate::patch_store::LIVE_INDEX.len(),
         "ws_subscribers": state.sessions.len(),
+        "ws_session_detail": session_detail,
         "ingest_sources": state.ingest_sources.lock().unwrap().len(),
         "displays": state.displays.lock().unwrap().len(),
     }))
