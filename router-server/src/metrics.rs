@@ -124,7 +124,8 @@ pub fn run(state: Arc<AppState>) {
     let mut last_prune = 0i64;
     // per-minute accumulators
     let (mut n, mut cpu_sum, mut cpu_max, mut sys_sum, mut q_max) = (0u32, 0f64, 0f64, 0f64, 0i64);
-    let mut stall_open = false;
+    // the stall peak is tracked separately from the per-minute maximum, which resets on the minute boundary
+    let (mut stall_open, mut stall_peak) = (false, 0i64);
 
     loop {
         std::thread::sleep(Duration::from_millis(SAMPLE_MS));
@@ -141,11 +142,16 @@ pub fn run(state: Arc<AppState>) {
             q_max = q;
         }
         // a backlog building up means the disk stalled; log it once per stall with its peak
-        if q > 5_000 && !stall_open {
+        if q > 5_000 {
             stall_open = true;
-        } else if stall_open && q < 500 {
-            stall_open = false;
-            m.incident("store_stall", "저장 큐 적체 (디스크 지연)", q_max);
+        }
+        if stall_open {
+            stall_peak = stall_peak.max(q);
+            if q < 500 {
+                stall_open = false;
+                m.incident("store_stall", "저장 큐 적체 (디스크 지연)", stall_peak);
+                stall_peak = 0;
+            }
         }
 
         let cur_minute = now_s() / 60;
@@ -202,7 +208,10 @@ pub fn run(state: Arc<AppState>) {
             m.incident("queue_drop", "저장 큐 포화로 레코드 드롭", d(c.drops, prev.drops));
         }
         if d(c.lag, prev.lag) > 5_000 {
-            m.incident("ws_lag", "WS 구독자 지연 (건너뛴 메시지)", d(c.lag, prev.lag));
+            let ws = state.ws_sessions.load(Ordering::Relaxed);
+            let subs = state.sub_channels.len();
+            let side = if q_max > 1_000 { "저장 스톨 직후" } else { "뷰어 지연" };
+            m.incident("ws_lag", &format!("{side} · 세션 {ws} · 구독 {subs} · 저장 큐 최대 {q_max}"), d(c.lag, prev.lag));
         }
         if disk_total > 0 && disk_free * 10 < disk_total {
             m.incident("disk_low", "디스크 여유 10 % 미만", (disk_free / 1_048_576) as i64);
