@@ -81,10 +81,12 @@ def main():
                 third = len(w30) // 3
                 def floor_rise(key):
                     return min(r.get(key, 0) for r in w30[-third:]) - min(r.get(key, 0) for r in w30[:third])
-                # each WS session holds one socket fd: discount session count changes before judging fds
-                d_pss, d_fd = floor_rise("pss_mb"), floor_rise("fds") - floor_rise("ws_sessions")
+                # each WS session costs one fd and ~0.6 MB of per-connection buffers (tungstenite write buffer,
+                # session queue, stream batch Vec) — discount session count changes before judging drift
+                d_ws = floor_rise("ws_sessions")
+                d_pss, d_fd = floor_rise("pss_mb") - 0.6 * d_ws, floor_rise("fds") - d_ws
                 if d_pss > 12:
-                    alert("pss", f"PSS floor up {d_pss:+.1f} MB within 30 min (slope {slope_h(w30, 'pss_mb'):+.0f} MB/h, now {w30[-1]['pss_mb']:.0f} MB)")
+                    alert("pss", f"PSS floor up {d_pss:+.1f} MB within 30 min (sessions {int(d_ws):+d}) (slope {slope_h(w30, 'pss_mb'):+.0f} MB/h, now {w30[-1]['pss_mb']:.0f} MB)")
                 if d_fd > 20:
                     alert("fds", f"fd floor up {d_fd:+.0f} within 30 min (now {int(w30[-1]['fds'])})")
                 if w30[-1].get("queue_drop", 0) > w30[0].get("queue_drop", 0):
