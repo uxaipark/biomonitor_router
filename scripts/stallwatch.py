@@ -4,8 +4,9 @@ its duration, peak depth and how much was written during it, then a summary (MB/
 
   scripts/stallwatch.py [seconds]      # default 180
 """
-import json, time, urllib.request, sys
-DEV='mmcblk0'
+import json, os, time, urllib.request, sys
+# SD Pi: mmcblk0, SSD Pi: nvme0n1 (override with STALL_DEV=sda etc.)
+DEV=os.environ.get('STALL_DEV') or next((d for d in ('mmcblk0','nvme0n1','sda') if os.path.exists('/sys/block/'+d)), 'mmcblk0')
 def disk():
     for l in open('/proc/diskstats'):
         f=l.split()
