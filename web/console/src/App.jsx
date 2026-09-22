@@ -11,7 +11,8 @@ import Events from './pages/Events.jsx'
 import Viewers from './pages/Viewers.jsx'
 import Viewer from './pages/Viewer.jsx'
 import MultiViewerTest from './pages/MultiViewerTest.jsx'
-import Settings from './pages/Settings.jsx'
+import ViewerSettings from './pages/ViewerSettings.jsx'
+import BiosignalAdmin from './pages/BiosignalAdmin.jsx'
 import DataAdmin from './pages/DataAdmin.jsx'
 import OpsStats from './pages/OpsStats.jsx'
 import { LiveModal } from './pages/LiveModal.jsx'
@@ -29,7 +30,8 @@ const PAGES = [
   ['#/test/multiviewer', '멀티 뷰어 테스트', MultiViewerTest, '테스트'],
   ['#/test/ops', '운영 통계', OpsStats, '테스트'],
   ['#/test/data', '데이터 관리', DataAdmin, '테스트'],
-  ['#/settings', '설정', Settings, null, 'last'], // 5th element: rendered after the menu groups
+  ['#/settings/viewer', '뷰어 설정', ViewerSettings, '설정'],
+  ['#/settings/biosignal', '생체신호 관리', BiosignalAdmin, '설정'],
 ]
 const MENUS = [...new Set(PAGES.map((p) => p[3]).filter(Boolean))]
 
@@ -128,7 +130,8 @@ export default function App() {
   }, [])
 
   const base = hash.split('?')[0]
-  const page = PAGES.find(([h]) => h === base) || PAGES[0]
+  // old bookmark '#/settings' → 뷰어 설정
+  const page = PAGES.find(([h]) => h === (base === '#/settings' ? '#/settings/viewer' : base)) || PAGES[0]
   const Page = page[2]
   const s = alarms.summary || {}
   // Viewer templates run full-screen without the console chrome (opened in their own tab).

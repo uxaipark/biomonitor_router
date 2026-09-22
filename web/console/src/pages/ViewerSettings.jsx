@@ -1,12 +1,12 @@
 import React from 'react'
 import { RENDER_MODES, setRenderMode, useRenderMode } from '../settings.js'
 
-/** Console settings. Stored in the browser (localStorage) and shared with viewer tabs of the same origin. */
-export default function Settings() {
+/** 설정 › 뷰어 설정. Stored in the browser (localStorage) and shared with viewer tabs of the same origin. */
+export default function ViewerSettings() {
   const mode = useRenderMode()
   return (
     <div className="page">
-      <h2 className="h">설정</h2>
+      <h2 className="h">뷰어 설정</h2>
       <div className="settings">
         <section>
           <h3>메인 뷰어 그래픽</h3>

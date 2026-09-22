@@ -54,8 +54,10 @@ check('WaveCard dense', <WaveCard.WaveCard row={row} density="dense" alarm={alar
 check('WaveCard dense (empty)', <WaveCard.WaveCard row={{ ...row, vitals: {}, patient: null }} density="dense" />)
 globalThis.ResizeObserver = class { observe() {} disconnect() {} }
 check('Viewers', <Viewers.default />)
-const SettingsPage = (await import('./pages/Settings.jsx')).default
-check('Settings', <SettingsPage />)
+const SettingsPage = (await import('./pages/ViewerSettings.jsx')).default
+check('ViewerSettings', <SettingsPage />)
+const BioPage = (await import('./pages/BiosignalAdmin.jsx')).default
+check('BiosignalAdmin', <BioPage />)
 const DataAdminPage = (await import('./pages/DataAdmin.jsx')).default
 check('DataAdmin', <DataAdminPage />)
 const OpsPage = (await import('./pages/OpsStats.jsx')).default

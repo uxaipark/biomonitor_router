@@ -26,7 +26,7 @@ export default function DataAdmin() {
             <div><small>디스크</small>{stats ? `${fmtBytes(stats.disk_total_bytes - stats.disk_free_bytes)} / ${fmtBytes(stats.disk_total_bytes)} (${pct}%)` : '—'}</div>
             <div><small>저장 큐</small>{stats?.store_queue?.toLocaleString() ?? '—'} · 드롭 {stats?.queue_dropped_wave?.toLocaleString() ?? '—'}</div>
           </div>
-          <p className="muted">패치별 파형 파일은 `data/store/patches/&lt;패치&gt;/`에 시간 단위로 쌓이며 상한(200 GB)에 닿으면 오래된 시간부터 지웁니다.</p>
+          <p className="muted">패치별 파형 파일은 `data/store/patches/&lt;패치&gt;/`에 시간 단위로 쌓이며 상한(200 GB)에 닿으면 오래된 시간부터 지웁니다. 설정 › 생체신호 관리에서 백업 대상을 켜면 검증된 백업이 끝난 파일만 지웁니다.</p>
         </section>
         <section>
           <h3>데이터 전체 삭제</h3>

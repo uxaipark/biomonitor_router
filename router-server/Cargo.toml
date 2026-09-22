@@ -26,6 +26,7 @@ flate2 = "1"
 crc32fast = "1"
 mimalloc = { version = "0.1", default-features = false }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+sha2 = "0.10"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libc = "0.2"

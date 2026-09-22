@@ -230,6 +230,8 @@ pub struct PatchStore {
     rollover: Vec<WriteOp>,
     last_flush: Instant,
     last_scan: Instant,
+    /// last prune; while files wait for backup (over the cap, nothing deletable) prune runs at most once a minute
+    last_prune: Instant,
     meta_seen: HashMap<u32, u64>,
     gzip_tx: std::sync::mpsc::Sender<PathBuf>,
 }
@@ -610,6 +612,7 @@ impl PatchStore {
             rollover: Vec::new(),
             last_flush: Instant::now(),
             last_scan: Instant::now(),
+            last_prune: Instant::now() - Duration::from_secs(3600),
             meta_seen: HashMap::new(),
             gzip_tx,
         };
@@ -776,7 +779,11 @@ impl PatchStore {
             STORE_BYTES.store(total, Ordering::Relaxed);
             STORE_PATCHES.store(patches, Ordering::Relaxed);
         }
-        if self.max_bytes > 0 && STORE_BYTES.load(Ordering::Relaxed) > self.max_bytes {
+        if self.max_bytes > 0
+            && STORE_BYTES.load(Ordering::Relaxed) > self.max_bytes
+            && (crate::backup::BLOCKED_BYTES.load(Ordering::Relaxed) == 0 || self.last_prune.elapsed() >= Duration::from_secs(60))
+        {
+            self.last_prune = Instant::now();
             self.prune();
         }
     }
@@ -803,6 +810,9 @@ impl PatchStore {
         }
         let mut total = STORE_BYTES.load(Ordering::Relaxed);
         let mut removed = 0u64;
+        // With backup targets configured only verified-backed-up files may go; the rest wait (store grows past the
+        // cap) unless the volume itself runs short, then the oldest go anyway and the backup module reports it.
+        let mut blocked: Vec<(PathBuf, u64, String)> = Vec::new();
         for ((key, pid), (path, size)) in files {
             if total <= target {
                 break;
@@ -812,11 +822,36 @@ impl PatchStore {
                     continue; // never delete the file being written
                 }
             }
+            let rel = format!("patches/{:08}/{}", pid, path.file_name().unwrap_or_default().to_string_lossy());
+            if !crate::backup::may_delete(&rel, size) {
+                blocked.push((path, size, rel));
+                continue;
+            }
             if fs::remove_file(&path).is_ok() {
                 total = total.saturating_sub(size);
                 removed += size;
+                crate::backup::forgotten(rel);
             }
         }
+        let mut blocked_bytes: u64 = blocked.iter().map(|b| b.1).sum();
+        if total > target && !blocked.is_empty() {
+            let (vol, mut free) = crate::backup::volume_stats(&self.root);
+            let floor = vol / 100 * crate::backup::EMERGENCY_FREE_PCT.load(Ordering::Relaxed);
+            for (path, size, rel) in blocked {
+                if vol == 0 || free >= floor || total <= target {
+                    break;
+                }
+                if fs::remove_file(&path).is_ok() {
+                    total = total.saturating_sub(size);
+                    free += size;
+                    blocked_bytes -= size;
+                    crate::backup::UNBACKED_DELETED.fetch_add(1, Ordering::Relaxed);
+                    crate::backup::UNBACKED_DELETED_BYTES.fetch_add(size, Ordering::Relaxed);
+                    crate::backup::forgotten(rel);
+                }
+            }
+        }
+        crate::backup::BLOCKED_BYTES.store(if total > target { blocked_bytes } else { 0 }, Ordering::Relaxed);
         STORE_BYTES.store(total, Ordering::Relaxed);
         if removed > 0 {
             info!("store: pruned {} MB (cap {} MB)", removed >> 20, self.max_bytes >> 20);
@@ -847,6 +882,7 @@ impl PatchStore {
         self.wait_writer();
         self.meta_seen.clear();
         LIVE_INDEX.clear();
+        crate::backup::on_store_reset();
         let _ = fs::remove_dir_all(self.root.join("patches"));
         let _ = fs::remove_dir_all(self.root.join("meta"));
         fs::create_dir_all(self.root.join("patches")).ok();

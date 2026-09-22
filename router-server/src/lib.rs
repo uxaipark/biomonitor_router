@@ -20,3 +20,4 @@ pub mod gateways;
 pub mod emu_link;
 pub mod sysmon;
 pub mod alarms;
+pub mod backup;

@@ -78,6 +78,8 @@ pub struct AppState {
     pub groups: GroupStore,
     /// 장기 운영 통계 수집/조회 (분·시 단위 SQLite 테이블)
     pub metrics: crate::metrics::Metrics,
+    /// 파형 백업 (NAS/SMB/FTP/SFTP) — 대상·정책·장부
+    pub backup: Arc<crate::backup::Backup>,
     /// 출력 WS 세션 (id → 세션); 발행 시 구독이 맞는 세션의 큐에만 넣는다
     pub sessions: dashmap::DashMap<u64, Arc<Session>>,
     pub next_session: AtomicU64,
@@ -167,6 +169,7 @@ impl AppState {
             registry: Registry::new(cfg.ring_capacity),
             groups: GroupStore::load(&cfg.db_path, &cfg.groups_path),
             metrics: crate::metrics::Metrics::open(&cfg.db_path),
+            backup: crate::backup::Backup::open(&cfg.db_path, &cfg.store_dir),
             cfg,
             sessions: dashmap::DashMap::new(),
             next_session: AtomicU64::new(1),

@@ -15,7 +15,11 @@ export async function send(method, path, body) {
     headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
-  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`)
+  if (!r.ok) {
+    let msg = `${path}: HTTP ${r.status}`
+    try { const j = await r.json(); if (j?.error) msg = j.error } catch { /* not JSON */ }
+    throw new Error(msg)
+  }
   const t = await r.text()
   return t ? JSON.parse(t) : null
 }
@@ -45,6 +49,16 @@ export const api = {
   metricsInfo: () => get('/api/metrics/info'),
   metricsReset: () => send('POST', '/api/metrics/reset'),
   verifyPatch: (id) => get(`/api/patches/${id}/verify`),
+  backup: {
+    status: () => get('/api/backup'),
+    setPolicy: (p) => send('PUT', '/api/backup/policy', p),
+    create: (t) => send('POST', '/api/backup/targets', t),
+    update: (id, t) => send('PUT', `/api/backup/targets/${id}`, t),
+    remove: (id) => send('DELETE', `/api/backup/targets/${id}`),
+    order: (ids) => send('PUT', '/api/backup/order', { ids }),
+    test: (t) => send('POST', '/api/backup/test', t),
+    scan: () => send('POST', '/api/backup/scan'),
+  },
   emu: {
     status: () => get('/api/emu/status'),
     layout: () => get('/api/emr/layout'),

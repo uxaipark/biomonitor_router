@@ -50,6 +50,13 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/emu/status", get(emu_status))
         .route("/api/emu/discovery", get(emu_discovery))
         .route("/api/emr/{*path}", get(emr_proxy))
+        .route("/api/backup", get(backup_status))
+        .route("/api/backup/policy", put(backup_policy))
+        .route("/api/backup/targets", post(backup_create))
+        .route("/api/backup/targets/{id}", put(backup_update).delete(backup_delete))
+        .route("/api/backup/order", put(backup_order))
+        .route("/api/backup/test", post(backup_test))
+        .route("/api/backup/scan", post(backup_scan))
         .layer(CorsLayer::permissive())
         .fallback_service(spa(&web_dir))
         .with_state(state)
@@ -901,4 +908,69 @@ async fn delete_group(
     }
     state.recompute_all();
     StatusCode::OK.into_response()
+}
+
+// ---------------------------------------------------------------- 파형 백업 (설정 › 생체신호 관리)
+
+fn bk_result(r: Result<serde_json::Value, String>) -> axum::response::Response {
+    match r {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn backup_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let b = state.backup.clone();
+    Json(tokio::task::spawn_blocking(move || b.status()).await.unwrap_or_default())
+}
+
+async fn backup_policy(State(state): State<Arc<AppState>>, Json(p): Json<crate::backup::Policy>) -> impl IntoResponse {
+    let r = state.backup.set_policy(p).map(|_| serde_json::json!({ "ok": true }));
+    if r.is_ok() {
+        state.push_event("backup_config", None, "백업 정책 변경".into());
+    }
+    bk_result(r)
+}
+
+async fn backup_create(State(state): State<Arc<AppState>>, Json(t): Json<crate::backup::TargetInput>) -> impl IntoResponse {
+    let name = t.t.name.clone();
+    let r = state.backup.create_target(t);
+    if r.is_ok() {
+        state.push_event("backup_config", None, format!("백업 대상 추가: {name}"));
+    }
+    bk_result(r)
+}
+
+async fn backup_update(State(state): State<Arc<AppState>>, Path(id): Path<String>, Json(t): Json<crate::backup::TargetInput>) -> impl IntoResponse {
+    bk_result(state.backup.update_target(&id, t).map(|_| serde_json::json!({ "ok": true })))
+}
+
+async fn backup_delete(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
+    let name = state.backup.target(&id).map(|t| t.name).unwrap_or_default();
+    let r = state.backup.delete_target(&id).map(|_| serde_json::json!({ "ok": true }));
+    if r.is_ok() {
+        state.push_event("backup_config", None, format!("백업 대상 삭제: {name}"));
+    }
+    bk_result(r)
+}
+
+#[derive(serde::Deserialize)]
+struct OrderBody {
+    ids: Vec<String>,
+}
+
+async fn backup_order(State(state): State<Arc<AppState>>, Json(b): Json<OrderBody>) -> impl IntoResponse {
+    bk_result(state.backup.reorder(&b.ids).map(|_| serde_json::json!({ "ok": true })))
+}
+
+/// 연결 시험 — 저장 전 입력값 그대로 (비밀번호가 비어 있으면 같은 id 의 저장된 값)
+async fn backup_test(State(state): State<Arc<AppState>>, Json(t): Json<crate::backup::TargetInput>) -> impl IntoResponse {
+    let b = state.backup.clone();
+    let r = tokio::task::spawn_blocking(move || b.resolve_for_test(t).map(|t| b.test_target(&t))).await.unwrap_or_else(|e| Err(e.to_string()));
+    bk_result(r)
+}
+
+async fn backup_scan(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    state.backup.kick();
+    Json(serde_json::json!({ "ok": true }))
 }

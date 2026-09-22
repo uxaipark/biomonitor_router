@@ -9,7 +9,7 @@ ROOT=$(pwd)
 
 echo "== apt packages"
 sudo apt-get update -qq
-sudo apt-get install -y -qq build-essential pkg-config git curl ca-certificates python3 python3-venv python3-numpy sqlite3 >/dev/null
+sudo apt-get install -y -qq build-essential pkg-config git curl ca-certificates python3 python3-venv python3-numpy sqlite3 smbclient >/dev/null  # smbclient: 파형 백업 SMB 대상
 
 if ! command -v cargo >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/cargo" ]; then
   echo "== rustup (stable, minimal)"
