@@ -205,32 +205,146 @@ canvas.wave { width: 100%; display: block; border-radius: 6px; }
 .rules label span { flex: 1; }
 .rules label input { min-width: 0; width: 90px; text-align: right; }
 
-.map-cols { display: grid; grid-template-columns: 1fr 320px; gap: 12px; height: calc(100vh - 150px); min-height: 500px; }
+.map-cols { display: grid; grid-template-columns: 1fr 320px; gap: 12px; height: calc(100vh - 186px); min-height: 520px; }
 @media (max-width: 1000px) { .map-cols { grid-template-columns: 1fr; height: auto; } }
-svg.plan { width: 100%; height: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
-.floor-bg { fill: var(--corridor); }
-.corridor { fill: var(--corridor); stroke: var(--line); stroke-width: .08; }
-.room polygon { stroke: var(--line); stroke-width: .12; cursor: pointer; }
-.room:hover polygon { stroke: var(--accent); stroke-width: .25; }
-.room.picked polygon { stroke: var(--accent); stroke-width: .3; }
-.room polygon.sev-critical { fill: color-mix(in srgb, var(--sev-critical) 35%, var(--room)) !important; }
-.room polygon.sev-high { fill: color-mix(in srgb, var(--sev-high) 30%, var(--room)) !important; }
-.room polygon.sev-medium { fill: color-mix(in srgb, var(--sev-medium) 25%, var(--room)) !important; }
-.room polygon.sev-low { fill: color-mix(in srgb, var(--sev-low) 20%, var(--room)) !important; }
-.room-label { font-size: 1.1px; fill: var(--muted); text-anchor: middle; pointer-events: none; }
-.room-count { font-size: 1.1px; fill: var(--text); text-anchor: middle; pointer-events: none; font-weight: 600; }
-.bed { fill: var(--panel2); stroke: var(--line); stroke-width: .06; }
-.pt { stroke: #000; stroke-width: .08; cursor: pointer; }
-.pt.ok { fill: var(--ok); } .pt.stale { fill: var(--muted); }
-.pt.sev-low { fill: var(--sev-low); } .pt.sev-medium { fill: var(--sev-medium); } .pt.sev-high { fill: var(--sev-high); } .pt.sev-critical { fill: var(--sev-critical); animation: blink-pt 1s infinite; }
-@keyframes blink-pt { 50% { opacity: .35; } }
-.fixture rect { fill: var(--station); stroke: var(--line); stroke-width: .05; }
-.gwm rect { fill: var(--accent); stroke: #000; stroke-width: .06; cursor: pointer; }
-.gwm.gwwarn rect { fill: var(--warn); } .gwm.gwbad rect { fill: var(--err); } .gwm.gwoff rect { fill: var(--muted); opacity: .6; }
-.gwm.picked rect { stroke: #fff; stroke-width: .2; }
+
+/* ── 층 평면도 (공공 안내도 스타일) ──────────────────────────────────────────
+   용도별 색: 채움은 옅게, 윤곽·이름표는 같은 계열의 진한 색. 벽·문·가구는 도면 관례를 따른다. */
+:root {
+  --plan-paper: #f7f9fc; --plan-slab: #ffffff; --plan-wall: #55627a; --plan-grid: #e7ecf3;
+  --plan-corridor: #f1f4f9; --plan-ink: #2b3648; --plan-ink-soft: #7c8798;
+  --c-ward: #dbe9fb; --c-ward-ink: #2f6fd0;
+  --c-isolation: #ece0fb; --c-isolation-ink: #7a4fd0;
+  --c-care: #d6f0e7; --c-care-ink: #1f8f72;
+  --c-clinic: #fde6d9; --c-clinic-ink: #c8672a;
+  --c-public: #e2f3dd; --c-public-ink: #4a8f3c;
+  --c-amenity: #fbf0cf; --c-amenity-ink: #a5821c;
+  --c-sanitary: #dcf0f6; --c-sanitary-ink: #2b7f99;
+  --c-staff: #e7eaf1; --c-staff-ink: #5b6880;
+  --c-service: #eceef1; --c-service-ink: #78828f;
+  --c-vertical: #dfe3ea; --c-vertical-ink: #5c6674;
+  --c-other: #eceef1; --c-other-ink: #78828f;
+}
+[data-theme="dark"], :root:not([data-theme="light"]) {
+  --plan-paper: #0e141c; --plan-slab: #151d27; --plan-wall: #8ea0bb; --plan-grid: #1b2430;
+  --plan-corridor: #111925; --plan-ink: #dbe4ef; --plan-ink-soft: #8b9bb0;
+  /* 어두운 배경에서는 채도를 낮추고 명도 차이로 구분한다 — 색이 탁해 보이지 않게 */
+  --c-ward: #1d2b3e; --c-ward-ink: #74aaf2;
+  --c-isolation: #272238; --c-isolation-ink: #ab90ea;
+  --c-care: #17302a; --c-care-ink: #53c6a6;
+  --c-clinic: #302722; --c-clinic-ink: #dd9366;
+  --c-public: #1e2b20; --c-public-ink: #80c274;
+  --c-amenity: #2c2a1d; --c-amenity-ink: #cdb257;
+  --c-sanitary: #172c33; --c-sanitary-ink: #60bad2;
+  --c-staff: #202530; --c-staff-ink: #9fabc0;
+  --c-service: #1b2026; --c-service-ink: #8e97a4;
+  --c-vertical: #1f242b; --c-vertical-ink: #9aa4b3;
+  --c-other: #1b2026; --c-other-ink: #8e97a4;
+}
+
+.plan-wrap { position: relative; background: var(--plan-paper); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; touch-action: none; cursor: grab; }
+.plan-wrap:active { cursor: grabbing; }
+svg.plan { display: block; }
+.slab { fill: var(--plan-slab); }
+.grid line { stroke: var(--plan-grid); stroke-width: .05; }
+.corridor { fill: var(--plan-corridor); }
+
+/* 방 채움: 계열별 색 */
+.rm-fill { cursor: pointer; }
+.rm-ward .rm-fill { fill: var(--c-ward); } .rm-isolation .rm-fill { fill: var(--c-isolation); }
+.rm-care .rm-fill { fill: var(--c-care); } .rm-clinic .rm-fill { fill: var(--c-clinic); }
+.rm-public .rm-fill { fill: var(--c-public); } .rm-amenity .rm-fill { fill: var(--c-amenity); }
+.rm-sanitary .rm-fill { fill: var(--c-sanitary); } .rm-staff .rm-fill { fill: var(--c-staff); }
+.rm-service .rm-fill { fill: var(--c-service); } .rm-vertical .rm-fill { fill: var(--c-vertical); }
+.rm-other .rm-fill { fill: var(--c-other); }
+.rm-hatch { fill: url(#hatch); opacity: .5; pointer-events: none; }
+.hatch-line { stroke: var(--plan-ink-soft); stroke-width: .07; opacity: .5; }
+.rm:hover .rm-fill { filter: brightness(1.05) saturate(1.2); }
+.rm.picked .rm-fill { stroke: var(--accent); stroke-width: .3; }
+/* 알람이 있는 방은 그 색으로 물든다 */
+.rm[class*="sev-"] .rm-fill { stroke-width: .22; }
+.rm.sev-low .rm-fill { fill: color-mix(in srgb, var(--sev-low) 14%, var(--c-ward)); stroke: var(--sev-low); }
+.rm.sev-medium .rm-fill { fill: color-mix(in srgb, var(--sev-medium) 18%, var(--c-ward)); stroke: var(--sev-medium); }
+.rm.sev-high .rm-fill { fill: color-mix(in srgb, var(--sev-high) 20%, var(--c-ward)); stroke: var(--sev-high); }
+.rm.sev-critical .rm-fill { fill: color-mix(in srgb, var(--sev-critical) 22%, var(--c-ward)); stroke: var(--sev-critical); stroke-width: .3; animation: room-pulse 1.6s ease-in-out infinite; }
+@keyframes room-pulse { 50% { stroke-opacity: .25; } }
+
+/* 벽(poche): 방 윤곽을 두꺼운 선으로, 외벽은 더 두껍게 */
+.walls polygon, .walls rect { fill: none; stroke: var(--plan-wall); stroke-width: .26; stroke-linejoin: round; pointer-events: none; }
+.walls .shell { stroke-width: .5; }
+/* 문: 벽을 끊고 열림 방향을 호로 */
+.door-gap { stroke: var(--plan-slab); stroke-width: .34; }
+.door-swing { fill: none; stroke: var(--plan-ink-soft); stroke-width: .07; opacity: .75; }
+.door-leaf { stroke: var(--plan-wall); stroke-width: .12; }
+
+/* 침대·설비 */
+.bed-frame { fill: var(--plan-slab); stroke: var(--plan-ink-soft); stroke-width: .07; }
+.bed.occ .bed-frame { fill: color-mix(in srgb, var(--c-ward-ink) 12%, var(--plan-slab)); stroke: var(--c-ward-ink); }
+.bed-pillow { fill: var(--plan-grid); stroke: var(--plan-ink-soft); stroke-width: .05; }
+.bed-fold { stroke: var(--plan-ink-soft); stroke-width: .05; opacity: .7; }
+.fx-screen { fill: var(--plan-ink); opacity: .8; }
+.fx-display.central .fx-screen { fill: var(--accent); opacity: .9; }
+.fx-stem { stroke: var(--plan-ink-soft); stroke-width: .08; }
+.fx-counter { fill: color-mix(in srgb, var(--c-care-ink) 14%, var(--plan-slab)); stroke: var(--c-care-ink); stroke-width: .08; }
+.fx-fold { stroke: var(--c-care-ink); stroke-width: .05; opacity: .6; }
+.stair-tread { stroke: var(--plan-ink-soft); stroke-width: .08; }
+.stair-arrow { stroke: var(--plan-ink-soft); stroke-width: .09; fill: none; }
+.arrow-head { fill: var(--plan-ink-soft); }
+.elev-car { fill: none; stroke: var(--plan-ink-soft); stroke-width: .09; }
+.elev-x { stroke: var(--plan-ink-soft); stroke-width: .07; opacity: .8; }
+
+/* 이름표 */
+/* 이름표는 가구·침대 위에 얹히므로 글자 바깥선으로 읽힘을 확보한다 */
+.rlabel text { paint-order: stroke fill; stroke: var(--plan-slab); stroke-width: .16; stroke-linejoin: round; }
+.rl-name { font-weight: 700; fill: var(--plan-ink); text-anchor: middle; }
+.rl-kind { fill: var(--plan-ink-soft); text-anchor: middle; }
+.rl-badge rect { fill: var(--plan-slab); stroke: var(--plan-ink-soft); stroke-width: .06; opacity: .92; }
+.rl-count { font-size: .72px; font-weight: 700; fill: var(--plan-ink); text-anchor: middle; stroke: none; }
+.rl-count.ward { fill: var(--c-ward-ink); }
+.rm-ward .rl-name { fill: var(--c-ward-ink); } .rm-isolation .rl-name { fill: var(--c-isolation-ink); }
+.rm-care .rl-name { fill: var(--c-care-ink); } .rm-clinic .rl-name { fill: var(--c-clinic-ink); }
+.rm-public .rl-name { fill: var(--c-public-ink); } .rm-amenity .rl-name { fill: var(--c-amenity-ink); }
+.rm-sanitary .rl-name { fill: var(--c-sanitary-ink); } .rm-staff .rl-name { fill: var(--c-staff-ink); }
+.rm-service .rl-name { fill: var(--c-service-ink); } .rm-vertical .rl-name { fill: var(--c-vertical-ink); }
+
+/* 실시간 레이어 */
+.live .pt { cursor: pointer; }
+.pt-dot { fill: var(--ok); stroke: var(--plan-slab); stroke-width: .12; }
+.pt.stale .pt-dot { fill: var(--muted); }
+.pt.sev-low .pt-dot { fill: var(--sev-low); } .pt.sev-medium .pt-dot { fill: var(--sev-medium); }
+.pt.sev-high .pt-dot { fill: var(--sev-high); } .pt.sev-critical .pt-dot { fill: var(--sev-critical); }
+.pt-halo { fill: none; stroke: var(--sev-high); stroke-width: .16; opacity: .8; animation: halo 1.4s ease-out infinite; }
+.pt.sev-critical .pt-halo { stroke: var(--sev-critical); }
+@keyframes halo { 0% { r: .5; opacity: .9; } 100% { r: 1.25; opacity: 0; } }
+.pt-name { font-size: .62px; fill: var(--plan-ink); text-anchor: middle; pointer-events: none; }
+.gwm { cursor: pointer; }
+.gw-body { fill: var(--accent); stroke: var(--plan-slab); stroke-width: .12; }
+.gwm.gwwarn .gw-body { fill: var(--warn); } .gwm.gwbad .gw-body { fill: var(--err); }
+.gwm.gwoff .gw-body { fill: var(--muted); opacity: .65; }
+.gw-wave, .gw-dot { fill: none; stroke: #fff; stroke-width: .1; stroke-linecap: round; }
+.gw-dot { fill: #fff; stroke: none; }
+.gwm.picked .gw-body { stroke: var(--accent); stroke-width: .24; }
+
+/* 화면 고정 요소: 축척·방위·확대 버튼 */
+.chrome-bg { fill: var(--panel); stroke: var(--line); stroke-width: 1; opacity: .92; }
+.sb-line { stroke: var(--text); stroke-width: 1.4; }
+.sb-text { font-size: 11px; fill: var(--text); }
+.na-needle { fill: var(--text); }
+.na-text { font-size: 9px; fill: var(--muted); text-anchor: middle; }
+.plan-zoom { position: absolute; right: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 4px; }
+.plan-zoom button { width: 30px; height: 30px; padding: 0; font-size: 15px; background: var(--panel); }
+.plan-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.plan-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.plan-legend .sw { width: 11px; height: 11px; border-radius: 3px; border: 1px solid var(--plan-wall); }
+.sw-ward { background: var(--c-ward); } .sw-isolation { background: var(--c-isolation); }
+.sw-care { background: var(--c-care); } .sw-clinic { background: var(--c-clinic); }
+.sw-public { background: var(--c-public); } .sw-amenity { background: var(--c-amenity); }
+.sw-sanitary { background: var(--c-sanitary); } .sw-staff { background: var(--c-staff); }
+.sw-service { background: var(--c-service); } .sw-vertical { background: var(--c-vertical); }
+
 .legend { display: inline-flex; gap: 10px; align-items: center; color: var(--muted); font-size: 12px; }
 .legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
-.legend .dot.ok { background: var(--ok); } .legend .dot.alarm { background: var(--sev-high); } .legend .dot.gw { background: var(--accent); border-radius: 2px; } .legend .dot.gwbad { background: var(--err); border-radius: 2px; }
+.legend .dot.ok { background: var(--ok); } .legend .dot.alarm { background: var(--sev-high); } .legend .dot.gw { background: var(--accent); border-radius: 2px; }
 .map-side { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; overflow: auto; }
 .map-side h4 { margin: 0 0 4px; } .map-side h4 small { color: var(--muted); font-weight: 400; }
 .prow { padding: 6px 6px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 13px; }

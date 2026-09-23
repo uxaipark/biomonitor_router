@@ -3,12 +3,9 @@ import { api, usePoll } from '../api.js'
 import { alarmIndex, gatewayAlarmIndex, GW_STATUS } from '../model.js'
 import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
+import FloorPlan, { LEGEND } from './FloorPlan.jsx'
 
-const ROOM_FILL = {
-  room: 'var(--room)', corridor: 'var(--corridor)', nurse_station: 'var(--station)', exam: 'var(--exam)',
-  lobby: 'var(--lobby)', elevator: 'var(--elev)', stairs: 'var(--elev)', toilet: 'var(--util)', shower: 'var(--util)', utility: 'var(--util)',
-}
-const poly = (pts) => pts.map((p) => p.join(',')).join(' ')
+const SEV_RANK = { critical: 4, high: 3, medium: 2, low: 1 }
 
 /** Floor plan from the emulator's layout JSON (proxied by the router), overlaid with live gateway state,
  *  patients (registry rows) and alarms. Rooms are keyed by id; a patient's room comes from the EMR sync. */
@@ -17,7 +14,10 @@ export default function MapPage({ alarms, hash }) {
   const [err, setErr] = useState(null)
   const [rows] = usePoll(api.channels, 4000)
   const [gws] = usePoll(api.gateways, 4000)
+  // 층 선택: URL(#/map?b=0&f=3)이 있으면 그 층, 없으면 마지막으로 보던 층
   const [sel, setSel] = useState(() => {
+    const q = new URLSearchParams((hash || '').split('?')[1] || '')
+    if (q.has('b') || q.has('f')) return { b: Number(q.get('b') || 0), f: Number(q.get('f') || 1) }
     try { return JSON.parse(localStorage.getItem('map.sel') || 'null') } catch { return null }
   })
   const [pick, setPick] = useState(null) // { room } | { gw }
@@ -74,47 +74,63 @@ export default function MapPage({ alarms, hash }) {
         </span>
         <span className="muted">{cur.name} · {cur.kind} · 환자 {stats.patients}명 · 알람 {stats.alarm}</span>
         <span className="spacer" />
-        <span className="legend"><i className="dot ok" /> 정상 <i className="dot alarm" /> 알람 <i className="dot gw" /> 게이트웨이 <i className="dot gwbad" /> GW 이상</span>
+        <span className="legend">
+          <i className="dot ok" /> 정상 <i className="dot alarm" /> 알람 <i className="dot gw" /> 게이트웨이
+        </span>
+      </div>
+      <div className="plan-legend">
+        {LEGEND.map(([c, label]) => <span key={c}><i className={'sw sw-' + c} />{label}</span>)}
       </div>
       <div className="map-cols">
-        <svg className="plan" viewBox={`-1 -1 ${W + 2} ${D + 2}`} preserveAspectRatio="xMidYMid meet">
-          <rect x="0" y="0" width={W} height={D} className="floor-bg" />
-          {cur.corridors?.map((c, i) => <polygon key={'c' + i} points={poly(c.poly)} className="corridor" />)}
-          {cur.rooms.map((r) => {
-            const ps = byRoom.get(r.id) || []
-            const worst = ps.reduce((w, p) => { const a = aidx.get(p.channel_id); return a && (!w || a.severity === 'critical') ? a : w }, null)
-            return (
-              <g key={r.id} className={'room ' + (pick?.room === r.id ? 'picked' : '')} onClick={() => setPick({ room: r.id })}>
-                <polygon points={poly(r.poly)} style={{ fill: ROOM_FILL[r.kind] || 'var(--room)' }} className={worst ? `sev-${worst.severity}` : ''} />
-                <text x={r.cx} y={r.cy - 0.4} className="room-label">{r.name || r.id}</text>
-                {ps.length > 0 && <text x={r.cx} y={r.cy + 1.4} className="room-count">{ps.length}명</text>}
-                {r.beds?.map((b) => {
-                  const occ = ps.find((p) => p.patient?.bed === b.id) // bed ids are not on rows yet; dots are placed by index below
-                  return <rect key={b.id} x={b.x - 0.9} y={b.y - 0.45} width="1.8" height="0.9" transform={`rotate(${b.angle || 0} ${b.x} ${b.y})`} className={'bed ' + (occ ? 'occ' : '')} />
-                })}
-                {ps.map((p, i) => {
+        <FloorPlan
+          floor={cur}
+          rooms={cur.rooms}
+          corridors={cur.corridors}
+          fixtures={cur.fixtures}
+          patientsByRoom={byRoom}
+          picked={pick?.room}
+          onPickRoom={(id) => setPick({ room: id })}
+          overlay={{
+            // 방 색을 가장 위중한 알람으로 물들인다 (환자 점과 별개로 멀리서도 보이게)
+            roomSeverity: (r, ps) => ps.reduce((w, p) => {
+              const a = aidx.get(p.channel_id)
+              return a && (!w || SEV_RANK[a.severity] > SEV_RANK[w]) ? a.severity : w
+            }, null),
+            render: (k) => (
+              <g className="live">
+                {cur.rooms.map((r) => (byRoom.get(r.id) || []).map((p, i) => {
                   const bed = r.beds?.[i]
-                  const x = bed ? bed.x : r.cx + ((i % 4) - 1.5) * 1.2
-                  const y = bed ? bed.y : r.cy + 2.2 + Math.floor(i / 4) * 1.2
+                  const x = bed ? bed.x : r.cx + ((i % 4) - 1.5) * 1.1
+                  const y = bed ? bed.y : r.cy + 2.0 + Math.floor(i / 4) * 1.1
                   const a = aidx.get(p.channel_id)
-                  return <circle key={p.channel_id} cx={x} cy={y} r="0.55" className={'pt ' + (a ? `sev-${a.severity}` : p.stale ? 'stale' : 'ok')} onClick={(e) => { e.stopPropagation(); openLive(p.channel_id) }}><title>{p.patient?.name || p.mrn} · {p.channel_id}{a ? ` · ${a.message}` : ''}</title></circle>
+                  const cls = a ? `sev-${a.severity}` : p.stale ? 'stale' : 'ok'
+                  return (
+                    <g key={p.channel_id} className={'pt ' + cls} onClick={(e) => { e.stopPropagation(); openLive(p.channel_id) }}>
+                      {a && <circle cx={x} cy={y} r="0.95" className="pt-halo" />}
+                      <circle cx={x} cy={y} r="0.42" className="pt-dot" />
+                      {k > 22 && <text x={x} y={y + 1.35} className="pt-name">{p.patient?.name || p.mrn}</text>}
+                      <title>{p.patient?.name || p.mrn} · {p.channel_id}{a ? ` · ${a.message}` : ''}</title>
+                    </g>
+                  )
+                }))}
+                {floorGws.map((g) => {
+                  const live = gwById.get(String(g.gw_no))
+                  const al = gidx.get(String(g.gw_no))
+                  const cls = al ? 'gwbad' : !live || !live.connected ? 'gwoff' : live.silent || live.status?.status === 2 ? 'gwbad' : live.status?.status === 1 ? 'gwwarn' : 'gw'
+                  return (
+                    <g key={g.gw_no} className={'gwm ' + cls + (pick?.gw === String(g.gw_no) ? ' picked' : '')} onClick={(e) => { e.stopPropagation(); setPick({ gw: String(g.gw_no) }) }}>
+                      <circle cx={g.x} cy={g.y} r="0.5" className="gw-body" />
+                      <path d={`M ${g.x - 0.24} ${g.y + 0.04} a 0.34 0.34 0 0 1 0.48 0`} className="gw-wave" />
+                      <path d={`M ${g.x - 0.12} ${g.y + 0.17} a 0.17 0.17 0 0 1 0.24 0`} className="gw-wave" />
+                      <circle cx={g.x} cy={g.y + 0.28} r="0.06" className="gw-dot" />
+                      <title>{g.id} · {g.type} · {g.room}{live ? ` · ${live.connected ? '연결' : '끊김'} · 패치 ${live.patches} · ${GW_STATUS[live.status?.status] || ''}` : ' · 미접속'}{al ? ` · ${al.message}` : ''}</title>
+                    </g>
+                  )
                 })}
               </g>
-            )
-          })}
-          {cur.fixtures?.map((f, i) => <g key={'f' + i} className="fixture"><rect x={f.x - 0.6} y={f.y - 0.3} width="1.2" height="0.6" transform={`rotate(${f.angle || 0} ${f.x} ${f.y})`} /><title>{f.label || f.type}</title></g>)}
-          {floorGws.map((g) => {
-            const live = gwById.get(String(g.gw_no))
-            const al = gidx.get(String(g.gw_no))
-            const cls = al ? 'gwbad' : !live ? 'gwoff' : !live.connected ? 'gwoff' : live.silent || live.status?.status === 2 ? 'gwbad' : live.status?.status === 1 ? 'gwwarn' : 'gw'
-            return (
-              <g key={g.gw_no} className={'gwm ' + cls + (pick?.gw === String(g.gw_no) ? ' picked' : '')} onClick={(e) => { e.stopPropagation(); setPick({ gw: String(g.gw_no) }) }}>
-                <rect x={g.x - 0.7} y={g.y - 0.7} width="1.4" height="1.4" rx="0.3" />
-                <title>{g.id} · {g.type} · {g.room}{live ? ` · ${live.connected ? '연결' : '끊김'} · 패치 ${live.patches} · ${GW_STATUS[live.status?.status] || ''}` : ' · 미접속'}{al ? ` · ${al.message}` : ''}</title>
-              </g>
-            )
-          })}
-        </svg>
+            ),
+          }}
+        />
         <aside className="map-side">
           {pickRoom && <><h4>{pickRoom.id} <small>{pickRoom.kind} · {pickRoom.ward}</small></h4><small className="muted">게이트웨이 {pickRoom.gateway ? '있음' : '없음'} · 침대 {pickRoom.beds?.length || 0}</small></>}
           {pickGw && <><h4>{pickGw.id} <small>{pickGw.type}</small></h4><GwInfo g={gwById.get(String(pickGw.gw_no))} />
