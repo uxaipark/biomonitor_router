@@ -977,7 +977,9 @@ mod tests {
     fn entries_roundtrip_and_detect_corruption() {
         let dir = std::env::temp_dir().join(format!("pstore-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        let mut st = PatchStore::new(dir.clone(), 0);
+        // gzip off: the background worker would otherwise race this test — it replaces the closed hour file with
+        // `.rec.gz` at an arbitrary moment, so the bit flip below could land on a file verify no longer reads.
+        let mut st = PatchStore::with_gzip(dir.clone(), 0, 0);
         let t0 = 1_726_567_200_000u64;
         for s in 1..=5u32 {
             st.record(t0 + s as u64 * 200, 7, &raw(3001, 88, s));

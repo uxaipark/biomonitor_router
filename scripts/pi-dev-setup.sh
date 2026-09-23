@@ -2,7 +2,7 @@
 # RP5 (Debian 12 bookworm, aarch64) 개발 환경 준비 — 클론한 저장소 루트에서 실행.
 #   git clone https://github.com/uxaipark/biomonitor_router.git ~/biomonitor_router
 #   cd ~/biomonitor_router && scripts/pi-dev-setup.sh
-# 하는 일: apt 빌드 의존성, rustup(stable, 최소 프로필), Node 20(웹 화면 개발 시), router-server 릴리스 빌드, 스모크 테스트.
+# 하는 일: apt 빌드 의존성, rustup(stable, 최소 프로필), Node 20(웹 콘솔 빌드용), router-server 릴리스 빌드, 스모크 테스트.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
@@ -20,7 +20,7 @@ rustup show active-toolchain >/dev/null 2>&1 || rustup toolchain install stable 
 grep -q '.cargo/bin' "$HOME/.profile" 2>/dev/null || echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> "$HOME/.profile"
 
 if [ "${WITH_NODE:-1}" = "1" ] && ! command -v node >/dev/null 2>&1; then
-  echo "== Node 20 (web/admin, web/viewer)"
+  echo "== Node 20 (web/console)"
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - >/dev/null
   sudo apt-get install -y -qq nodejs >/dev/null
 fi

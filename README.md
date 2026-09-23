@@ -9,8 +9,8 @@
 | 디렉토리 | 기술 | 상태 |
 |---|---|---|
 | `router-server/` | Rust (tokio/axum) | **P1 완료** — v3 ingest, 게이트웨이 표, NACK, 패치 저장소, 상태 API, 에뮬레이터 링크 |
-| `web/admin`, `web/viewer` | React (Vite) | 레거시 화면 — P2/P3 에서 다채널·도면 JSON 으로 재작성 |
-| `analysis-server/`, `db-api/` | Python | 레거시 목업 — 유지 여부 미정 (P3) |
+| `web/console/` | React (Vite) | 웹 콘솔 — 대시보드·환자·실시간 파형·뷰어 템플릿·병원 지도·게이트웨이·알람·이벤트·설정. 라우터가 `dist` 를 `/` 로 서빙(:7300) |
+| `analysis-server/`, `db-api/` | Python | 레거시 목업 — 라우터가 :7100 / :7601 로 접속 시도, 유지 여부 미정 (P3) |
 | `docs/contract/` | JSON | 에뮬레이터 계약 fixture (discovery / layout / trips) |
 | `docs/legacy/` | | 2026-08 스택 문서(ARCHITECTURE·API·FRONTEND)·구 에뮬레이터 소스 |
 
