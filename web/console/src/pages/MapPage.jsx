@@ -205,6 +205,14 @@ export default function MapPage({ alarms, hash }) {
   }, [hl, cur, nameLayout, floorGws])
   const hlKey = hl && hlPoint ? `${hl.type}:${hl.id || hl.no}:${cur?.building_idx}:${cur?.floor}` : null
   useEffect(() => { if (hlKey) setFocus({ x: hlPoint.x, y: hlPoint.y, seq: hlKey + Date.now() }) }, [hlKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  // 빨간 링은 5초만 — 확대와 검색어는 그대로 두고 링만 사라진다
+  const [ringOn, setRingOn] = useState(false)
+  useEffect(() => {
+    if (!hlKey) { setRingOn(false); return }
+    setRingOn(true)
+    const t = setTimeout(() => setRingOn(false), 5000)
+    return () => clearTimeout(t)
+  }, [hlKey])
 
   if (err) return <div className="page"><p className="err">도면을 불러오지 못했습니다: {err} (에뮬레이터 연결 확인)</p></div>
   if (!layout || !cur) return <div className="page"><p className="muted">도면 불러오는 중…</p></div>
@@ -298,7 +306,7 @@ export default function MapPage({ alarms, hash }) {
                     </g>
                   </g>
                 )}
-                {hlPoint && (
+                {hlPoint && ringOn && (
                   <g className="hl" pointerEvents="none">
                     <circle cx={hlPoint.x} cy={hlPoint.y} r="1.6" className="hl-ring">
                       <animate attributeName="r" values="1.2;2.16;1.2" dur="1.4s" repeatCount="indefinite" />
