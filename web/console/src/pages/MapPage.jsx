@@ -340,18 +340,12 @@ export default function MapPage({ alarms, hash }) {
                   const urgent = a && (a.severity === 'critical' || a.severity === 'high')
                   return (
                     <g key={p.channel_id} className={'pat q-' + q + (a ? ` sev-${a.severity}` : '') + (urgent ? ' urgent' : '') + (a?.acked ? ' acked' : '')} transform={dx ? `translate(${dx.toFixed(2)} 0)` : undefined} onClick={(e) => { e.stopPropagation(); openLive(p.channel_id) }}>
-                      {/* 위험·높음: 멀리서도 보이는 깜박이는 원판 + 알람색 아이콘 + 느낌표 배지 + 알람색 이름표 */}
+                      {/* 위험·높음: 알람색 아이콘 + 알람색 이름표 (깜박이는 원판은 아래 층) */}
                       {a && !urgent && <circle cx={px} cy={py} r="0.72" className="pat-halo" />}
                       <circle cx={px} cy={py} r="0.45" className="pat-body" />
                       <circle cx={px} cy={py - 0.1} r="0.15" className="pat-head" />
                       <path d={`M${px - 0.26},${py + 0.32} a0.26,0.26 0 0 1 0.52,0`} className="pat-head" />
                       {leadOff && !urgent && <circle cx={px + 0.36} cy={py - 0.36} r="0.14" className="pat-lead" />}
-                      {urgent && (
-                        <g className="pat-badge">
-                          <path d={`M${px + 0.5},${py - 1.3} l0.5,0.88 h-1 z`} strokeLinejoin="round" />
-                          <text x={px + 0.5} y={py - 0.5}>!</text>
-                        </g>
-                      )}
                       {urgent && (() => { const w = textWidth(name, fs) + 0.3; return <rect x={toLeft ? tx - w + 0.15 : tx - 0.15} y={py + 0.2 - fs} width={w} height={fs * 1.3} rx={fs * 0.3} className="plbl-bg" /> })()}
                       <text x={tx} y={py + 0.2} className={'plbl' + (toLeft ? ' left' : '')} style={fs !== 0.52 ? { fontSize: `${fs}px` } : undefined}>{name}</text>
                       <title>{name} · {p.channel_id} · RSSI {p.rssi ?? '—'} dBm{leadOff ? ' · 리드오프' : ''}{p.battery != null ? ` · 배터리 ${p.battery}%` : ''}{a ? ` · ${a.message}` : ''}</title>
