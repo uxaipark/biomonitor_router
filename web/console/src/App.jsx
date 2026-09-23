@@ -13,6 +13,7 @@ import Viewer from './pages/Viewer.jsx'
 import MultiViewerTest from './pages/MultiViewerTest.jsx'
 import ViewerSettings from './pages/ViewerSettings.jsx'
 import BiosignalAdmin from './pages/BiosignalAdmin.jsx'
+import NetworkSettings from './pages/NetworkSettings.jsx'
 import DataAdmin from './pages/DataAdmin.jsx'
 import OpsStats from './pages/OpsStats.jsx'
 import { LiveModal } from './pages/LiveModal.jsx'
@@ -32,6 +33,7 @@ const PAGES = [
   ['#/test/data', '데이터 관리', DataAdmin, '테스트'],
   ['#/settings/viewer', '뷰어 설정', ViewerSettings, '설정'],
   ['#/settings/biosignal', '생체신호 관리', BiosignalAdmin, '설정'],
+  ['#/settings/network', '네트워크 설정', NetworkSettings, '설정'],
 ]
 const MENUS = [...new Set(PAGES.map((p) => p[3]).filter(Boolean))]
 

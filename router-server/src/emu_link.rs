@@ -9,6 +9,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::{debug, info, warn};
 
+/// 에뮬레이터가 마지막으로 정상 응답한 시각(ms). 0 = 아직 한 번도 붙지 못함 (콘솔 네트워크 설정 표시용).
+pub static LAST_OK_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Minimal request: returns (status, body). `Connection: close`, so the body is everything after the header.
 pub async fn request(addr: &str, method: &str, path: &str, body: Option<&str>) -> anyhow::Result<(u16, String)> {
     let mut s = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(addr)).await??;
@@ -29,6 +32,9 @@ pub async fn request(addr: &str, method: &str, path: &str, body: Option<&str>) -
     let status: u16 = head.split_whitespace().nth(1).and_then(|c| c.parse().ok()).unwrap_or(0);
     let chunked = head.to_ascii_lowercase().contains("transfer-encoding: chunked");
     let body = if chunked { dechunk(rest) } else { rest.to_string() };
+    if status == 200 {
+        LAST_OK_MS.store(crate::protocol::now_ms(), std::sync::atomic::Ordering::Relaxed);
+    }
     Ok((status, body))
 }
 
@@ -49,10 +55,11 @@ fn dechunk(s: &str) -> String {
 
 /// Status report loop (every `every` seconds).
 pub async fn run_reporter(state: Arc<AppState>, every: u64) {
-    let Some(addr) = state.cfg.emulator_addr.clone() else { return };
     let mut tick = tokio::time::interval(Duration::from_secs(every.max(1)));
     loop {
         tick.tick().await;
+        // 주소는 매 주기 다시 읽는다 — 콘솔(설정 › 네트워크 설정)에서 바꾸면 재시작 없이 붙는다
+        let Some(addr) = state.net.emulator() else { continue };
         let body = state.status_report().to_string();
         match request(&addr, "POST", "/api/v1/router/status", Some(&body)).await {
             Ok((200, _)) => {}
@@ -64,13 +71,13 @@ pub async fn run_reporter(state: Arc<AppState>, every: u64) {
 
 /// EMR sync loop: admissions → patient names/wards/staff on the registry rows keyed by patch id.
 pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
-    let Some(addr) = state.cfg.emulator_addr.clone() else { return };
     let mut tick = tokio::time::interval(Duration::from_secs(every.max(5)));
     // home address lives only in the per-patient detail (`/emr/patients/{profile}` → address{sido,sigungu,dong,label});
     // fetched for outside (MCOT) patients only and remembered per profile id, refreshed hourly
     let mut home_cache: std::collections::HashMap<u64, (std::time::Instant, String, String)> = std::collections::HashMap::new();
     loop {
         tick.tick().await;
+        let Some(addr) = state.net.emulator() else { continue };
         match request(&addr, "GET", "/api/v1/emr/admissions", None).await {
             Ok((200, body)) => match serde_json::from_str::<serde_json::Value>(&body) {
                 Ok(v) => {

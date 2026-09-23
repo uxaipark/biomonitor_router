@@ -17,7 +17,8 @@ pub async fn run(state: Arc<AppState>, mut rx: Receiver<String>) {
         // 미연결 상태: 큐에 쌓인 스테일 패킷 폐기 (연결되면 새 데이터부터 전송)
         while rx.try_recv().is_ok() {}
 
-        let stream = match TcpStream::connect(&state.cfg.analysis_addr).await {
+        let addr = state.net.analysis();
+        let stream = match TcpStream::connect(&addr).await {
             Ok(s) => s,
             Err(e) => {
                 warn!("analysis server connect failed ({}): retry in 2s", e);
@@ -25,7 +26,7 @@ pub async fn run(state: Arc<AppState>, mut rx: Receiver<String>) {
                 continue;
             }
         };
-        info!("analysis server connected: {}", state.cfg.analysis_addr);
+        info!("analysis server connected: {}", addr);
         state.registry.clear_all_pending();
         state.set_analysis_up(true);
         state.push_event("analysis_up", None, "분석 서버 연결됨 — 병합 모드".into());

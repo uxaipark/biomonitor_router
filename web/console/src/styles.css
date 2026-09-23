@@ -365,3 +365,8 @@ button.danger:hover { background: var(--err); color: #fff; }
 .tbl td.err { color: var(--err); }
 .tbl td.mono { font-family: ui-monospace, monospace; font-size: 12px; }
 @media (max-width: 700px) { .bk-card { grid-template-columns: 1fr; } .bk-form { grid-template-columns: 1fr; } }
+
+/* 설정 › 네트워크 설정 */
+.net-row { display: flex; gap: 8px; align-items: center; }
+.net-row input { flex: 1 1 auto; min-width: 0; font-family: ui-monospace, monospace; }
+.settings .ok { color: var(--ok); }

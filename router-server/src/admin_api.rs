@@ -57,6 +57,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/backup/order", put(backup_order))
         .route("/api/backup/test", post(backup_test))
         .route("/api/backup/scan", post(backup_scan))
+        .route("/api/settings/network", get(net_get).put(net_put))
+        .route("/api/settings/network/test", post(net_test))
         .layer(CorsLayer::permissive())
         .fallback_service(spa(&web_dir))
         .with_state(state)
@@ -152,8 +154,12 @@ async fn ack_alarm(State(state): State<Arc<AppState>>, Path(id): Path<u64>) -> i
 /// 에뮬레이터 EMR/상태 프록시. 에뮬레이터는 CORS 헤더가 없으므로 브라우저는 라우터만 본다.
 /// 도면·게이트웨이 목록처럼 큰 정적 응답은 TTL 캐시로 에뮬레이터 부하를 막는다.
 async fn emr_get(state: &Arc<AppState>, path: &str, ttl_ms: u64) -> axum::response::Response {
-    let Some(addr) = state.cfg.emulator_addr.clone() else {
-        return (StatusCode::SERVICE_UNAVAILABLE, "ROUTER_EMULATOR_ADDR not set").into_response();
+    let Some(addr) = state.net.emulator() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "에뮬레이터 주소가 설정되지 않았습니다 — 설정 › 네트워크 설정에서 지정하거나 ROUTER_EMULATOR_ADDR 로 실행하세요",
+        )
+            .into_response();
     };
     let now = crate::protocol::now_ms();
     if ttl_ms > 0 {
@@ -973,4 +979,40 @@ async fn backup_test(State(state): State<Arc<AppState>>, Json(t): Json<crate::ba
 async fn backup_scan(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     state.backup.kick();
     Json(serde_json::json!({ "ok": true }))
+}
+
+// ---------------------------------------------------------------- 네트워크 설정 (설정 › 네트워크 설정)
+
+async fn net_get(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let mut v = state.net.view();
+    if let Some(o) = v.as_object_mut() {
+        o.insert("ingest_addr".into(), state.cfg.ingest_addr.clone().into());
+        o.insert("http_addr".into(), state.cfg.http_addr.clone().into());
+        o.insert("analysis_connected".into(), state.analysis_up.load(Ordering::Relaxed).into());
+        o.insert("emulator_connected".into(), (crate::emu_link::LAST_OK_MS.load(Ordering::Relaxed) > 0).into());
+        o.insert("emulator_last_ok_ms".into(), crate::emu_link::LAST_OK_MS.load(Ordering::Relaxed).into());
+    }
+    Json(v)
+}
+
+async fn net_put(State(state): State<Arc<AppState>>, Json(inp): Json<crate::netcfg::NetInput>) -> impl IntoResponse {
+    match state.net.apply(inp) {
+        Ok(changed) => {
+            if !changed.is_empty() {
+                state.push_event("network_config", None, format!("네트워크 설정 변경: {}", changed.join(", ")));
+            }
+            Json(serde_json::json!({ "ok": true, "changed": changed })).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct NetTest {
+    kind: String,
+    addr: String,
+}
+
+async fn net_test(Json(t): Json<NetTest>) -> impl IntoResponse {
+    Json(crate::netcfg::test(&t.kind, &t.addr).await)
 }

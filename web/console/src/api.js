@@ -49,6 +49,11 @@ export const api = {
   metricsInfo: () => get('/api/metrics/info'),
   metricsReset: () => send('POST', '/api/metrics/reset'),
   verifyPatch: (id) => get(`/api/patches/${id}/verify`),
+  net: {
+    get: () => get('/api/settings/network'),
+    set: (b) => send('PUT', '/api/settings/network', b),
+    test: (kind, addr) => send('POST', '/api/settings/network/test', { kind, addr }),
+  },
   backup: {
     status: () => get('/api/backup'),
     setPolicy: (p) => send('PUT', '/api/backup/policy', p),

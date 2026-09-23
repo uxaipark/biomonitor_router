@@ -80,6 +80,8 @@ pub struct AppState {
     pub metrics: crate::metrics::Metrics,
     /// 파형 백업 (NAS/SMB/FTP/SFTP) — 대상·정책·장부
     pub backup: Arc<crate::backup::Backup>,
+    /// 네트워크 설정(에뮬레이터·분석·DB 주소) — 콘솔에서 바꾸면 재시작 없이 반영
+    pub net: crate::netcfg::NetCfg,
     /// 출력 WS 세션 (id → 세션); 발행 시 구독이 맞는 세션의 큐에만 넣는다
     pub sessions: dashmap::DashMap<u64, Arc<Session>>,
     pub next_session: AtomicU64,
@@ -170,6 +172,7 @@ impl AppState {
             groups: GroupStore::load(&cfg.db_path, &cfg.groups_path),
             metrics: crate::metrics::Metrics::open(&cfg.db_path),
             backup: crate::backup::Backup::open(&cfg.db_path, &cfg.store_dir),
+            net: crate::netcfg::NetCfg::open(&cfg.db_path, &cfg),
             cfg,
             sessions: dashmap::DashMap::new(),
             next_session: AtomicU64::new(1),

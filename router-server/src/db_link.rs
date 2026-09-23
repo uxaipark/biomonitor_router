@@ -18,14 +18,15 @@ pub async fn run(state: Arc<AppState>, mut rx: Receiver<String>) {
         // 미연결 상태: 쌓인 op 폐기 (DB 는 다음 meta 주기에 다시 동기화됨)
         while rx.try_recv().is_ok() {}
 
-        let mut stream = match TcpStream::connect(&state.cfg.db_addr).await {
+        let addr = state.net.db_api();
+        let mut stream = match TcpStream::connect(&addr).await {
             Ok(s) => s,
             Err(_) => {
                 tokio::time::sleep(Duration::from_secs(3)).await;
                 continue;
             }
         };
-        info!("db api connected: {}", state.cfg.db_addr);
+        info!("db api connected: {}", addr);
 
         loop {
             let Some(mut line) = rx.recv().await else { return };
