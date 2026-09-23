@@ -228,20 +228,21 @@ canvas.wave { width: 100%; display: block; border-radius: 6px; }
   --c-other: #eceef1; --c-other-ink: #78828f;
 }
 [data-theme="dark"], :root:not([data-theme="light"]) {
-  --plan-paper: #0e141c; --plan-slab: #151d27; --plan-wall: #8ea0bb; --plan-grid: #1b2430;
-  --plan-corridor: #111925; --plan-ink: #dbe4ef; --plan-ink-soft: #8b9bb0;
-  /* 어두운 배경에서는 채도를 낮추고 명도 차이로 구분한다 — 색이 탁해 보이지 않게 */
-  --c-ward: #1d2b3e; --c-ward-ink: #74aaf2;
-  --c-isolation: #272238; --c-isolation-ink: #ab90ea;
-  --c-care: #17302a; --c-care-ink: #53c6a6;
-  --c-clinic: #302722; --c-clinic-ink: #dd9366;
-  --c-public: #1e2b20; --c-public-ink: #80c274;
-  --c-amenity: #2c2a1d; --c-amenity-ink: #cdb257;
-  --c-sanitary: #172c33; --c-sanitary-ink: #60bad2;
-  --c-staff: #202530; --c-staff-ink: #9fabc0;
-  --c-service: #1b2026; --c-service-ink: #8e97a4;
-  --c-vertical: #1f242b; --c-vertical-ink: #9aa4b3;
-  --c-other: #1b2026; --c-other-ink: #8e97a4;
+  /* 야간 판독용: 벽·글자 대비를 한 단계 낮추고(눈부심), 방은 같은 명도대의 은은한 색조로만 구분한다 */
+  --plan-paper: #0c1118; --plan-slab: #151c26; --plan-wall: #46556b; --plan-grid: #1a222d;
+  --plan-corridor: #111822; --plan-ink: #d3dce8; --plan-ink-soft: #7f8da1;
+  --c-ward: #19263a; --c-ward-ink: #8bb6ec;
+  --c-isolation: #221e34; --c-isolation-ink: #b19ded;
+  --c-care: #14282a; --c-care-ink: #62c7ac;
+  --c-clinic: #28211e; --c-clinic-ink: #dea27e;
+  --c-public: #172519; --c-public-ink: #8dc78b;
+  --c-amenity: #222320; --c-amenity-ink: #cdb873;
+  --c-sanitary: #14252f; --c-sanitary-ink: #72c2d8;
+  --c-staff: #1b202a; --c-staff-ink: #a3aec0;
+  --c-service: #171c23; --c-service-ink: #8d97a5;
+  --c-vertical: #1a1f26; --c-vertical-ink: #9aa4b3;
+  --c-other: #171c23; --c-other-ink: #8d97a5;
+  --plan-name: #bac6d4; --plan-alarm-mix: 9%;
 }
 
 .plan-wrap { position: relative; background: var(--plan-paper); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; touch-action: none; cursor: zoom-in; }
@@ -267,10 +268,10 @@ svg.plan { display: block; }
 .rm.picked .rm-fill { stroke: var(--accent); stroke-width: .3; }
 /* 알람이 있는 방은 그 색으로 물든다 */
 .rm[class*="sev-"] .rm-fill { stroke-width: .22; }
-.rm.sev-low .rm-fill { fill: color-mix(in srgb, var(--sev-low) 14%, var(--c-ward)); stroke: var(--sev-low); }
-.rm.sev-medium .rm-fill { fill: color-mix(in srgb, var(--sev-medium) 18%, var(--c-ward)); stroke: var(--sev-medium); }
-.rm.sev-high .rm-fill { fill: color-mix(in srgb, var(--sev-high) 20%, var(--c-ward)); stroke: var(--sev-high); }
-.rm.sev-critical .rm-fill { fill: color-mix(in srgb, var(--sev-critical) 22%, var(--c-ward)); stroke: var(--sev-critical); stroke-width: .3; animation: room-pulse 1.6s ease-in-out infinite; }
+.rm.sev-low .rm-fill { fill: color-mix(in srgb, var(--sev-low) var(--plan-alarm-mix, 14%), var(--c-ward)); stroke: var(--sev-low); }
+.rm.sev-medium .rm-fill { fill: color-mix(in srgb, var(--sev-medium) var(--plan-alarm-mix, 18%), var(--c-ward)); stroke: var(--sev-medium); }
+.rm.sev-high .rm-fill { fill: color-mix(in srgb, var(--sev-high) var(--plan-alarm-mix, 20%), var(--c-ward)); stroke: var(--sev-high); }
+.rm.sev-critical .rm-fill { fill: color-mix(in srgb, var(--sev-critical) var(--plan-alarm-mix, 22%), var(--c-ward)); stroke: var(--sev-critical); stroke-width: .3; animation: room-pulse 1.6s ease-in-out infinite; }
 @keyframes room-pulse { 50% { stroke-opacity: .25; } }
 
 /* 벽(poche): 방 윤곽을 두꺼운 선으로, 외벽은 더 두껍게 */
@@ -300,7 +301,7 @@ svg.plan { display: block; }
 /* 이름표 */
 /* 이름표는 가구·침대 위에 얹히므로 글자 바깥선으로 읽힘을 확보한다 */
 .rlabel text { paint-order: stroke fill; stroke: var(--plan-slab); stroke-width: .16; stroke-linejoin: round; }
-.rl-name { font-weight: 700; fill: var(--plan-ink); text-anchor: middle; }
+.rl-name { font-weight: 700; fill: var(--plan-name, var(--plan-ink)); text-anchor: middle; }
 .rl-kind { fill: var(--plan-ink-soft); text-anchor: middle; }
 .rl-badge rect { fill: var(--plan-slab); stroke: var(--plan-ink-soft); stroke-width: .06; opacity: .92; }
 .rl-count { font-size: .72px; font-weight: 700; fill: var(--plan-ink); text-anchor: middle; stroke: none; }
@@ -665,3 +666,11 @@ canvas.accel-plot { width: 100%; display: block; border-radius: 6px; }
 .choice-item.on .radio { border-color: var(--accent); background: radial-gradient(var(--accent) 45%, transparent 50%); }
 .net-status { display: flex; align-items: center; gap: 7px; }
 @media (min-width: 1200px) { .tiles.dash { grid-template-columns: repeat(5, 1fr); } }
+
+/* dark map: softer outer shell, thinner inner walls, doors and hatch less prominent */
+[data-theme="dark"] .walls .shell, :root:not([data-theme="light"]) .walls .shell { stroke: #56667d; }
+[data-theme="dark"] .walls polygon, [data-theme="dark"] .walls rect, :root:not([data-theme="light"]) .walls polygon, :root:not([data-theme="light"]) .walls rect { stroke-width: .2; }
+[data-theme="dark"] .rm-hatch, :root:not([data-theme="light"]) .rm-hatch { opacity: .3; }
+[data-theme="dark"] .door-swing, :root:not([data-theme="light"]) .door-swing { opacity: .55; }
+[data-theme="dark"] .rm:hover .rm-fill, :root:not([data-theme="light"]) .rm:hover .rm-fill { filter: brightness(1.25); }
+[data-theme="dark"] .cov-area, :root:not([data-theme="light"]) .cov-area { fill-opacity: .22; }
