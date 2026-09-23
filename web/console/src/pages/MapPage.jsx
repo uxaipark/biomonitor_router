@@ -222,7 +222,7 @@ export default function MapPage({ alarms, hash }) {
         <span className="muted">{cur.name} · {cur.kind} · 환자 {stats.patients}명 · 알람 {stats.alarm}</span>
         <span className="spacer" />
         <span className="map-search">
-          <input value={q} placeholder="환자·게이트웨이 검색 (이름, MRN, 패치, #번호)" onChange={(e) => { clearSearch(e.target.value); setQOpen(true) }}
+          <input value={q} placeholder="환자·게이트웨이 검색" title="환자: 이름(자모 일부도 됨)·MRN·패치 번호 / 게이트웨이: #번호·ID·방" onChange={(e) => { clearSearch(e.target.value); setQOpen(true) }}
             onFocus={() => setQOpen(true)} onBlur={() => setTimeout(() => setQOpen(false), 150)} onKeyDown={(e) => { if (e.key === 'Escape') { clearSearch(''); e.currentTarget.blur() } }} />
           {qOpen && q.trim() && (
             <div className="ms-list">
