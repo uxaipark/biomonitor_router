@@ -313,15 +313,15 @@ svg.plan { display: block; }
 .pt.stale .pt-dot { fill: var(--muted); }
 .pt.sev-low .pt-dot { fill: var(--sev-low); } .pt.sev-medium .pt-dot { fill: var(--sev-medium); }
 .pt.sev-high .pt-dot { fill: var(--sev-high); } .pt.sev-critical .pt-dot { fill: var(--sev-critical); }
-.pt-halo { fill: none; stroke: var(--sev-high); stroke-width: .16; opacity: .8; animation: halo 1.4s ease-out infinite; }
+.pt-halo { fill: none; stroke: var(--sev-high); stroke-width: .12; opacity: .8; animation: halo 1.4s ease-out infinite; }
 .pt.sev-critical .pt-halo { stroke: var(--sev-critical); }
-@keyframes halo { 0% { r: .5; opacity: .9; } 100% { r: 1.25; opacity: 0; } }
-.pt-name { font-size: .62px; fill: var(--plan-ink); text-anchor: middle; pointer-events: none; }
+@keyframes halo { 0% { r: .35; opacity: .9; } 100% { r: .95; opacity: 0; } }
+.pt-name { font-size: .34px; font-weight: 600; fill: var(--plan-ink); text-anchor: middle; pointer-events: none; }
 .gwm { cursor: pointer; }
 .gw-body { fill: var(--accent); stroke: var(--plan-slab); stroke-width: .12; }
 .gwm.gwwarn .gw-body { fill: var(--warn); } .gwm.gwbad .gw-body { fill: var(--err); }
 .gwm.gwoff .gw-body { fill: var(--muted); opacity: .65; }
-.gw-wave, .gw-dot { fill: none; stroke: #fff; stroke-width: .1; stroke-linecap: round; }
+.gw-wave, .gw-dot { fill: none; stroke: #fff; stroke-width: .07; stroke-linecap: round; }
 .gw-dot { fill: #fff; stroke: none; }
 .gwm.picked .gw-body { stroke: var(--accent); stroke-width: .24; }
 

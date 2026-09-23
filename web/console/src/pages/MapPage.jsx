@@ -3,7 +3,7 @@ import { api, usePoll } from '../api.js'
 import { alarmIndex, gatewayAlarmIndex, GW_STATUS } from '../model.js'
 import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
-import FloorPlan, { LEGEND } from './FloorPlan.jsx'
+import FloorPlan, { LEGEND, LOD, bedPoint, BED_HEAD, BED_BODY, fixtureBox } from './FloorPlan.jsx'
 
 const SEV_RANK = { critical: 4, high: 3, medium: 2, low: 1 }
 
@@ -100,15 +100,17 @@ export default function MapPage({ alarms, hash }) {
               <g className="live">
                 {cur.rooms.map((r) => (byRoom.get(r.id) || []).map((p, i) => {
                   const bed = r.beds?.[i]
-                  const x = bed ? bed.x : r.cx + ((i % 4) - 1.5) * 1.1
-                  const y = bed ? bed.y : r.cy + 2.0 + Math.floor(i / 4) * 1.1
+                  // 침대가 있으면 점은 베개 위, 이름은 이불 위 — 서로 겹치지 않는다. 침대보다 환자가 많으면 방 아래쪽에 줄 세운다.
+                  const [x, y] = bed ? bedPoint(bed, BED_HEAD) : [r.cx + ((i % 4) - 1.5) * 1.1, r.cy + 2.0 + Math.floor(i / 4) * 1.1]
+                  const [nx, ny] = bed ? bedPoint(bed, BED_BODY) : [x, y + 0.95]
                   const a = aidx.get(p.channel_id)
                   const cls = a ? `sev-${a.severity}` : p.stale ? 'stale' : 'ok'
+                  const nm = (p.patient?.name || p.mrn || '').slice(0, 4)
                   return (
                     <g key={p.channel_id} className={'pt ' + cls} onClick={(e) => { e.stopPropagation(); openLive(p.channel_id) }}>
-                      {a && <circle cx={x} cy={y} r="0.95" className="pt-halo" />}
-                      <circle cx={x} cy={y} r="0.42" className="pt-dot" />
-                      {k > 22 && <text x={x} y={y + 1.35} className="pt-name">{p.patient?.name || p.mrn}</text>}
+                      {a && <circle cx={x} cy={y} r="0.8" className="pt-halo" />}
+                      <circle cx={x} cy={y} r="0.3" className="pt-dot" />
+                      {k >= LOD.names && nm && <text x={nx} y={ny + 0.13} className="pt-name">{nm}</text>}
                       <title>{p.patient?.name || p.mrn} · {p.channel_id}{a ? ` · ${a.message}` : ''}</title>
                     </g>
                   )
@@ -117,12 +119,27 @@ export default function MapPage({ alarms, hash }) {
                   const live = gwById.get(String(g.gw_no))
                   const al = gidx.get(String(g.gw_no))
                   const cls = al ? 'gwbad' : !live || !live.connected ? 'gwoff' : live.silent || live.status?.status === 2 ? 'gwbad' : live.status?.status === 1 ? 'gwwarn' : 'gw'
+                  // 정상 게이트웨이는 확대했을 때만 — 멀리서는 이상 있는 것만 보인다
+                  if (cls === 'gw' && k < LOD.gateway && pick?.gw !== String(g.gw_no)) return null
+                  // 방 안의 게이트웨이는 방 오른쪽 위 모서리에 둔다 (가운데는 방 번호 자리)
+                  const room = cur.rooms.find((r) => r.id === g.room)
+                  let gx = g.x, gy = g.y
+                  if (room) {
+                    const xs = room.poly.map((q) => q[0]), ys = room.poly.map((q) => q[1])
+                    gx = Math.max(...xs) - 0.62; gy = Math.min(...ys) + 0.62
+                  } else {
+                    // 복도 게이트웨이는 같은 자리의 복도 모니터와 겹치기 쉽다 — 겹치면 모니터 옆으로 비켜 놓는다
+                    for (const f of cur.fixtures || []) {
+                      const fb = fixtureBox(f)
+                      if (gx > fb.x - 0.45 && gx < fb.x + fb.w + 0.45 && gy > fb.y - 0.45 && gy < fb.y + fb.h + 0.45) { gx = fb.x + fb.w + 0.55; gy = f.y }
+                    }
+                  }
                   return (
                     <g key={g.gw_no} className={'gwm ' + cls + (pick?.gw === String(g.gw_no) ? ' picked' : '')} onClick={(e) => { e.stopPropagation(); setPick({ gw: String(g.gw_no) }) }}>
-                      <circle cx={g.x} cy={g.y} r="0.5" className="gw-body" />
-                      <path d={`M ${g.x - 0.24} ${g.y + 0.04} a 0.34 0.34 0 0 1 0.48 0`} className="gw-wave" />
-                      <path d={`M ${g.x - 0.12} ${g.y + 0.17} a 0.17 0.17 0 0 1 0.24 0`} className="gw-wave" />
-                      <circle cx={g.x} cy={g.y + 0.28} r="0.06" className="gw-dot" />
+                      <circle cx={gx} cy={gy} r="0.4" className="gw-body" />
+                      <path d={`M ${gx - 0.19} ${gy + 0.03} a 0.27 0.27 0 0 1 0.38 0`} className="gw-wave" />
+                      <path d={`M ${gx - 0.095} ${gy + 0.13} a 0.135 0.135 0 0 1 0.19 0`} className="gw-wave" />
+                      <circle cx={gx} cy={gy + 0.22} r="0.05" className="gw-dot" />
                       <title>{g.id} · {g.type} · {g.room}{live ? ` · ${live.connected ? '연결' : '끊김'} · 패치 ${live.patches} · ${GW_STATUS[live.status?.status] || ''}` : ' · 미접속'}{al ? ` · ${al.message}` : ''}</title>
                     </g>
                   )

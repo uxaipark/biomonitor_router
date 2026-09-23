@@ -69,6 +69,30 @@ function Door({ r }) {
   )
 }
 
+/** 침대 로컬 좌표(긴 축 = x, 베개는 -x 끝) → 도면 좌표. 환자 점은 베개, 이름은 이불 위에 놓는다. */
+export function bedPoint(b, lx, ly = 0) {
+  const a = ((b.angle || 0) * Math.PI) / 180
+  return [b.x + lx * Math.cos(a) - ly * Math.sin(a), b.y + lx * Math.sin(a) + ly * Math.cos(a)]
+}
+export const BED_HEAD = -0.66 // 베개 중심
+export const BED_BODY = 0.32 // 이불 중심
+
+/** 침대·설비가 차지하는 사각형(축 정렬 근사). 대부분 0/90/180/270° 라 근사로 충분하다. */
+const quarter = (a) => Math.abs(Math.round((a || 0) / 90)) % 2 === 1
+export function bedBox(b) {
+  const [w, h] = quarter(b.angle) ? [0.95, 2.0] : [2.0, 0.95]
+  return { x: b.x - w / 2, y: b.y - h / 2, w, h }
+}
+export function fixtureBox(f) {
+  const [lw, lh] = f.type === 'display' ? [1.1, 0.9] : [f.type === 'nurse_desk' ? 2.6 : 2.0, 0.9]
+  const [w, h] = quarter(f.angle) ? [lh, lw] : [lw, lh]
+  return { x: f.x - w / 2, y: f.y - h / 2, w, h }
+}
+const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
+
+/** 확대 배율(px/m)에 따라 보이는 정보를 늘린다 — 멀리서는 방 번호만, 가까이서 부가 정보. */
+export const LOD = { sub: 14, gateway: 22, names: 34 }
+
 /** 침대 픽토그램: 매트리스 + 베개 + 이불선. 긴 축이 x, `angle` 만큼 회전(데이터 관례). */
 function Bed({ b, occupied }) {
   const L = 2.0, W = 0.95
@@ -130,31 +154,75 @@ function Vertical({ r }) {
   )
 }
 
-/** 방 이름표: 병실은 번호를 크게, 부가 설명은 아랫줄로. 방 폭에 맞춰 크기를 줄이고 넘치면 자른다. */
-function RoomLabel({ r, count }) {
-  const b = bbox(r.poly)
-  const kindLabel = (CATEGORY[r.kind] || [null, r.kind])[1]
-  if (b.w < 1.9 || b.h < 1.4) return null // 너무 좁은 방은 툴팁으로만
-  // "02 격리(음압)" 처럼 번호 뒤에 설명이 붙는 이름은 번호만 크게 쓰고 나머지는 아랫줄로 내린다
-  const raw = r.name || r.id
-  const m = /^(\S+)\s+(.+)$/.exec(raw)
-  const head = m ? m[1] : raw
-  const tail = m ? m[2] : kindLabel
-  const fit = (text, width, max) => {
-    const size = Math.min(max, Math.max(0.55, (width * 0.88) / Math.max(text.length, 2)))
-    const n = Math.max(2, Math.floor((width * 0.88) / size))
-    return [text.length > n ? text.slice(0, n - 1) + '…' : text, size]
+/** 글자 배치: 폭에 맞춰 크기를 정하고, 너무 작아지면 '/'·공백·'·' 근처에서 두 줄로 나눈다. 그래도 넘치면 자른다. */
+function layoutText(text, width, max, allowWrap) {
+  const one = Math.min(max, (width * 0.86) / Math.max(text.length, 2))
+  const cut = (t, size) => {
+    // +1e-6: 폭에 딱 맞는 글자 수가 부동소수점으로 6.9999… 가 되어 한 글자를 잘라내던 것을 막는다
+    const n = Math.max(2, Math.floor((width * 0.86) / size + 1e-6))
+    return t.length > n ? t.slice(0, n - 1) + '…' : t
   }
-  const [name, size] = fit(head, b.w, 1.3)
-  const twoLines = b.h >= 2.6
-  const [sub, subSize] = fit(tail, b.w, Math.min(0.8, size * 0.7))
-  // 환자 수 배지는 방 아래쪽에 — 가운데는 게이트웨이 표식과 겹친다
-  const badgeY = Math.min(r.cy + 1.5, b.y + b.h - 0.75)
+  if (!allowWrap || one >= 0.72 || text.length < 4) {
+    const size = Math.max(0.55, one)
+    return { lines: [cut(text, size)], size }
+  }
+  // 가운데에서 가장 가까운 구분자를 찾아 두 줄로
+  const mid = text.length / 2
+  let at = -1
+  for (let i = 1; i < text.length - 1; i++) if ('/ ·'.includes(text[i]) && (at < 0 || Math.abs(i - mid) < Math.abs(at - mid))) at = i
+  if (at < 0) at = Math.round(mid)
+  const l1 = text.slice(0, text[at] === '/' ? at + 1 : at).trim(), l2 = text.slice(at).replace(/^[\s·/]+/, '').trim()
+  const two = Math.min(max, (width * 0.86) / Math.max(l1.length, l2.length, 2))
+  if (two < one * 1.2) return { lines: [cut(text, Math.max(0.55, one))], size: Math.max(0.55, one) }
+  const size = Math.max(0.55, two)
+  return { lines: [cut(l1, size), cut(l2, size)], size }
+}
+
+/** 방 이름표 — 겹침을 줄이려고 정보량을 배율과 방 성격에 맞추고, 침대·설비를 피해 가장 빈 자리에 놓는다.
+ *  병실: 번호만 크게 (격리·음압 같은 부가 설명이 있을 때만 아랫줄). 침대가 있으면 인원은 침대 위 점이 대신한다.
+ *  그 밖의 방: 이름(길면 두 줄) + (확대 시) 용도. 침대 없는 방에 환자가 있으면 인원 배지를 아래쪽에. */
+function RoomLabel({ r, count, k, obstacles }) {
+  const b = bbox(r.poly)
+  if (b.w < 1.9 || b.h < 1.4) return null // 너무 좁은 방은 툴팁으로만
+  const isWard = r.kind === 'room' || r.kind === 'isolation'
+  const raw = r.name || r.id
+  // "02 격리(음압)" 처럼 번호로 시작할 때만 번호/설명으로 나눈다 ("간호사실 A" 는 한 덩어리)
+  const m = /^(\d+[A-Za-z]?)\s+(.+)$/.exec(raw)
+  const head = m ? m[1] : raw
+  const tail = m ? m[2] : isWard ? null : (CATEGORY[r.kind] || [null, r.kind])[1]
+  const hasBeds = (r.beds?.length || 0) > 0
+  const badge = count > 0 && !hasBeds && b.h >= 2.2
+  const top = b.y + 0.3, bottom = b.y + b.h - 0.3 - (badge ? 0.95 : 0)
+
+  // 후보 자리: 가운데 폭 전체, 또는 좌·우 절반 폭 × 세로 5단. 겹침이 가장 적고(같으면) 글자가 큰 곳.
+  const cols = [[r.cx, b.w], [b.x + b.w * 0.27, b.w * 0.5], [b.x + b.w * 0.73, b.w * 0.5]]
+  const rows = [0.5, 0.3, 0.7, 0.2, 0.8]
+  let best = null
+  cols.forEach(([cx, width], ci) => {
+    const t = layoutText(head, width, isWard ? 1.4 : 1.2, !isWard)
+    const showSub = tail && b.h >= 2.6 && (k >= LOD.sub || !isWard)
+    const st = showSub ? layoutText(tail, width, Math.min(0.78, t.size * 0.68), false) : null
+    const blockH = t.lines.length * t.size * 1.08 + (st ? st.size + 0.2 : 0)
+    const textW = Math.min(width * 0.86, Math.max(...t.lines.map((l) => l.length * t.size * 0.95), st ? st.lines[0].length * st.size : 0))
+    rows.forEach((fy, ri) => {
+      const cy = Math.min(Math.max(b.y + b.h * fy, top + blockH / 2), bottom - blockH / 2)
+      const box = { x: cx - textW / 2, y: cy - blockH / 2, w: textW, h: blockH }
+      const hit = (obstacles || []).reduce((a, o) => a + overlap(box, o), 0)
+      // 겹침이 최우선, 다음은 글자 크기(클수록 좋음), 마지막으로 가운데에 가까울수록 좋음
+      const score = hit * 100 - t.size * 3 + ci * 0.4 + ri * 0.15
+      if (!best || score < best.score) best = { score, cx, cy, t, st, blockH }
+    })
+  })
+  const { cx, cy, t, st, blockH } = best
+  const y0 = cy - blockH / 2 + t.size * 0.88
+  const badgeY = b.y + b.h - 0.7
   return (
     <g className="rlabel" pointerEvents="none">
-      <text x={r.cx} y={r.cy + (twoLines ? -0.35 : size * 0.35)} className="rl-name" style={{ fontSize: `${size}px` }}>{name}</text>
-      {twoLines && <text x={r.cx} y={r.cy + 0.6} className="rl-kind" style={{ fontSize: `${subSize}px` }}>{sub}</text>}
-      {count > 0 && b.h >= 2.2 && (
+      {t.lines.map((line, i) => (
+        <text key={i} x={cx} y={y0 + i * t.size * 1.08} className="rl-name" style={{ fontSize: `${t.size}px` }}>{line}</text>
+      ))}
+      {st && <text x={cx} y={y0 + (t.lines.length - 1) * t.size * 1.08 + st.size + 0.2} className="rl-kind" style={{ fontSize: `${st.size}px` }}>{st.lines[0]}</text>}
+      {badge && (
         <g className="rl-badge">
           <rect x={r.cx - 0.92} y={badgeY - 0.42} width="1.84" height="0.84" rx="0.42" />
           <text x={r.cx} y={badgeY + 0.22} className="rl-count">{count}명</text>
@@ -208,13 +276,46 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, patientsB
     const k = Math.min(Math.max(v.k * f, 2), 120)
     setView({ k, x: mx - ((mx - v.x) * k) / v.k, y: my - ((my - v.y) * k) / v.k })
   }
+  // 끌어서 이동. 누르는 순간 포인터를 가로채면 방·환자·게이트웨이의 click 이 wrapper 로 가 버리므로,
+  // 4 px 넘게 움직여 "끌기"가 확정된 뒤에만 가로채고, 끌기 직후 따라오는 click 은 한 번 버린다.
   const drag = useRef(null)
-  const onDown = (e) => { drag.current = { x: e.clientX, y: e.clientY, vx: v.x, vy: v.y }; wrap.current.setPointerCapture(e.pointerId) }
-  const onMove = (e) => {
-    if (!drag.current) return
-    setView({ k: v.k, x: drag.current.vx + (e.clientX - drag.current.x), y: drag.current.vy + (e.clientY - drag.current.y) })
+  const suppressClick = useRef(false)
+  const onDown = (e) => {
+    if (e.button !== 0) return
+    drag.current = { x: e.clientX, y: e.clientY, vx: v.x, vy: v.y, moved: false, id: e.pointerId }
   }
-  const onUp = (e) => { drag.current = null; try { wrap.current.releasePointerCapture(e.pointerId) } catch { /* ignore */ } }
+  const onMove = (e) => {
+    const d = drag.current
+    if (!d) return
+    const dx = e.clientX - d.x, dy = e.clientY - d.y
+    if (!d.moved) {
+      if (Math.hypot(dx, dy) < 4) return
+      d.moved = true
+      try { wrap.current.setPointerCapture(d.id) } catch { /* ignore */ }
+    }
+    setView({ k: v.k, x: d.vx + dx, y: d.vy + dy })
+  }
+  const onUp = () => {
+    const d = drag.current
+    drag.current = null
+    if (d?.moved) {
+      suppressClick.current = true
+      try { wrap.current.releasePointerCapture(d.id) } catch { /* ignore */ }
+    }
+  }
+  const onClickCapture = (e) => {
+    if (suppressClick.current) { suppressClick.current = false; e.stopPropagation(); e.preventDefault() }
+  }
+
+  const obstaclesByRoom = useMemo(() => {
+    const m = new Map()
+    for (const r of rooms) {
+      const b = bbox(r.poly)
+      const inside = (f) => f.room === r.id || (f.x > b.x && f.x < b.x + b.w && f.y > b.y && f.y < b.y + b.h)
+      m.set(r.id, [...(r.beds || []).map(bedBox), ...(fixtures || []).filter(inside).map(fixtureBox)])
+    }
+    return m
+  }, [rooms, fixtures])
 
   const grid = useMemo(() => {
     const step = W > 80 ? 10 : 5
@@ -225,7 +326,7 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, patientsB
   }, [W, D])
 
   return (
-    <div className="plan-wrap" ref={wrap} onWheel={onWheel} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+    <div className="plan-wrap" ref={wrap} onWheel={onWheel} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onClickCapture={onClickCapture}>
       <svg className="plan" width={box.w} height={box.h}>
         <defs>
           <pattern id="hatch" width="1.1" height="1.1" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -285,7 +386,7 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, patientsB
           </g>
 
           <g className="labels">
-            {rooms.map((r) => <RoomLabel key={r.id} r={r} count={(patientsByRoom?.get(r.id) || []).length} />)}
+            {rooms.map((r) => <RoomLabel key={r.id} r={r} k={v.k} obstacles={obstaclesByRoom.get(r.id)} count={(patientsByRoom?.get(r.id) || []).length} />)}
           </g>
 
           {/* 실시간 레이어(환자·게이트웨이) */}
