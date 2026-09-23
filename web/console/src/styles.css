@@ -674,3 +674,18 @@ canvas.accel-plot { width: 100%; display: block; border-radius: 6px; }
 [data-theme="dark"] .door-swing, :root:not([data-theme="light"]) .door-swing { opacity: .55; }
 [data-theme="dark"] .rm:hover .rm-fill, :root:not([data-theme="light"]) .rm:hover .rm-fill { filter: brightness(1.25); }
 [data-theme="dark"] .cov-area, :root:not([data-theme="light"]) .cov-area { fill-opacity: .22; }
+
+/* 위험·높음 알람 환자: 퍼지는 동그라미 대신 — 깜박이는 원판(멀리서도 보임), 알람색 아이콘, ! 배지, 알람색 이름표 */
+.pat.urgent { --al: var(--sev-high); }
+.pat.urgent.sev-critical { --al: var(--sev-critical); }
+.pat-beacon { fill: var(--al); fill-opacity: .55; stroke: var(--al); stroke-width: .16; animation: pat-beacon 1s steps(1, end) infinite; }
+.pat.sev-critical .pat-beacon { animation-duration: .6s; }
+@keyframes pat-beacon { 50% { fill-opacity: .12; stroke-opacity: .35; } }
+.pat.urgent .pat-body { fill: var(--al); stroke: #fff; stroke-width: .09; }
+.pat-badge path { fill: #ffd400; stroke: #3a2a00; stroke-width: .06; }
+.pat-badge text { font-size: .66px; font-weight: 900; fill: #1a1200; text-anchor: middle; pointer-events: none; }
+.plbl-bg { fill: var(--al); pointer-events: none; }
+.pat.urgent .plbl { fill: #fff; font-weight: 700; stroke: none; }
+/* 확인(ack)한 알람은 깜박이지 않고 옅게 — 아직 아무도 보지 않은 환자가 먼저 눈에 띄도록 */
+.pat.urgent.acked .pat-beacon { animation: none; fill-opacity: .18; }
+@media (prefers-reduced-motion: reduce) { .pat-beacon { animation: none; } }
