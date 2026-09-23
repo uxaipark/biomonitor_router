@@ -311,7 +311,7 @@ function ScaleBar({ k, height }) {
   )
 }
 
-export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, patientsByRoom, overlay, onPickRoom, picked, focus, onZoomChange }) {
+export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, patientsByRoom, overlay, onPickRoom, picked, focus, onZoomChange, showFixtures = true }) {
   const wrap = useRef(null)
   const [box, setBox] = useState({ w: 900, h: 560 })
   const [view, setView] = useState(null) // {k, x, y} — k: px per meter
@@ -466,7 +466,7 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, 
             {rooms.map((r) => r.beds?.map((b) => (
               <Bed key={b.id} b={b} occupied={!!overlay?.bedOccupied?.(r, b)} />
             )))}
-            {fixtures?.map((f, i) => <Fixture key={'f' + i} f={f} />)}
+            {showFixtures && fixtures?.map((f, i) => <Fixture key={'f' + i} f={f} />)}
           </g>
 
           <g className="labels">

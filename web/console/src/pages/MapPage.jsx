@@ -41,14 +41,19 @@ export default function MapPage({ alarms, hash }) {
     try { return JSON.parse(localStorage.getItem('map.sel') || 'null') } catch { return null }
   })
   const [pick, setPick] = useState(null) // { room } | { gw }
-  const [covMode, setCovMode] = useState(() => { try { return localStorage.getItem('map.cov') === '1' } catch { return false } })
+  // 표시 모드 — 에뮬레이터 평면도의 '표시' 메뉴와 같다
+  //   patients: 환자 + 게이트웨이 + 설비 / gw: 게이트웨이 상태(연결 부하 파이·번호) / coverage: 게이트웨이 음영지역 / plan: 도면만
+  const [mode, setMode] = useState(() => {
+    try { return localStorage.getItem('map.mode') || (localStorage.getItem('map.cov') === '1' ? 'coverage' : 'patients') } catch { return 'patients' }
+  })
+  const covMode = mode === 'coverage'
   const [hoverGw, setHoverGw] = useState(null) // 마우스를 올린 게이트웨이 번호 → 반투명 커버리지
   // 검색·하이라이트 (에뮬레이터 평면도와 같은 동작): 고르면 그 층으로 가서 빨간 링 + 확대, 검색어를 지우면 원래대로
   const [q, setQ] = useState('')
   const [qOpen, setQOpen] = useState(false)
   const [hl, setHl] = useState(null) // { type: 'patient', id } | { type: 'gw', no }
   const [focus, setFocus] = useState(undefined) // FloorPlan 확대 요청 { x, y, seq } / null = 원래 배율
-  useEffect(() => { try { localStorage.setItem('map.cov', covMode ? '1' : '0') } catch { /* ignore */ } }, [covMode])
+  useEffect(() => { try { localStorage.setItem('map.mode', mode) } catch { /* ignore */ } }, [mode])
   useEffect(() => { api.emu.layout().then(setLayout).catch((e) => setErr(String(e))) }, [])
   useEffect(() => { if (sel) try { localStorage.setItem('map.sel', JSON.stringify(sel)) } catch { /* ignore */ } }, [sel])
 
@@ -224,6 +229,7 @@ export default function MapPage({ alarms, hash }) {
         <span className="map-search">
           <input value={q} placeholder="환자·게이트웨이 검색" title="환자: 이름(자모 일부도 됨)·MRN·패치 번호 / 게이트웨이: #번호·ID·방" onChange={(e) => { clearSearch(e.target.value); setQOpen(true) }}
             onFocus={() => setQOpen(true)} onBlur={() => setTimeout(() => setQOpen(false), 150)} onKeyDown={(e) => { if (e.key === 'Escape') { clearSearch(''); e.currentTarget.blur() } }} />
+          {q && <button type="button" className="ms-clear" title="검색어 지우기 (하이라이트·확대도 원래대로)" aria-label="검색어 지우기" onMouseDown={(e) => e.preventDefault()} onClick={() => { clearSearch(''); setQOpen(false) }}>×</button>}
           {qOpen && q.trim() && (
             <div className="ms-list">
               {results.pats.map((r) => (
@@ -240,10 +246,18 @@ export default function MapPage({ alarms, hash }) {
             </div>
           )}
         </span>
-        <button className={covMode ? 'primary' : ''} onClick={() => setCovMode(!covMode)} title="모든 게이트웨이의 커버리지를 합쳐 음영지역(빗금)을 표시합니다. 게이트웨이에 마우스를 올리면 그 게이트웨이의 커버리지가 보입니다.">커버리지</button>
+        <span className="map-mode"><small>표시</small>
+          <Dropdown value={mode} onChange={setMode} searchable={false} width={220} options={[
+            { value: 'patients', label: '환자 + 게이트웨이 + 설비' },
+            { value: 'gw', label: '게이트웨이 상태' },
+            { value: 'coverage', label: '게이트웨이 음영지역' },
+            { value: 'plan', label: '도면만' },
+          ]} />
+        </span>
         <span className="legend">
-          환자 신호 <i className="dot q-good" />양호 <i className="dot q-fair" />보통 <i className="dot q-weak" />약함 <i className="dot q-poor" />매우 약함 <i className="dot q-lost" />끊김
-          <i className="dot gw" /> 게이트웨이
+          {mode === 'patients' && <>환자 신호 <i className="dot q-good" />양호 <i className="dot q-fair" />보통 <i className="dot q-weak" />약함 <i className="dot q-poor" />매우 약함 <i className="dot q-lost" />끊김 <i className="dot gw" /> 게이트웨이</>}
+          {(mode === 'gw' || mode === 'coverage') && <><i className="dot gw" />정상 <i className="dot gwwarn" />저하 <i className="dot gwbad" />장애 <i className="dot gwoff" />미접속 · 바깥 호 = 연결 패치/최대{mode === 'coverage' ? ' · 빗금 = 음영지역' : ''} · 마우스를 올리면 커버리지</>}
+          {mode === 'plan' && <>방·벽·문·침대만 표시</>}
         </span>
       </div>
       <div className="plan-legend">
@@ -256,18 +270,19 @@ export default function MapPage({ alarms, hash }) {
           corridors={cur.corridors}
           fixtures={cur.fixtures}
           markers={floorGws}
+          showFixtures={mode !== 'plan'}
           focus={focus}
           patientsByRoom={byRoom}
           picked={pick?.room}
           onPickRoom={(id) => setPick({ room: id })}
           overlay={{
             // 방 색을 가장 위중한 알람으로 물들인다 (환자 점과 별개로 멀리서도 보이게)
-            roomSeverity: (r, ps) => ps.reduce((w, p) => {
+            roomSeverity: (r, ps) => mode !== 'patients' ? null : ps.reduce((w, p) => {
               const a = aidx.get(p.channel_id)
               return a && (!w || SEV_RANK[a.severity] > SEV_RANK[w]) ? a.severity : w
             }, null),
             // EMR 이 준 침대 id(p.patient.bed)가 그 방의 침대면 그 자리, 아니면 남은 빈 침대 순서대로
-            bedOccupied: (r, b) => !!placeInRoom(r).beds.get(b.id),
+            bedOccupied: (r, b) => mode === 'patients' && !!placeInRoom(r).beds.get(b.id),
             render: (k) => (
               <g className="live">
                 {/* 커버리지: 음영지역 모드는 층 전체를 회색 빗금으로 덮고 모든 게이트웨이 영역을 도려낸다 — 남은 곳이 음영지역 */}
@@ -300,7 +315,7 @@ export default function MapPage({ alarms, hash }) {
                     </g>
                   )
                 })()}
-                {cur.rooms.map((r) => (byRoom.get(r.id) || []).map((p, i) => {
+                {mode === 'patients' && cur.rooms.map((r) => (byRoom.get(r.id) || []).map((p, i) => {
                   const L = nameLayout.get(p.channel_id)
                   if (!L) return null
                   const { px, py, tx, toLeft, dx, fs, name } = L
@@ -320,12 +335,14 @@ export default function MapPage({ alarms, hash }) {
                     </g>
                   )
                 }))}
-                {floorGws.map((g) => {
+                {mode !== 'plan' && floorGws.map((g) => {
                   const live = gwById.get(String(g.gw_no))
                   const al = gidx.get(String(g.gw_no))
                   const cls = al ? 'gwbad' : !live || !live.connected ? 'gwoff' : live.silent || live.status?.status === 2 ? 'gwbad' : live.status?.status === 1 ? 'gwwarn' : 'gw'
                   // 정상 게이트웨이는 확대했을 때만 — 멀리서는 이상 있는 것만 보인다
-                  if (cls === 'gw' && k < LOD.gateway && !covMode && pick?.gw !== String(g.gw_no)) return null
+                  if (cls === 'gw' && k < LOD.gateway && mode === 'patients' && pick?.gw !== String(g.gw_no)) return null
+                  const detail = mode === 'gw' || mode === 'coverage' // 상태 모드: 연결 부하 파이 + 번호
+                  const load = detail && live && g.capacity ? Math.min(0.9999, (live.patches || 0) / g.capacity) : 0
                   // 에뮬레이터가 준 천장 설치 좌표(환자 상체 무게중심) 그대로. 복도 게이트웨이가 복도 모니터와
                   // 정확히 겹칠 때만 모니터 옆으로 살짝 비켜 그린다 (좌표는 그대로, 그림만)
                   let gx = g.x, gy = g.y
@@ -338,11 +355,16 @@ export default function MapPage({ alarms, hash }) {
                   return (
                     <g key={g.gw_no} className={'gwm ' + cls + (pick?.gw === String(g.gw_no) ? ' picked' : '')} onClick={(e) => { e.stopPropagation(); setPick({ gw: String(g.gw_no) }) }}
                       onMouseEnter={() => setHoverGw(String(g.gw_no))} onMouseLeave={() => setHoverGw(null)}>
+                      {/* 게이트웨이 아이콘은 모든 모드에서 같은 것(파란 원 + 와이파이). 상태 모드에서는 바깥 호로 연결 부하, 아래에 번호 */}
+                      {detail && <circle cx={gx} cy={gy} r="0.58" className="gw-load-track" />}
+                      {detail && load > 0 && (() => { const R = 0.58, a = load * 2 * Math.PI, ex = gx + R * Math.sin(a), ey = gy - R * Math.cos(a)
+                        return <path d={`M${gx},${(gy - R).toFixed(3)} A${R},${R} 0 ${a > Math.PI ? 1 : 0} 1 ${ex.toFixed(3)},${ey.toFixed(3)}`} className="gw-load" /> })()}
                       <circle cx={gx} cy={gy} r="0.4" className="gw-body" />
                       <path d={`M ${gx - 0.19} ${gy + 0.03} a 0.27 0.27 0 0 1 0.38 0`} className="gw-wave" />
                       <path d={`M ${gx - 0.095} ${gy + 0.13} a 0.135 0.135 0 0 1 0.19 0`} className="gw-wave" />
                       <circle cx={gx} cy={gy + 0.22} r="0.05" className="gw-dot" />
-                      <title>{g.id} · {g.type} · {g.room}{live ? ` · ${live.connected ? '연결' : '끊김'} · 패치 ${live.patches} · ${GW_STATUS[live.status?.status] || ''}` : ' · 미접속'}{al ? ` · ${al.message}` : ''}</title>
+                      {detail && <text x={gx} y={gy + 1.05} className="gw-no">#{g.gw_no}</text>}
+                      <title>{g.id} #{g.gw_no} · {g.type} · {g.room}{live ? ` · ${live.connected ? '연결' : '끊김'} · 패치 ${live.patches}/${g.capacity || '—'} · ${GW_STATUS[live.status?.status] || ''}` : ' · 미접속'}{al ? ` · ${al.message}` : ''}</title>
                     </g>
                   )
                 })}
