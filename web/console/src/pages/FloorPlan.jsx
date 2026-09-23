@@ -245,10 +245,75 @@ function wrapFixed(text, width, size) {
   return { lines: [text.slice(0, at), text.slice(at + 1)], size }
 }
 
+/** 글자 폭(m) 근사 — 에뮬레이터 textWidth 와 같은 표: 한글 0.98, 대문자·숫자 0.66, 공백 0.32, 그 밖 0.56 (× 크기) */
+const textW = (str, fs) => {
+  let w = 0
+  for (const ch of str) w += (/[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\u4E00-\u9FFF]/.test(ch) ? 0.98 : /[A-Z0-9#]/.test(ch) ? 0.66 : ch === ' ' ? 0.32 : 0.56) * fs
+  return w
+}
+
+/** 병실 이름표 문구: id "103A01" → ["301호", "3A병동" (+ " 격리(음압)")] */
+export function wardLabelText(r) {
+  const wid = /^\d(\d\d)([A-Z])(\d\d)$/.exec(r.id)
+  if (!wid || !(r.kind === 'room' || r.kind === 'isolation')) return null
+  const fl = parseInt(wid[1], 10)
+  const extra = /^\d+[A-Za-z]?\s+(.+)$/.exec(r.name || '')
+  return { head: `${fl}${wid[3]}호`, tail: `${fl}${wid[2]}병동` + (extra ? ` ${extra[1]}` : '') }
+}
+
+/** 문 여닫이 범위: 문 구간 × 방 안쪽으로 문폭+0.15 */
+function doorSwingBox(r) {
+  const seg = doorSegment(r)
+  if (!seg) return null
+  const [[x1, y1], [x2, y2]] = seg, w = Math.hypot(x2 - x1, y2 - y1)
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2
+  let nx = -(y2 - y1) / w, ny = (x2 - x1) / w
+  if ((r.cx - mx) * nx + (r.cy - my) * ny < 0) { nx = -nx; ny = -ny }
+  const xs = [x1, x2, x1 + nx * (w + 0.15), x2 + nx * (w + 0.15)], ys = [y1, y2, y1 + ny * (w + 0.15), y2 + ny * (w + 0.15)]
+  return { box: { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }, door: { x: mx, y: my } }
+}
+
+/** 한 병실에서 주어진 글자 크기로 호실 표기를 놓을 자리: 문 여닫이·침대·설비·게이트웨이와 겹치지 않는 곳 중 문에 가장 가까운 곳.
+ *  0.2 m 격자로 훑는다. 없으면 null. */
+function placeWardLabel(r, text, size, obstacles, maxDist = Infinity) {
+  const b = bbox(r.poly)
+  const sub = size * 0.58
+  let subLines = [text.tail]
+  if (text.tail.includes(' ') && textW(text.tail, sub) > b.w - 0.4) { const i = text.tail.indexOf(' '); subLines = [text.tail.slice(0, i), text.tail.slice(i + 1)] }
+  const w = Math.max(textW(text.head, size), ...subLines.map((l) => textW(l, sub))) + 0.1
+  const h = size * 1.02 + subLines.length * sub * 1.12 + 0.1
+  if (w > b.w - 0.3 || h > b.h - 0.3) return null
+  const sw = doorSwingBox(r)
+  const obs = sw ? [...obstacles, sw.box] : obstacles
+  const target = sw ? sw.door : { x: r.cx, y: r.cy }
+  let best = null
+  for (let cy = b.y + 0.15 + h / 2; cy <= b.y + b.h - 0.15 - h / 2 + 1e-6; cy += 0.2) {
+    for (let cx = b.x + 0.15 + w / 2; cx <= b.x + b.w - 0.15 - w / 2 + 1e-6; cx += 0.2) {
+      const box = { x: cx - w / 2, y: cy - h / 2, w, h }
+      if (obs.some((o) => overlap(box, o) > 1e-4)) continue
+      const d = Math.hypot(cx - target.x, cy - target.y)
+      if (d > maxDist) continue
+      if (!best || d < best.d) best = { d, cx, cy }
+    }
+  }
+  return best && { cx: best.cx, top: best.cy - h / 2, size, sub, subLines, head: text.head }
+}
+
 /** 방 이름표 — 겹침을 줄이려고 정보량을 배율과 방 성격에 맞추고, 침대·설비를 피해 가장 빈 자리에 놓는다.
  *  병실: 번호만 크게 (격리·음압 같은 부가 설명이 있을 때만 아랫줄). 침대가 있으면 인원은 침대 위 점이 대신한다.
  *  그 밖의 방: 이름(길면 두 줄) + (확대 시) 용도. 침대 없는 방에 환자가 있으면 인원 배지를 아래쪽에. */
-function RoomLabel({ r, count, k, obstacles, wardSize }) {
+function RoomLabel({ r, count, k, obstacles, wardSize, ward }) {
+  if (ward) {
+    // 병실: 층 공통 크기, 문 가까운 빈자리 (placeWardLabel)
+    return (
+      <g className="rlabel" pointerEvents="none">
+        <text x={ward.cx} y={ward.top + ward.size * 0.9} className="rl-name" style={{ fontSize: `${ward.size}px` }}>{ward.head}</text>
+        {ward.subLines.map((l, i) => (
+          <text key={i} x={ward.cx} y={ward.top + ward.size * 1.02 + ward.sub * (0.95 + i * 1.12)} className="rl-kind" style={{ fontSize: `${ward.sub}px` }}>{l}</text>
+        ))}
+      </g>
+    )
+  }
   const b = bbox(r.poly)
   if (b.w < 1.9 || b.h < 1.4) return null // 너무 좁은 방은 툴팁으로만
   const isWard = r.kind === 'room' || r.kind === 'isolation'
@@ -417,16 +482,6 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, 
     if (suppressClick.current) { suppressClick.current = false; e.stopPropagation(); e.preventDefault() }
   }
 
-  const wardSize = useMemo(() => {
-    let size = 1.1
-    for (const r of rooms) {
-      if (!(r.kind === 'room' || r.kind === 'isolation') || !/^\d\d\d[A-Z]\d\d$/.test(r.id)) continue
-      const fl = parseInt(r.id.slice(1, 3), 10), label = `${fl}${r.id.slice(4)}호`
-      size = Math.min(size, (bbox(r.poly).w * 0.86) / (label.length * 0.95))
-    }
-    return Math.max(0.55, size)
-  }, [rooms])
-
   const obstaclesByRoom = useMemo(() => {
     const m = new Map()
     for (const r of rooms) {
@@ -438,6 +493,30 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, 
     }
     return m
   }, [rooms, fixtures, markers])
+
+  // 병실 호실 표기: 층 전체가 같은 글자 크기. 모든 병실에서 겹치지 않는 문 근처 자리가 나오는 가장 큰 크기를 고른다.
+  const wardLabels = useMemo(() => {
+    const wards = rooms.map((r) => [r, wardLabelText(r)]).filter(([, t]) => t)
+    if (!wards.length) return new Map()
+    // 문 가까이가 우선: 표기 중심이 문 중점에서 2.4 m 안에 드는 자리만 인정하고, 모든 병실이 그런 자리를 찾는 가장 큰 크기를
+    // 고른다. 그 거리로 안 되면 거리를 조금씩 넓힌다.
+    for (const maxDist of [2.4, 3.0, 3.8, Infinity]) {
+      for (let size = 1.1; size >= 0.55; size = +(size - 0.05).toFixed(2)) {
+        const m = new Map()
+        let okAll = true
+        for (const [r, t] of wards) {
+          const pl = placeWardLabel(r, t, size, obstaclesByRoom.get(r.id) || [], maxDist)
+          if (!pl) { okAll = false; break }
+          m.set(r.id, pl)
+        }
+        if (okAll) return m
+      }
+    }
+    // 가장 작은 크기로도 안 되는 방은 크기 0.45 로 겹침을 감수하고 문 옆에
+    const m = new Map()
+    for (const [r, t] of wards) m.set(r.id, placeWardLabel(r, t, 0.45, []) )
+    return m
+  }, [rooms, obstaclesByRoom])
 
   const grid = useMemo(() => {
     const step = W > 80 ? 10 : 5
@@ -512,7 +591,7 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, 
           </g>
 
           <g className="labels">
-            {rooms.map((r) => <RoomLabel key={r.id} r={r} k={v.k} wardSize={wardSize} obstacles={obstaclesByRoom.get(r.id)} count={(patientsByRoom?.get(r.id) || []).length} />)}
+            {rooms.map((r) => <RoomLabel key={r.id} r={r} k={v.k} ward={wardLabels.get(r.id)} obstacles={obstaclesByRoom.get(r.id)} count={(patientsByRoom?.get(r.id) || []).length} />)}
           </g>
 
           {/* 실시간 레이어(환자·게이트웨이) */}
