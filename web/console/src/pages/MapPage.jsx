@@ -52,7 +52,25 @@ export default function MapPage({ alarms, hash }) {
     for (const f of floors) if (f.building_idx === b.idx) for (const r of f.rooms || []) n += (byRoom.get(r.id) || []).length
     return { value: b.idx, label: b.name, count: n }
   }), [buildings, floors, byRoom])
-  const floorGws = useMemo(() => (layout?.gateways || []).filter((g) => cur && g.building_idx === cur.building_idx && g.floor === cur.floor), [layout, cur])
+  const floorGws = useMemo(() => (layout?.gateways || []).filter((g) => cur && g.mount !== 'mobile' && g.building_idx === cur.building_idx && g.floor === cur.floor), [layout, cur])
+  // 방별 환자 ↔ 침대 배정: EMR 의 침대 id 가 그 방 침대면 그대로, 없으면 남은 빈 침대를 순서대로
+  const placements = useMemo(() => {
+    const m = new Map()
+    for (const r of cur?.rooms || []) {
+      const beds = new Map(), byPatient = new Map()
+      const ps = byRoom.get(r.id) || []
+      const ids = new Set((r.beds || []).map((b) => b.id))
+      for (const p of ps) {
+        const want = p.patient?.bed
+        if (want && ids.has(want) && !beds.has(want)) { beds.set(want, p); byPatient.set(p.channel_id, r.beds.find((b) => b.id === want)) }
+      }
+      const free = (r.beds || []).filter((b) => !beds.has(b.id))
+      for (const p of ps) if (!byPatient.has(p.channel_id) && free.length) { const b = free.shift(); beds.set(b.id, p); byPatient.set(p.channel_id, b) }
+      m.set(r.id, { beds, byPatient })
+    }
+    return m
+  }, [cur, byRoom])
+  const placeInRoom = (r) => placements.get(r.id) || { beds: new Map(), byPatient: new Map() }
 
   if (err) return <div className="page"><p className="err">도면을 불러오지 못했습니다: {err} (에뮬레이터 연결 확인)</p></div>
   if (!layout || !cur) return <div className="page"><p className="muted">도면 불러오는 중…</p></div>
@@ -87,6 +105,7 @@ export default function MapPage({ alarms, hash }) {
           rooms={cur.rooms}
           corridors={cur.corridors}
           fixtures={cur.fixtures}
+          markers={floorGws}
           patientsByRoom={byRoom}
           picked={pick?.room}
           onPickRoom={(id) => setPick({ room: id })}
@@ -96,10 +115,12 @@ export default function MapPage({ alarms, hash }) {
               const a = aidx.get(p.channel_id)
               return a && (!w || SEV_RANK[a.severity] > SEV_RANK[w]) ? a.severity : w
             }, null),
+            // EMR 이 준 침대 id(p.patient.bed)가 그 방의 침대면 그 자리, 아니면 남은 빈 침대 순서대로
+            bedOccupied: (r, b) => !!placeInRoom(r).beds.get(b.id),
             render: (k) => (
               <g className="live">
                 {cur.rooms.map((r) => (byRoom.get(r.id) || []).map((p, i) => {
-                  const bed = r.beds?.[i]
+                  const bed = placeInRoom(r).byPatient.get(p.channel_id)
                   // 침대가 있으면 점은 베개 위, 이름은 이불 위 — 서로 겹치지 않는다. 침대보다 환자가 많으면 방 아래쪽에 줄 세운다.
                   const [x, y] = bed ? bedPoint(bed, BED_HEAD) : [r.cx + ((i % 4) - 1.5) * 1.1, r.cy + 2.0 + Math.floor(i / 4) * 1.1]
                   const [nx, ny] = bed ? bedPoint(bed, BED_BODY) : [x, y + 0.95]
@@ -121,14 +142,10 @@ export default function MapPage({ alarms, hash }) {
                   const cls = al ? 'gwbad' : !live || !live.connected ? 'gwoff' : live.silent || live.status?.status === 2 ? 'gwbad' : live.status?.status === 1 ? 'gwwarn' : 'gw'
                   // 정상 게이트웨이는 확대했을 때만 — 멀리서는 이상 있는 것만 보인다
                   if (cls === 'gw' && k < LOD.gateway && pick?.gw !== String(g.gw_no)) return null
-                  // 방 안의 게이트웨이는 방 오른쪽 위 모서리에 둔다 (가운데는 방 번호 자리)
-                  const room = cur.rooms.find((r) => r.id === g.room)
+                  // 에뮬레이터가 준 천장 설치 좌표(환자 상체 무게중심) 그대로. 복도 게이트웨이가 복도 모니터와
+                  // 정확히 겹칠 때만 모니터 옆으로 살짝 비켜 그린다 (좌표는 그대로, 그림만)
                   let gx = g.x, gy = g.y
-                  if (room) {
-                    const xs = room.poly.map((q) => q[0]), ys = room.poly.map((q) => q[1])
-                    gx = Math.max(...xs) - 0.62; gy = Math.min(...ys) + 0.62
-                  } else {
-                    // 복도 게이트웨이는 같은 자리의 복도 모니터와 겹치기 쉽다 — 겹치면 모니터 옆으로 비켜 놓는다
+                  if (!cur.rooms.some((r) => r.id === g.room)) {
                     for (const f of cur.fixtures || []) {
                       const fb = fixtureBox(f)
                       if (gx > fb.x - 0.45 && gx < fb.x + fb.w + 0.45 && gy > fb.y - 0.45 && gy < fb.y + fb.h + 0.45) { gx = fb.x + fb.w + 0.55; gy = f.y }

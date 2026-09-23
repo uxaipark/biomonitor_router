@@ -46,41 +46,58 @@ const bbox = (poly) => {
   return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y }
 }
 
-/** 문: 벽을 지우는 두꺼운 선 + 열림 방향 호. `door` 는 방 기준 방위(N/S/E/W). */
-function Door({ r }) {
-  const b = bbox(r.poly)
-  const w = Math.min(1.1, Math.max(0.8, Math.min(b.w, b.h) * 0.22)) // 문폭 0.8~1.1 m
-  let p1, p2, sweep, hinge, dir
+/** 문: 에뮬레이터의 `door_seg`(복도측 벽 위 문 구간 두 끝점)를 그대로 쓴다. 벽을 끊고, 문짝은 방 안쪽으로 연다.
+ *  `door_seg` 가 없는 옛 데이터는 `door`(N/S/E/W) 벽 가운데 1.2 m 로 만든다. */
+function doorSegment(r) {
+  if (r.door_seg?.length === 2) return r.door_seg
+  const b = bbox(r.poly), c = 0.6
   switch (r.door) {
-    case 'N': hinge = [b.x + b.w / 2 - w / 2, b.y]; p1 = hinge; p2 = [hinge[0] + w, b.y]; dir = [0, 1]; sweep = 1; break
-    case 'S': hinge = [b.x + b.w / 2 + w / 2, b.y + b.h]; p1 = [hinge[0] - w, b.y + b.h]; p2 = hinge; dir = [0, -1]; sweep = 1; break
-    case 'W': hinge = [b.x, b.y + b.h / 2 + w / 2]; p1 = [b.x, hinge[1] - w]; p2 = hinge; dir = [1, 0]; sweep = 1; break
-    case 'E': hinge = [b.x + b.w, b.y + b.h / 2 - w / 2]; p1 = hinge; p2 = [b.x + b.w, hinge[1] + w]; dir = [-1, 0]; sweep = 1; break
+    case 'N': return [[b.x + b.w / 2 - c, b.y], [b.x + b.w / 2 + c, b.y]]
+    case 'S': return [[b.x + b.w / 2 - c, b.y + b.h], [b.x + b.w / 2 + c, b.y + b.h]]
+    case 'W': return [[b.x, b.y + b.h / 2 - c], [b.x, b.y + b.h / 2 + c]]
+    case 'E': return [[b.x + b.w, b.y + b.h / 2 - c], [b.x + b.w, b.y + b.h / 2 + c]]
     default: return null
   }
-  const leafEnd = [hinge[0] + dir[0] * w, hinge[1] + dir[1] * w]
-  const other = p1[0] === hinge[0] && p1[1] === hinge[1] ? p2 : p1
+}
+function Door({ r }) {
+  const seg = doorSegment(r)
+  if (!seg) return null
+  const [[x1, y1], [x2, y2]] = seg
+  const w = Math.hypot(x2 - x1, y2 - y1)
+  // 문 구간에 수직인 두 방향 중 방 가운데를 향하는 쪽이 "안쪽"
+  let nx = -(y2 - y1) / w, ny = (x2 - x1) / w
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2
+  if ((r.cx - mx) * nx + (r.cy - my) * ny < 0) { nx = -nx; ny = -ny }
+  const hinge = [x1, y1], other = [x2, y2]
+  const leaf = [hinge[0] + nx * w, hinge[1] + ny * w]
+  // 호의 방향: other → leaf 가 hinge 를 중심으로 도는 방향 (외적 부호)
+  const cross = (other[0] - hinge[0]) * (leaf[1] - hinge[1]) - (other[1] - hinge[1]) * (leaf[0] - hinge[0])
   return (
     <g className="door">
-      <line x1={p1[0]} y1={p1[1]} x2={p2[0]} y2={p2[1]} className="door-gap" />
-      <path d={`M ${other[0]} ${other[1]} A ${w} ${w} 0 0 ${sweep} ${leafEnd[0]} ${leafEnd[1]}`} className="door-swing" />
-      <line x1={hinge[0]} y1={hinge[1]} x2={leafEnd[0]} y2={leafEnd[1]} className="door-leaf" />
+      <line x1={x1} y1={y1} x2={x2} y2={y2} className="door-gap" />
+      <path d={`M ${other[0]} ${other[1]} A ${w} ${w} 0 0 ${cross > 0 ? 1 : 0} ${leaf[0]} ${leaf[1]}`} className="door-swing" />
+      <line x1={hinge[0]} y1={hinge[1]} x2={leaf[0]} y2={leaf[1]} className="door-leaf" />
     </g>
   )
 }
 
-/** 침대 로컬 좌표(긴 축 = x, 베개는 -x 끝) → 도면 좌표. 환자 점은 베개, 이름은 이불 위에 놓는다. */
+/** 침대 크기 (에뮬레이터 emulator/hospital/layout.py 의 BED_HL·BED_HW: 2.4 x 1.08 m). */
+export const BED_L = 2.4, BED_W = 1.08
+/** 침대 `angle` 은 **머리가 향하는 방위**다: 0 = 북(위), 90 = 동, 180 = 남, 270 = 서 (에뮬레이터가 머리를 벽에 붙여 놓는다).
+ *  그리기는 긴 축을 로컬 x, 베개를 -x 끝에 두고 (angle + 90)° 돌린다 → 로컬 -x 가 머리 방위를 가리킨다. */
+const bedRot = (b) => (b.angle || 0) + 90
+/** 침대 로컬 좌표(긴 축 = x, 머리는 -x) → 도면 좌표. 환자 점은 베개, 이름은 이불 위에 놓는다. */
 export function bedPoint(b, lx, ly = 0) {
-  const a = ((b.angle || 0) * Math.PI) / 180
+  const a = (bedRot(b) * Math.PI) / 180
   return [b.x + lx * Math.cos(a) - ly * Math.sin(a), b.y + lx * Math.sin(a) + ly * Math.cos(a)]
 }
-export const BED_HEAD = -0.66 // 베개 중심
-export const BED_BODY = 0.32 // 이불 중심
+export const BED_HEAD = -(BED_L / 2 - 0.4) // 베개 중심
+export const BED_BODY = 0.35 // 이불 중심
 
-/** 침대·설비가 차지하는 사각형(축 정렬 근사). 대부분 0/90/180/270° 라 근사로 충분하다. */
+/** 침대·설비가 차지하는 사각형(축 정렬 근사). 각도가 대부분 0/90/180/270° 라 근사로 충분하다. */
 const quarter = (a) => Math.abs(Math.round((a || 0) / 90)) % 2 === 1
 export function bedBox(b) {
-  const [w, h] = quarter(b.angle) ? [0.95, 2.0] : [2.0, 0.95]
+  const [w, h] = quarter(b.angle) ? [BED_L, BED_W] : [BED_W, BED_L] // 머리가 동·서면 가로로 눕는다
   return { x: b.x - w / 2, y: b.y - h / 2, w, h }
 }
 export function fixtureBox(f) {
@@ -93,14 +110,15 @@ const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(
 /** 확대 배율(px/m)에 따라 보이는 정보를 늘린다 — 멀리서는 방 번호만, 가까이서 부가 정보. */
 export const LOD = { sub: 14, gateway: 22, names: 34 }
 
-/** 침대 픽토그램: 매트리스 + 베개 + 이불선. 긴 축이 x, `angle` 만큼 회전(데이터 관례). */
+/** 침대 픽토그램: 매트리스 + 베개(머리 쪽) + 이불선. */
 function Bed({ b, occupied }) {
-  const L = 2.0, W = 0.95
+  const L = BED_L, W = BED_W
   return (
-    <g transform={`rotate(${b.angle || 0} ${b.x} ${b.y})`} className={'bed' + (occupied ? ' occ' : '')}>
-      <rect x={b.x - L / 2} y={b.y - W / 2} width={L} height={W} rx={0.12} className="bed-frame" />
-      <rect x={b.x - L / 2 + 0.08} y={b.y - W / 2 + 0.08} width={0.52} height={W - 0.16} rx={0.08} className="bed-pillow" />
-      <line x1={b.x + 0.1} y1={b.y - W / 2 + 0.06} x2={b.x + 0.1} y2={b.y + W / 2 - 0.06} className="bed-fold" />
+    <g transform={`rotate(${bedRot(b)} ${b.x} ${b.y})`} className={'bed' + (occupied ? ' occ' : '')}>
+      <rect x={b.x - L / 2} y={b.y - W / 2} width={L} height={W} rx={0.14} className="bed-frame" />
+      <rect x={b.x - L / 2 + 0.1} y={b.y - W / 2 + 0.1} width={0.6} height={W - 0.2} rx={0.1} className="bed-pillow" />
+      <line x1={b.x - 0.05} y1={b.y - W / 2 + 0.07} x2={b.x - 0.05} y2={b.y + W / 2 - 0.07} className="bed-fold" />
+      <title>{b.id}</title>
     </g>
   )
 }
@@ -194,23 +212,27 @@ function RoomLabel({ r, count, k, obstacles }) {
   const badge = count > 0 && !hasBeds && b.h >= 2.2
   const top = b.y + 0.3, bottom = b.y + b.h - 0.3 - (badge ? 0.95 : 0)
 
-  // 후보 자리: 가운데 폭 전체, 또는 좌·우 절반 폭 × 세로 5단. 겹침이 가장 적고(같으면) 글자가 큰 곳.
+  // 후보 자리: (가운데 폭 전체 | 좌·우 절반 폭) × 세로 5단 × 글자 크기 3단계.
+  // 점수: 겹침이 가장 나쁘고, 다음이 이름 잘림, 그다음 작은 글자, 마지막으로 가운데에서 먼 자리.
   const cols = [[r.cx, b.w], [b.x + b.w * 0.27, b.w * 0.5], [b.x + b.w * 0.73, b.w * 0.5]]
-  const rows = [0.5, 0.3, 0.7, 0.2, 0.8]
+  const rows = [0.5, 0.3, 0.7, 0.18, 0.82]
+  const maxSize = isWard ? 1.4 : 1.2
   let best = null
   cols.forEach(([cx, width], ci) => {
-    const t = layoutText(head, width, isWard ? 1.4 : 1.2, !isWard)
-    const showSub = tail && b.h >= 2.6 && (k >= LOD.sub || !isWard)
-    const st = showSub ? layoutText(tail, width, Math.min(0.78, t.size * 0.68), false) : null
-    const blockH = t.lines.length * t.size * 1.08 + (st ? st.size + 0.2 : 0)
-    const textW = Math.min(width * 0.86, Math.max(...t.lines.map((l) => l.length * t.size * 0.95), st ? st.lines[0].length * st.size : 0))
-    rows.forEach((fy, ri) => {
-      const cy = Math.min(Math.max(b.y + b.h * fy, top + blockH / 2), bottom - blockH / 2)
-      const box = { x: cx - textW / 2, y: cy - blockH / 2, w: textW, h: blockH }
-      const hit = (obstacles || []).reduce((a, o) => a + overlap(box, o), 0)
-      // 겹침이 최우선, 다음은 글자 크기(클수록 좋음), 마지막으로 가운데에 가까울수록 좋음
-      const score = hit * 100 - t.size * 3 + ci * 0.4 + ri * 0.15
-      if (!best || score < best.score) best = { score, cx, cy, t, st, blockH }
+    ;[1, 0.8, 0.64].forEach((shrink, si) => {
+      const t = layoutText(head, width, maxSize * shrink, !isWard)
+      const showSub = tail && b.h >= 2.6 && (k >= LOD.sub || !isWard)
+      const st = showSub ? layoutText(tail, width, Math.min(0.78, t.size * 0.68), false) : null
+      const blockH = t.lines.length * t.size * 1.08 + (st ? st.size + 0.2 : 0)
+      const textW = Math.min(width * 0.86, Math.max(...t.lines.map((l) => l.length * t.size * 0.95), st ? st.lines[0].length * st.size : 0))
+      const cutName = t.lines.some((l) => l.endsWith('…'))
+      rows.forEach((fy, ri) => {
+        const cy = Math.min(Math.max(b.y + b.h * fy, top + blockH / 2), bottom - blockH / 2)
+        const box = { x: cx - textW / 2, y: cy - blockH / 2, w: textW, h: blockH }
+        const hit = (obstacles || []).reduce((a, o) => a + overlap(box, o), 0)
+        const score = hit * 100 + (cutName ? 25 : 0) - t.size * 3 + si * 0.3 + ci * 0.4 + ri * 0.15
+        if (!best || score < best.score) best = { score, cx, cy, t, st, blockH }
+      })
     })
   })
   const { cx, cy, t, st, blockH } = best
@@ -247,7 +269,7 @@ function ScaleBar({ k, height }) {
   )
 }
 
-export default function FloorPlan({ floor, corridors, rooms, fixtures, patientsByRoom, overlay, onPickRoom, picked }) {
+export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, patientsByRoom, overlay, onPickRoom, picked }) {
   const wrap = useRef(null)
   const [box, setBox] = useState({ w: 900, h: 560 })
   const [view, setView] = useState(null) // {k, x, y} — k: px per meter
@@ -312,10 +334,12 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, patientsB
     for (const r of rooms) {
       const b = bbox(r.poly)
       const inside = (f) => f.room === r.id || (f.x > b.x && f.x < b.x + b.w && f.y > b.y && f.y < b.y + b.h)
-      m.set(r.id, [...(r.beds || []).map(bedBox), ...(fixtures || []).filter(inside).map(fixtureBox)])
+      // 천장 게이트웨이 같은 표식도 이름표가 피한다 (크게 확대해야 보이는 것도 자리는 미리 비워 둔다)
+      const marks = (markers || []).filter(inside).map((q) => ({ x: q.x - 0.55, y: q.y - 0.55, w: 1.1, h: 1.1 }))
+      m.set(r.id, [...(r.beds || []).map(bedBox), ...(fixtures || []).filter(inside).map(fixtureBox), ...marks])
     }
     return m
-  }, [rooms, fixtures])
+  }, [rooms, fixtures, markers])
 
   const grid = useMemo(() => {
     const step = W > 80 ? 10 : 5
@@ -379,8 +403,8 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, patientsB
           {/* 가구·설비 */}
           <g className="furniture">
             {rooms.map((r) => (r.kind === 'stairs' || r.kind === 'elevator' ? <Vertical key={r.id} r={r} /> : null))}
-            {rooms.map((r) => r.beds?.map((b, i) => (
-              <Bed key={b.id} b={b} occupied={!!(patientsByRoom?.get(r.id) || [])[i]} />
+            {rooms.map((r) => r.beds?.map((b) => (
+              <Bed key={b.id} b={b} occupied={!!overlay?.bedOccupied?.(r, b)} />
             )))}
             {fixtures?.map((f, i) => <Fixture key={'f' + i} f={f} />)}
           </g>

@@ -412,6 +412,8 @@ fn apply_meta_patches(state: &Arc<AppState>, gw_id: u32, meta: &serde_json::Valu
             ward: prev.as_ref().map(|q| q.ward.clone()).unwrap_or_default(),
             zone: gw_name.clone(),
             room: loc.room.clone(),
+            // 침대는 EMR 동기화가 채운다. META 가 잠깐 다른 방을 가리켜도 지우지 않는다 — 화면이 그 방의 침대인지 확인한다
+            bed: prev.as_ref().map(|q| q.bed.clone()).unwrap_or_default(),
             doctor: prev.as_ref().map(|q| q.doctor.clone()).unwrap_or_default(),
             department: prev.as_ref().map(|q| q.department.clone()).unwrap_or_default(),
             diagnosis: prev.as_ref().map(|q| q.diagnosis.clone()).unwrap_or_default(),

@@ -23,6 +23,9 @@ pub struct Patient {
     pub zone: String,
     #[serde(default)]
     pub room: String,
+    /// 침대 id (예: "106A01-A") — EMR admissions 의 bed. 평면도가 환자를 실제 침대에 놓는 데 쓴다.
+    #[serde(default)]
+    pub bed: String,
     #[serde(default)]
     pub doctor: String,
     #[serde(default)]
