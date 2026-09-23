@@ -41,21 +41,40 @@ pub struct NetCfg {
     cur: RwLock<(Option<String>, String, String)>, // (emulator, analysis, db)
 }
 
-/// `host:port` 모양인지 — 비어 있거나 포트가 없으면 거절
-fn check(addr: &str, what: &str) -> Result<String, String> {
+/// 대상별 기본 포트 — 포트를 생략하면 이 값을 붙인다.
+pub const PORT_EMULATOR: u16 = 5445;
+pub const PORT_ANALYSIS: u16 = 7100;
+pub const PORT_DB: u16 = 7601;
+
+/// `host:port` 로 정리한다. 포트를 안 쓰면 `default_port` 를 붙이고, IPv6 는 `[::1]:5445` 형태를 요구한다.
+fn check(addr: &str, what: &str, default_port: u16) -> Result<String, String> {
     let a = addr.trim();
     if a.is_empty() {
         return Err(format!("{what} 주소가 비어 있습니다"));
     }
-    let Some((host, port)) = a.rsplit_once(':') else {
-        return Err(format!("{what} 주소는 호스트:포트 형식이어야 합니다 (예: 192.168.0.125:5445)"));
+    // IPv6: 대괄호가 있으면 그 뒤에서만 포트를 찾는다
+    let (host, port) = if let Some(rest) = a.strip_prefix('[') {
+        let Some((h, after)) = rest.split_once(']') else {
+            return Err(format!("{what} IPv6 주소는 [::1]:{default_port} 형식이어야 합니다"));
+        };
+        (h.to_string(), after.strip_prefix(':').map(|p| p.to_string()))
+    } else if a.matches(':').count() > 1 {
+        return Err(format!("{what} IPv6 주소는 대괄호가 필요합니다 (예: [::1]:{default_port})"));
+    } else if let Some((h, p)) = a.split_once(':') {
+        (h.to_string(), Some(p.to_string()))
+    } else {
+        (a.to_string(), None) // 포트 생략 → 기본 포트
     };
     if host.trim().is_empty() {
         return Err(format!("{what} 호스트가 비어 있습니다"));
     }
-    match port.parse::<u16>() {
-        Ok(p) if p > 0 => Ok(a.to_string()),
-        _ => Err(format!("{what} 포트가 올바르지 않습니다: {port}")),
+    let host = if a.starts_with('[') { format!("[{host}]") } else { host };
+    match port {
+        None => Ok(format!("{host}:{default_port}")),
+        Some(p) => match p.parse::<u16>() {
+            Ok(n) if n > 0 => Ok(format!("{host}:{n}")),
+            _ => Err(format!("{what} 포트가 올바르지 않습니다: {p} (비워 두면 {default_port} 을 씁니다)")),
+        },
     }
 }
 
@@ -139,7 +158,7 @@ impl NetCfg {
     /// 저장: 값이 있으면 검사 후 DB 에 쓰고, 빈 문자열이면 DB 값을 지워 환경변수로 되돌린다.
     pub fn apply(&self, inp: NetInput) -> Result<Vec<String>, String> {
         let mut changed = Vec::new();
-        let mut set = |key: &str, what: &str, v: &Option<String>| -> Result<Option<Option<String>>, String> {
+        let mut set = |key: &str, what: &str, v: &Option<String>, default_port: u16| -> Result<Option<Option<String>>, String> {
             let Some(raw) = v else { return Ok(None) };
             if raw.trim().is_empty() {
                 if let Ok(db) = self.db.lock() {
@@ -148,16 +167,16 @@ impl NetCfg {
                 changed.push(format!("{what} 초기화(환경변수 값 사용)"));
                 return Ok(Some(None));
             }
-            let ok = check(raw, what)?;
+            let ok = check(raw, what, default_port)?;
             if let Ok(db) = self.db.lock() {
                 let _ = db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)", params![key, ok]);
             }
             changed.push(format!("{what} → {ok}"));
             Ok(Some(Some(ok)))
         };
-        let emu = set(K_EMU, "에뮬레이터", &inp.emulator_addr)?;
-        let ana = set(K_ANALYSIS, "분석 서버", &inp.analysis_addr)?;
-        let dba = set(K_DB, "DB API", &inp.db_addr)?;
+        let emu = set(K_EMU, "에뮬레이터", &inp.emulator_addr, PORT_EMULATOR)?;
+        let ana = set(K_ANALYSIS, "분석 서버", &inp.analysis_addr, PORT_ANALYSIS)?;
+        let dba = set(K_DB, "DB API", &inp.db_addr, PORT_DB)?;
         {
             let mut c = self.cur.write().unwrap();
             if let Some(v) = emu {
@@ -179,13 +198,13 @@ impl NetCfg {
 
 /// 연결 시험 — 저장 전에 주소가 살아 있는지 본다. 에뮬레이터는 `/api/v1/status`(HTTP), 나머지는 TCP 접속만.
 pub async fn test(kind: &str, addr: &str) -> serde_json::Value {
-    let what = match kind {
-        "emulator" => "에뮬레이터",
-        "analysis" => "분석 서버",
-        "db" => "DB API",
+    let (what, port) = match kind {
+        "emulator" => ("에뮬레이터", PORT_EMULATOR),
+        "analysis" => ("분석 서버", PORT_ANALYSIS),
+        "db" => ("DB API", PORT_DB),
         _ => return serde_json::json!({"ok": false, "msg": "알 수 없는 대상"}),
     };
-    let addr = match check(addr, what) {
+    let addr = match check(addr, what, port) {
         Ok(a) => a,
         Err(e) => return serde_json::json!({"ok": false, "msg": e}),
     };
@@ -200,7 +219,8 @@ pub async fn test(kind: &str, addr: &str) -> serde_json::Value {
                 serde_json::json!({
                     "ok": true,
                     "ms": t0.elapsed().as_millis() as u64,
-                    "msg": format!("에뮬레이터 응답 — 전송 {}, {:.0} pkt/s{}", if running { "중" } else { "정지" }, pkts,
+                    "addr": addr,
+                    "msg": format!("{addr} 응답 — 전송 {}, {:.0} pkt/s{}", if running { "중" } else { "정지" }, pkts,
                         target.map(|t| format!(", 대상 {t}")).unwrap_or_default()),
                 })
             }
@@ -209,7 +229,7 @@ pub async fn test(kind: &str, addr: &str) -> serde_json::Value {
         };
     }
     match tokio::time::timeout(std::time::Duration::from_secs(5), tokio::net::TcpStream::connect(&addr)).await {
-        Ok(Ok(_)) => serde_json::json!({"ok": true, "ms": t0.elapsed().as_millis() as u64, "msg": format!("{what} 포트 열림")}),
+        Ok(Ok(_)) => serde_json::json!({"ok": true, "ms": t0.elapsed().as_millis() as u64, "addr": addr, "msg": format!("{addr} 포트 열림")}),
         Ok(Err(e)) => serde_json::json!({"ok": false, "ms": t0.elapsed().as_millis() as u64, "msg": format!("연결 실패: {e}")}),
         Err(_) => serde_json::json!({"ok": false, "ms": 5000, "msg": "시간 초과(5초)"}),
     }
@@ -221,13 +241,20 @@ mod tests {
 
     #[test]
     fn addr_check() {
-        assert_eq!(check("192.168.0.125:5445", "x").unwrap(), "192.168.0.125:5445");
-        assert_eq!(check("  host.local:80  ", "x").unwrap(), "host.local:80");
-        assert!(check("192.168.0.125", "x").is_err()); // 포트 없음
-        assert!(check(":5445", "x").is_err()); // 호스트 없음
-        assert!(check("host:0", "x").is_err());
-        assert!(check("host:abc", "x").is_err());
-        assert!(check("", "x").is_err());
+        assert_eq!(check("192.168.0.125:5445", "x", PORT_EMULATOR).unwrap(), "192.168.0.125:5445");
+        assert_eq!(check("  host.local:80  ", "x", PORT_EMULATOR).unwrap(), "host.local:80");
+        // 포트 생략 → 대상별 기본 포트
+        assert_eq!(check("192.168.0.125", "x", PORT_EMULATOR).unwrap(), "192.168.0.125:5445");
+        assert_eq!(check("127.0.0.1", "x", PORT_ANALYSIS).unwrap(), "127.0.0.1:7100");
+        assert_eq!(check("db.local", "x", PORT_DB).unwrap(), "db.local:7601");
+        // IPv6 는 대괄호 필요
+        assert_eq!(check("[::1]:5445", "x", PORT_EMULATOR).unwrap(), "[::1]:5445");
+        assert_eq!(check("[::1]", "x", PORT_EMULATOR).unwrap(), "[::1]:5445");
+        assert!(check("::1", "x", PORT_EMULATOR).is_err());
+        assert!(check(":5445", "x", PORT_EMULATOR).is_err()); // 호스트 없음
+        assert!(check("host:0", "x", PORT_EMULATOR).is_err());
+        assert!(check("host:abc", "x", PORT_EMULATOR).is_err());
+        assert!(check("", "x", PORT_EMULATOR).is_err());
     }
 
     #[test]
@@ -244,7 +271,8 @@ mod tests {
         let n = NetCfg::open(path.to_str().unwrap(), &cfg);
         assert_eq!(n.emulator().unwrap(), "10.0.0.1:5445"); // 환경변수
 
-        n.apply(NetInput { emulator_addr: Some("192.168.0.9:5445".into()), ..Default::default() }).unwrap();
+        // 포트 없이 저장해도 기본 포트가 붙는다
+        n.apply(NetInput { emulator_addr: Some("192.168.0.9".into()), ..Default::default() }).unwrap();
         assert_eq!(n.emulator().unwrap(), "192.168.0.9:5445"); // DB 값이 이김
         assert_eq!(n.view()["emulator_addr"]["source"], "db");
 
@@ -257,7 +285,11 @@ mod tests {
         assert_eq!(n2.emulator().unwrap(), "10.0.0.1:5445");
         assert_eq!(n2.view()["emulator_addr"]["source"], "env");
 
-        assert!(n2.apply(NetInput { analysis_addr: Some("nonsense".into()), ..Default::default() }).is_err());
+        // 포트 없는 한 단어는 호스트 이름으로 보고 기본 포트를 붙인다
+        n2.apply(NetInput { analysis_addr: Some("analysis.local".into()), ..Default::default() }).unwrap();
+        assert_eq!(n2.analysis(), "analysis.local:7100");
+        // 포트가 숫자가 아니면 거절
+        assert!(n2.apply(NetInput { analysis_addr: Some("host:port".into()), ..Default::default() }).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -7,17 +7,17 @@ import { api, usePoll } from '../api.js'
  */
 const FIELDS = [
   {
-    key: 'emulator_addr', kind: 'emulator', label: '에뮬레이터 (RP5#1)', ph: '192.168.0.125:5445',
+    key: 'emulator_addr', kind: 'emulator', label: '에뮬레이터 (RP5#1)', ph: '192.168.0.125 (포트 생략 시 5445)', port: 5445,
     desc: '환자 명단·병동·도면(EMR API)을 가져오고 라우터 상태를 보고하는 곳입니다. 비어 있으면 병원 지도와 환자 정보가 "HTTP 503"으로 실패합니다.',
     env: 'ROUTER_EMULATOR_ADDR',
   },
   {
-    key: 'analysis_addr', kind: 'analysis', label: '분석 서버', ph: '127.0.0.1:7100',
+    key: 'analysis_addr', kind: 'analysis', label: '분석 서버', ph: '127.0.0.1 (포트 생략 시 7100)', port: 7100,
     desc: 'ECG 를 넘겨 HR·부정맥 분석을 받는 곳입니다. 연결되지 않으면 파형은 그대로 통과하고 분석 값만 빠집니다.',
     env: 'ROUTER_ANALYSIS_ADDR',
   },
   {
-    key: 'db_addr', kind: 'db', label: 'DB API', ph: '127.0.0.1:7601',
+    key: 'db_addr', kind: 'db', label: 'DB API', ph: '127.0.0.1 (포트 생략 시 7601)', port: 7601,
     desc: '환자·패치 메타를 밀어 넣는 곳입니다. 없어도 라우터 동작에는 지장이 없습니다.',
     env: 'ROUTER_DB_ADDR',
   },
@@ -95,7 +95,8 @@ export default function NetworkSettings() {
                 <button onClick={() => test(f)} disabled={busy || !valueOf(f.key)}>연결 시험</button>
               </div>
               <div className="muted" style={{ marginTop: 4 }}>
-                현재 출처: {SOURCE[cur?.source] || '—'}
+                IP 나 호스트 이름만 넣으면 포트 <b>{f.port}</b> 을 붙여 저장합니다.
+                {' · '}현재 출처: {SOURCE[cur?.source] || '—'}
                 {cur?.env ? ` · 환경변수 ${f.env}=${cur.env}` : ` · 환경변수 ${f.env} 없음`}
                 {cur?.source === 'db' && ' · 비우고 저장하면 환경변수 값으로 돌아갑니다'}
               </div>
