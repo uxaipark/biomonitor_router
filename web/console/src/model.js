@@ -44,3 +44,35 @@ export function gatewayAlarmIndex(alarms) {
   }
   return m
 }
+
+export const ALARM_KIND = {
+  hr_critical: '심박수 위험', hr_high: '빈맥', hr_low: '서맥', spo2_critical: 'SpO₂ 위험', spo2_low: '저산소',
+  spo2_sensor_off: 'SpO₂ 센서 분리', resp_high: '빈호흡', resp_low: '서호흡', temp_high: '고열', temp_low: '저체온',
+  lead_off: '전극 탈락', battery_low: '배터리 부족', patch_silent: '패치 무응답', gateway_down: 'GW 끊김',
+  gateway_status_down: 'GW 다운 보고', gateway_silent: 'GW 무응답', gateway_degraded: 'GW 저하', store_backpressure: '저장 지연',
+}
+
+export const EVENT_KIND = {
+  alarm: '알람', alarm_rules: '알람 규칙', analysis_up: '분석 서버', backup_config: '백업 설정', backup_fail: '백업 실패',
+  backup_unbacked_delete: '비상 삭제', bad_crc: 'CRC 오류', ingest_allow: '수신 허용', link: '연결', metrics_reset: '통계 초기화',
+  network_config: '네트워크 설정', registry_prune: '레지스트리 정리', silent: '무응답', stats_reset: '카운터 초기화', wave_reset: '파형 삭제',
+}
+
+/** Ward room id "103B07" (building·floor·ward·room) → { ward: "3B병동", room: "307호" }; anything else → null. */
+export function wardRoom(id) {
+  const m = /^\d(\d\d)([A-Z])(\d\d)$/.exec(id || '')
+  if (!m) return null
+  const fl = parseInt(m[1], 10)
+  return { ward: `${fl}${m[2]}병동`, room: `${fl}${m[3]}호` }
+}
+
+/** Room id for tables: "3B병동 307호" for ward rooms, the id itself otherwise. */
+export const roomText = (id) => { const w = wardRoom(id); return w ? `${w.ward} ${w.room}` : id || '' }
+
+/** Ward id "W103B" → "3B병동" (the building digit is shown separately). */
+export const wardText = (id) => { const m = /^W\d(\d\d)([A-Z])$/.exec(id || ''); return m ? `${parseInt(m[1], 10)}${m[2]}병동` : id || '' }
+
+export const FLAG_LABEL = {
+  LEAD_OFF: '전극 탈락', MOTION: '움직임', LOW_BATTERY: '배터리 부족', SPO2_OFF: 'SpO₂ 분리', PACEMAKER: '페이스메이커', CHARGING: '충전 중', NEW_PATCH: '새 패치',
+}
+export const FLAG_WARN = new Set(['LEAD_OFF', 'LOW_BATTERY', 'SPO2_OFF'])

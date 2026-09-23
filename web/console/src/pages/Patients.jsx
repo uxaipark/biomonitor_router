@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { api, usePoll, fmtAgo } from '../api.js'
-import { alarmIndex, flagNames, sortBy, SEV_LABEL } from '../model.js'
+import { alarmIndex, flagNames, sortBy, SEV_LABEL, FLAG_LABEL, FLAG_WARN, wardText, wardRoom } from '../model.js'
 import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
 
@@ -9,6 +9,7 @@ const COLS = [
   ['hr', 'HR'], ['spo2', 'SpO₂'], ['resp', 'RR'], ['temp', '체온'], ['battery', '배터리'], ['rssi', 'RSSI'], ['flags', '상태'], ['alarm', '알람'], ['last', '수신'],
 ]
 const PAGE = 100
+const NUM = new Set(['hr', 'spo2', 'resp', 'temp', 'battery', 'rssi'])
 
 export default function Patients({ alarms }) {
   const [rows] = usePoll(api.channels, 3000)
@@ -29,9 +30,9 @@ export default function Patients({ alarms }) {
     }
   }), [rows, aidx])
   const wards = useMemo(() => {
-    const c = new Map()
-    for (const r of flat) if (r.ward) c.set(r.ward, (c.get(r.ward) || 0) + 1)
-    return [{ value: '', label: '모든 병동', count: flat.length }, ...[...c].sort((a, b) => a[0].localeCompare(b[0], 'ko')).map(([w, n]) => ({ value: w, label: w, count: n }))]
+    const c = new Map(), bld = new Map()
+    for (const r of flat) if (r.ward) { c.set(r.ward, (c.get(r.ward) || 0) + 1); bld.set(r.ward, r.patient?.building) }
+    return [{ value: '', label: '모든 병동', count: flat.length }, ...[...c].sort((a, b) => a[0].localeCompare(b[0], 'ko')).map(([w, n]) => ({ value: w, label: `${bld.get(w) || ''} ${wardText(w)}`.trim(), count: n }))]
   }, [flat])
   const filters = useMemo(() => {
     const inWard = flat.filter((r) => !ward || r.ward === ward)
@@ -56,7 +57,7 @@ export default function Patients({ alarms }) {
   const pages = Math.max(1, Math.ceil(shown.length / PAGE))
   const cur = Math.min(page, pages - 1)
   const th = (k, label) => (
-    <th key={k} onClick={() => setSort([k, sort[0] === k && sort[1] === 'asc' ? 'desc' : 'asc'])} className="sortable">{label}{sort[0] === k ? (sort[1] === 'asc' ? ' ▲' : ' ▼') : ''}</th>
+    <th key={k} onClick={() => setSort([k, sort[0] === k && sort[1] === 'asc' ? 'desc' : 'asc'])} className={'sortable' + (NUM.has(k) ? ' num' : '')}>{label}{sort[0] === k ? (sort[1] === 'asc' ? ' ▲' : ' ▼') : ''}</th>
   )
   return (
     <div className="page">
@@ -73,10 +74,10 @@ export default function Patients({ alarms }) {
         <tbody>
           {shown.slice(cur * PAGE, cur * PAGE + PAGE).map((r) => (
             <tr key={r.channel_id} className={'clickable ' + (r.alarmObj ? `sev-${r.alarmObj.severity}` : '') + (r.stale || !r.connected ? ' stale' : '')} onClick={() => openLive(r.channel_id)}>
-              <td className="mono">{r.channel_id}</td><td><b>{r.name || r.mrn}</b></td><td className="mono muted">{r.mrn}</td><td>{r.ward}</td><td>{r.room}</td><td className="mono">{r.gateway_id}</td>
+              <td className="mono">{r.channel_id}</td><td><b>{r.name || r.mrn}</b></td><td className="mono muted">{r.mrn}</td><td title={r.ward}>{r.patient?.building && <span className="muted">{r.patient.building} </span>}{wardText(r.ward)}</td><td title={r.room}>{wardRoom(r.room)?.room || r.room}</td><td className="mono">{r.gateway_id}</td>
               <td className="num">{r.hr ?? '—'}</td><td className="num">{r.spo2 ?? '—'}</td><td className="num">{r.resp ?? '—'}</td><td className="num">{r.temp != null ? r.temp.toFixed(1) : '—'}</td>
               <td className="num">{r.battery}%</td><td className="num">{r.rssi}</td>
-              <td>{flagNames(r.flags).map((n) => <span key={n} className="tag small">{n}</span>)}{!r.connected && <span className="tag err small">해제</span>}{r.stale && r.connected && <span className="tag warn small">수신 없음</span>}</td>
+              <td>{flagNames(r.flags).map((n) => <span key={n} className={'tag small' + (FLAG_WARN.has(n) ? ' warn' : '')}>{FLAG_LABEL[n] || n}</span>)}{!r.connected && <span className="tag err small">해제</span>}{r.stale && r.connected && <span className="tag warn small">수신 없음</span>}</td>
               <td>{r.alarmObj && <span className={`tag small sev-${r.alarmObj.severity}`}>{SEV_LABEL[r.alarmObj.severity]} · {r.alarmObj.message}</span>}</td>
               <td className="muted">{fmtAgo(r.last)}</td>
             </tr>

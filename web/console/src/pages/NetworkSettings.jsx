@@ -66,10 +66,10 @@ export default function NetworkSettings() {
         <section>
           <h3>연결 상태</h3>
           <div className="kv">
-            <div><small>에뮬레이터</small>{net ? (emuOk ? '연결됨' : '응답 없음') : '—'} <span className="muted">{net?.emulator_addr?.value || '주소 미설정'}</span></div>
-            <div><small>마지막 정상 응답</small>{lastOk}</div>
-            <div><small>분석 서버</small>{net ? (net.analysis_connected ? '연결됨' : '연결 안 됨') : '—'} <span className="muted">{net?.analysis_addr?.value}</span></div>
-            <div><small>수신 대기(ingest) · 웹/API</small>{net?.ingest_addr} · {net?.http_addr} <span className="muted">(환경변수, 재시작 필요)</span></div>
+            <div><small>에뮬레이터</small><span className="net-status"><span className={'dot ' + (net ? (emuOk ? 'ok' : 'err') : 'off')} />{net ? (emuOk ? '연결됨' : '응답 없음') : '—'} <span className="muted mono">{net?.emulator_addr?.value || '주소 미설정'}</span></span></div>
+            <div><small>에뮬레이터 마지막 정상 응답</small>{lastOk}</div>
+            <div><small>분석 서버</small><span className="net-status"><span className={'dot ' + (net ? (net.analysis_connected ? 'ok' : 'warn') : 'off')} />{net ? (net.analysis_connected ? '연결됨' : '연결 안 됨 (패스스루)') : '—'} <span className="muted mono">{net?.analysis_addr?.value}</span></span></div>
+            <div><small>수신 대기(ingest) · 웹/API — 환경변수, 재시작 필요</small><span className="mono">{net?.ingest_addr} · {net?.http_addr}</span></div>
           </div>
           {net && !net.emulator_addr?.value && (
             <p className="err" style={{ marginTop: 10 }}>

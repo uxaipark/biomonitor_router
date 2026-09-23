@@ -324,6 +324,9 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
             a.last_ms = now;
             a.value = o.value;
             a.message = o.message;
+            // the patient's name / room can arrive (EMR sync) or change (transfer) after the alarm was raised
+            a.patient_name = o.patient_name;
+            a.room = o.room;
             if o.severity > a.severity {
                 a.severity = o.severity;
             }

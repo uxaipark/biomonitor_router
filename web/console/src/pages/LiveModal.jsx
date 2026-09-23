@@ -3,7 +3,7 @@ import { api, usePoll, fmtTime, fmtBytes } from '../api.js'
 import { claimLive, releaseLive, latest } from '../ws.js'
 import { WaveCanvas } from '../WaveCard.jsx'
 import { AccelPlot, accelNow, ACCEL_COLORS } from '../AccelPlot.jsx'
-import { alarmIndex, flagNames, SEV_LABEL } from '../model.js'
+import { alarmIndex, flagNames, SEV_LABEL, FLAG_LABEL, FLAG_WARN } from '../model.js'
 import HistoryPanel from '../viewer/History.jsx'
 import '../viewer/ds.css'
 
@@ -83,7 +83,7 @@ export function LiveModal({ channelId, alarms, onClose }) {
               <h2>{p.name || row.mrn}</h2>
               {emr && <span className="lm-demo">{SEX[emr.sex] || emr.sex} · {emr.age}세 · {emr.blood_type}</span>}
               {alarm && <span className={`tag sev-${alarm.severity}`}>{SEV_LABEL[alarm.severity]} · {alarm.message}</span>}
-              {flags.map((n) => <span key={n} className={'tag ' + (n === 'LEAD_OFF' || n === 'LOW_BATTERY' ? 'warn' : '')}>{n}</span>)}
+              {flags.map((n) => <span key={n} className={'tag ' + (FLAG_WARN.has(n) ? 'warn' : '')}>{FLAG_LABEL[n] || n}</span>)}
               {stale ? <span className="tag err">수신 없음</span> : <span className="tag ok">수신 중</span>}
             </div>
             <div className="lm-place">{placeText(p, row.space)}</div>

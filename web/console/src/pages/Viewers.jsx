@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { TEMPLATES, viewerUrl } from '../viewer/templates.js'
-import { sortBy } from '../model.js'
+import { sortBy, wardText, wardRoom, roomText } from '../model.js'
 import Dropdown from '../Dropdown.jsx'
 import '../viewer/ds.css'
 
@@ -159,7 +159,7 @@ export default function Viewers({ alarms }) {
           {shown.map((e, i) => (
             <tr key={e.key} className={'clickable' + (e.alarms ? ' sev-high' : '')} onClick={() => open(e)}>
               <td className="num muted w-idx">{i + 1}</td>
-              <td className="lbl"><b>{e.label}</b>{e.sub && <small>{e.sub}</small>}</td>
+              <td className="lbl">{kind === 'ward' && e.key && wardText(e.label) !== e.label ? <><b>{wardText(e.label)}</b><small className="mono">{e.label}</small></> : kind === 'room' && wardRoom(e.label) ? <><b>{roomText(e.label)}</b><small className="mono">{e.label}</small></> : <b>{e.label}</b>}{e.sub && <small>{e.sub}</small>}</td>
               {kind === 'ward' && <td>{e.building || <span className="muted">—</span>}</td>}
               {kind === 'ward' && <td className="num w-n">{e.floor ? `${e.floor}F` : <span className="muted">—</span>}</td>}
               {kind === 'group' && <td className="muted cond">{describeGroup(e.group)}</td>}

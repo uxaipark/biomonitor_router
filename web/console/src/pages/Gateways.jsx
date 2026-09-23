@@ -6,9 +6,16 @@ import Dropdown from '../Dropdown.jsx'
 const COLS = [
   ['gw_id', 'GW'], ['name', '이름'], ['type', '유형'], ['loc', '위치'], ['state', '상태'], ['patches', '패치'], ['frames', '프레임'],
   ['nack_tx', 'NACK'], ['recovered', '복구'], ['resend_lost', '재전송 실패'], ['seq_gap', 'seq 갭'], ['seq_reorder', '역전'], ['bad_crc', 'CRC'],
-  ['cpu', 'CPU'], ['mem', 'MEM'], ['net', 'NET'], ['wan_rssi', 'RSSI'], ['temp', '온도'], ['since_last_s', '마지막 프레임'],
+  ['cpu', 'CPU %'], ['mem', 'MEM %'], ['net', 'NET'], ['wan_rssi', 'RSSI'], ['temp', '온도 °C'], ['since_last_s', '마지막 프레임'],
 ]
 const PAGE = 100
+const NUM = new Set(['patches', 'frames', 'nack_tx', 'recovered', 'resend_lost', 'seq_gap', 'seq_reorder', 'bad_crc', 'cpu', 'mem', 'net', 'wan_rssi', 'temp'])
+const GW_TYPE = {
+  room: '병실', corridor: '복도', support: '지원 시설', toilet: '화장실', mobile: '이동형(MCOT)', stairs: '계단', nurse_station: '간호사실',
+  exam: '검사실', elevator: '엘리베이터', lobby: '로비', er: '응급실',
+}
+// counters: 0 is the normal case, so it is drawn faint and anything else stands out
+const Z = ({ v, bad }) => (v ? <span className={bad ? 'nz-bad' : ''}>{fmtNum(v)}</span> : <span className="zero">0</span>)
 
 export default function Gateways({ alarms }) {
   const [rows] = usePoll(api.gateways, 3000)
@@ -44,19 +51,19 @@ export default function Gateways({ alarms }) {
       <div className="toolbar">
         <input placeholder="검색: GW 번호 · 이름 · 위치" value={q} onChange={(e) => { setQ(e.target.value); setPage(0) }} />
         <Dropdown value={filter} options={filters} onChange={(v) => { setFilter(v); setPage(0) }} searchable={false} countUnit="대" width={200} />
-        <span className="muted">연결 {counts.conn} · 끊김 {counts.down} · 무응답 {counts.silent} · 표시 {shown.length}</span>
+        <span className="stat-inline"><span className="dot ok" />연결 <b>{fmtNum(counts.conn)}</b></span><span className="stat-inline"><span className={'dot ' + (counts.down ? 'err' : 'off')} />끊김 <b>{counts.down}</b></span><span className="stat-inline"><span className={'dot ' + (counts.silent ? 'warn' : 'off')} />무응답 <b>{counts.silent}</b></span><span className="muted">표시 {fmtNum(shown.length)}</span>
         <span className="spacer" />
         <button disabled={cur === 0} onClick={() => setPage(cur - 1)}>‹</button><span className="muted">{cur + 1} / {pages}</span><button disabled={cur >= pages - 1} onClick={() => setPage(cur + 1)}>›</button>
       </div>
       <table className="tbl dense">
-        <thead><tr>{COLS.map(([k, l]) => <th key={k} className="sortable" onClick={() => setSort([k, sort[0] === k && sort[1] === 'asc' ? 'desc' : 'asc'])}>{l}{sort[0] === k ? (sort[1] === 'asc' ? ' ▲' : ' ▼') : ''}</th>)}</tr></thead>
+        <thead><tr>{COLS.map(([k, l]) => <th key={k} className={'sortable' + (NUM.has(k) ? ' num' : '')} onClick={() => setSort([k, sort[0] === k && sort[1] === 'asc' ? 'desc' : 'asc'])}>{l}{sort[0] === k ? (sort[1] === 'asc' ? ' ▲' : ' ▼') : ''}</th>)}</tr></thead>
         <tbody>
           {shown.slice(cur * PAGE, cur * PAGE + PAGE).map((g) => (
             <tr key={g.gw_id} className={g.alarm ? `sev-${g.alarm.severity}` : g.state === 3 ? 'stale' : ''}>
-              <td className="mono">{g.gw_id}</td><td>{g.name}</td><td>{g.type}</td><td>{g.loc}</td>
+              <td className="mono"><b>{g.gw_id}</b></td><td className="mono muted">{g.name}</td><td>{GW_TYPE[g.type] || g.type}</td><td>{g.loc}</td>
               <td>{!g.connected ? <span className="tag err small">끊김</span> : g.silent ? <span className="tag err small">무응답</span> : g.state === 2 ? <span className="tag err small">DOWN</span> : g.state === 1 ? <span className="tag warn small">저하</span> : <span className="tag ok small">정상</span>}</td>
-              <td className="num">{g.patches}</td><td className="num">{fmtNum(g.frames)}</td>
-              <td className="num">{g.nack_tx}</td><td className="num">{g.recovered}</td><td className="num">{g.resend_lost}</td><td className="num">{g.seq_gap}</td><td className="num">{g.seq_reorder}</td><td className="num">{g.bad_crc}</td>
+              <td className="num"><Z v={g.patches} /></td><td className="num">{fmtNum(g.frames)}</td>
+              <td className="num"><Z v={g.nack_tx} /></td><td className="num"><Z v={g.recovered} /></td><td className="num"><Z v={g.resend_lost} bad /></td><td className="num"><Z v={g.seq_gap} bad /></td><td className="num"><Z v={g.seq_reorder} /></td><td className="num"><Z v={g.bad_crc} bad /></td>
               <td className="num">{g.cpu ?? '—'}</td><td className="num">{g.mem ?? '—'}</td><td className="num">{g.net ?? '—'}</td><td className="num">{g.wan_rssi ?? '—'}</td><td className="num">{g.temp ?? '—'}</td>
               <td className="muted">{g.since_last_s != null ? `${g.since_last_s.toFixed(1)}s` : '—'}</td>
             </tr>

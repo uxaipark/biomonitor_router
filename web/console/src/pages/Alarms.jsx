@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { api, usePoll, fmtTime, fmtAgo } from '../api.js'
-import { SEV_LABEL } from '../model.js'
+import { SEV_LABEL, ALARM_KIND, roomText } from '../model.js'
 import { openLive } from '../App.jsx'
 
 const RULE_FIELDS = [
@@ -27,14 +27,14 @@ export default function Alarms({ alarms }) {
       </div>
       {tab !== 'rules' && (
         <table className="tbl">
-          <thead><tr><th>심각도</th><th>종류</th><th>대상</th><th>위치</th><th>내용</th><th>값</th><th>발생</th><th>{tab === 'active' ? '경과' : '해제'}</th><th /></tr></thead>
+          <thead><tr><th>심각도</th><th>종류</th><th>대상</th><th>위치</th><th>내용</th><th className="num">값</th><th>발생</th><th>{tab === 'active' ? '경과' : '해제'}</th><th /></tr></thead>
           <tbody>
             {(tab === 'active' ? active : hist || []).map((a) => (
               <tr key={a.id + (a.cleared_ms || '')} className={`sev-${a.severity} ${a.acked ? 'acked' : ''}`}>
                 <td><span className={`tag sev-${a.severity}`}>{SEV_LABEL[a.severity]}</span></td>
-                <td className="mono">{a.kind}</td>
-                <td className="clickable" onClick={() => a.channel_id && openLive(a.channel_id)}>{a.patient_name || (a.gateway_id ? `GW ${a.gateway_id}` : '시스템')}{a.channel_id && <small className="mono muted"> {a.channel_id}</small>}</td>
-                <td>{a.room}</td><td>{a.message}</td><td>{a.value}</td><td>{fmtTime(a.since_ms)}</td>
+                <td title={a.kind}>{ALARM_KIND[a.kind] || a.kind}</td>
+                <td className={a.channel_id ? 'clickable' : ''} onClick={() => a.channel_id && openLive(a.channel_id)}><b>{a.patient_name || (a.gateway_id ? `GW ${a.gateway_id}` : '시스템')}</b>{a.channel_id && <small className="mono muted"> {a.channel_id}</small>}</td>
+                <td title={a.room}>{roomText(a.room)}</td><td>{a.message}</td><td className="num">{a.value}</td><td className="muted">{fmtTime(a.since_ms)}</td>
                 <td>{tab === 'active' ? fmtAgo(a.since_ms) : a.cleared_ms ? fmtTime(a.cleared_ms) : <span className="muted">발생</span>}</td>
                 <td>{tab === 'active' && !a.acked && <button onClick={() => ack(a.id)}>확인</button>}{a.acked && <span className="muted">확인됨</span>}</td>
               </tr>

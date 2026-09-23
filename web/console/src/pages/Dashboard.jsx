@@ -1,6 +1,7 @@
 import React, { useMemo, useRef } from 'react'
 import { api, usePoll, fmtBytes, fmtNum, fmtDur, fmtTime } from '../api.js'
-import { SEV_LABEL } from '../model.js'
+import { SEV_LABEL, roomText } from '../model.js'
+import EventList from '../EventList.jsx'
 import { openLive } from '../App.jsx'
 
 const Tile = ({ label, value, sub, cls }) => (
@@ -47,7 +48,7 @@ export default function Dashboard({ alarms }) {
   const diskPct = stats ? Math.round(100 - (stats.disk_free_bytes / stats.disk_total_bytes) * 100) : 0
   return (
     <div className="page">
-      <section className="tiles">
+      <section className="tiles dash">
         <Tile label="게이트웨이 연결" value={`${fmtNum(g.connected)} / ${fmtNum(g.gateways)}`} sub={`다운 ${g.down ?? 0} · 무응답 ${g.silent ?? 0} · 저하 ${g.degraded ?? 0}`} cls={g.down || g.silent ? 'warn' : ''} />
         <Tile label="패치 (환자)" value={fmtNum(stats?.channels_connected ?? stats?.channel_count)} sub={`전체 행 ${fmtNum(stats?.channel_count)} · 저장 중 ${fmtNum(stats?.store_patches)}`} />
         <Tile label="수신" value={rate ? `${fmtNum(Math.round(rate.frames))} fr/s` : '—'} sub={rate ? `${fmtNum(Math.round(rate.records))} rec/s · ${fmtBytes(rate.bytes)}/s` : ''} />
@@ -61,15 +62,15 @@ export default function Dashboard({ alarms }) {
 
       <div className="cols">
         <section className="panel">
-          <h3>활성 알람 <small>{a.length}</small></h3>
+          <h3>활성 알람 <small>{a.length}건{a.length > 15 ? ' · 위 15건' : ''} · <a href="#/alarms">전체 보기 →</a></small></h3>
           <table className="tbl">
-            <thead><tr><th>심각도</th><th>환자</th><th>위치</th><th>내용</th><th>값</th><th>발생</th></tr></thead>
+            <thead><tr><th>심각도</th><th>환자</th><th>위치</th><th>내용</th><th className="num">값</th><th>발생</th></tr></thead>
             <tbody>
               {a.slice(0, 15).map((x) => (
                 <tr key={x.id} className={`sev-${x.severity} clickable`} onClick={() => x.channel_id && openLive(x.channel_id)}>
                   <td><span className={`tag sev-${x.severity}`}>{SEV_LABEL[x.severity]}</span></td>
-                  <td>{x.patient_name || (x.gateway_id ? `GW ${x.gateway_id}` : '시스템')}</td>
-                  <td>{x.room}</td><td>{x.message}</td><td>{x.value}</td><td>{fmtTime(x.since_ms)}</td>
+                  <td><b>{x.patient_name || (x.gateway_id ? `GW ${x.gateway_id}` : '시스템')}</b></td>
+                  <td title={x.room}>{roomText(x.room)}</td><td>{x.message}</td><td className="num">{x.value}</td><td className="muted">{fmtTime(x.since_ms)}</td>
                 </tr>
               ))}
               {!a.length && <tr><td colSpan="6" className="muted">활성 알람 없음</td></tr>}
@@ -81,7 +82,7 @@ export default function Dashboard({ alarms }) {
           <table className="tbl">
             <tbody>
               {Object.entries(an).map(([k, v]) => <tr key={k}><td>{ANOM_LABEL[k] || k}</td><td className="num">{fmtNum(v)}</td></tr>)}
-              {!Object.keys(an).length && <tr><td className="muted">이상 없음</td></tr>}
+              {!Object.keys(an).length && <tr><td colSpan="2" className="muted">프레임 이상 없음</td></tr>}
               <tr><td>프레임 누적</td><td className="num">{fmtNum(g.frames)}</td></tr>
               <tr><td>keepalive</td><td className="num">{fmtNum(g.keepalive)}</td></tr>
               <tr><td>META 블록</td><td className="num">{fmtNum(g.meta_blocks)}</td></tr>
@@ -94,12 +95,8 @@ export default function Dashboard({ alarms }) {
       </div>
 
       <section className="panel">
-        <h3>최근 이벤트</h3>
-        <div className="events">
-          {(events || []).slice(-25).reverse().map((e, i) => (
-            <div key={i} className={'ev ev-' + e.kind}><span className="ts">{fmtTime(e.ts_ms)}</span><span className="kind">{e.kind}</span><span>{e.message}</span></div>
-          ))}
-        </div>
+        <h3>최근 이벤트 <small><a href="#/events">전체 보기 →</a></small></h3>
+        <EventList events={(events || []).slice(-25).reverse()} />
       </section>
     </div>
   )

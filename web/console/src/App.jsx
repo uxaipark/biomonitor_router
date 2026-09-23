@@ -146,7 +146,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="top">
-        <a className="brand" href="#/">🫀 Biomonitor Router</a>
+        <a className="brand" href="#/"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)" /><path d="M4 13h4l2-5 3 9 2-6 1.5 2H20" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>Biomonitor Router</a>
         <nav>
           {PAGES.filter((p) => !p[3] && !p[4]).map(([h, label]) => (
             <a key={h} href={h} className={base === h ? 'active' : ''}>{label}{h === '#/alarms' && s.unacked > 0 && <span className="badge">{s.unacked}</span>}</a>
@@ -161,7 +161,9 @@ export default function App() {
         <span className={'pill ' + (s.critical ? 'crit' : s.high ? 'err' : s.active ? 'warn' : '')} title="활성 알람 (위험/높음/중간/낮음)">
           알람 {s.active ?? 0}{s.active ? ` · ${s.critical || 0}/${s.high || 0}/${s.medium || 0}/${s.low || 0}` : ''}
         </span>
-        <button className="icon" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="테마">{theme === 'dark' ? '🌙' : '☀️'}</button>
+        <button className="icon" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title={theme === 'dark' ? '밝은 테마로' : '어두운 테마로'}>{theme === 'dark'
+          ? <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" fill="currentColor" /></svg>
+          : <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4.5" fill="currentColor" /><g stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8" /></g></svg>}</button>
       </header>
       <main>
         <Page alarms={alarms} hash={hash} />
