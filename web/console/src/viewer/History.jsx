@@ -3,6 +3,7 @@ import { api, fmtTime } from '../api.js'
 import { ColumnTracer, ColumnStroker } from '../traceRender.js'
 import { getStream, playoutNow } from '../waveStore.js'
 import { latest } from '../ws.js'
+import { ACCEL_COLORS } from '../AccelPlot.jsx'
 
 /**
  * Stored-waveform history for one patch. The router keeps every record in hourly files; this panel shows the
@@ -13,11 +14,8 @@ import { latest } from '../ws.js'
 const CHUNK_MS = 5 * 60 * 1000
 const DEFAULT_KEYS = new Set(['ecg', 'accel'])
 const SPANS = [10, 30, 60, 120]
-const TRACES = [
-  { key: 'ecg', label: 'ECG', range: [-1.5, 2.0], color: '#3ddc84' },
-  { key: 'ppg', label: 'Pleth', range: [-1.2, 1.5], color: '#7cc4ff', alt: { key: 'accel', axis: 0, label: 'Accel X', range: [-1.6, 1.6], color: '#ff9783' } },
-  { key: 'resp_wave', label: 'Resp', range: [-1.5, 1.5], color: '#f5d442' },
-]
+// accelerometer X / Y / Z are drawn overlaid in one strip
+const AccelLegend = () => <span className="hx-lbl hx-lbl-acc">Accel {['X', 'Y', 'Z'].map((n, i) => <b key={n} style={{ color: ACCEL_COLORS[i] }}>{n}</b>)}</span>
 
 /** Decode the `/api/wave/{id}/waves` frame: [0xB3][u32 hlen][JSON][i16 blob]. */
 async function fetchChunk(id, from, to) {
@@ -73,7 +71,7 @@ function slice(chunks, key, axis, t0, t1) {
 }
 
 /** Draw one window [t0, t0+span) of runs into a canvas with the pixel-column tracer; pace ticks along the top. */
-function drawStrip(canvas, { runs, pace, t0, spanMs, range, color, theme, lineWidth = 1.6, grid = true, live = null }) {
+function drawStrip(canvas, { runs, pace, t0, spanMs, range, color, theme, lineWidth = 1.6, grid = true, live = null, layers = [] }) {
   const box = canvas.parentElement
   const r = box.getBoundingClientRect()
   const W = Math.max(1, Math.round(r.width)), H = Math.max(1, Math.round(r.height))
@@ -93,20 +91,23 @@ function drawStrip(canvas, { runs, pace, t0, spanMs, range, color, theme, lineWi
   const vm = Math.max(3, H * 0.1), [lo, hi] = range
   const yOf = (v) => H - vm - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (H - 2 * vm)
   const xOf = (t) => ((t - t0) / spanMs) * W
-  const tracer = new ColumnTracer(), stroker = new ColumnStroker(ctx, dpr)
-  stroker.begin(color, lineWidth)
-  let pT = null
-  for (const run of runs) {
-    for (let i = run.i0; i < run.i1; i++) {
-      const t = run.t0 + (i - run.i0) * run.step
-      const v = run.data[i * run.axes + run.axis] * run.scale
-      const gap = pT != null && t - pT > run.step * 1.5
-      tracer.point(xOf(t) * dpr, yOf(v) * dpr, gap, stroker.emit)
-      pT = t
+  // overlaid layers first (accel Y/Z), the main trace on top
+  for (const L of [...layers, { runs, color }]) {
+    const tracer = new ColumnTracer(), stroker = new ColumnStroker(ctx, dpr)
+    stroker.begin(L.color, lineWidth)
+    let pT = null
+    for (const run of L.runs) {
+      for (let i = run.i0; i < run.i1; i++) {
+        const t = run.t0 + (i - run.i0) * run.step
+        const v = run.data[i * run.axes + run.axis] * run.scale
+        const gap = pT != null && t - pT > run.step * 1.5
+        tracer.point(xOf(t) * dpr, yOf(v) * dpr, gap, stroker.emit)
+        pT = t
+      }
     }
+    if (tracer.col >= 0) tracer.flush(stroker.emit) // the last column too (nothing follows it)
+    stroker.end()
   }
-  if (tracer.col >= 0) tracer.flush(stroker.emit) // the last column too (nothing follows it)
-  stroker.end()
   if (live != null && live >= t0 && live < t0 + spanMs) { // sweep front of the live window
     const x = Math.round(xOf(live)) + 0.5
     ctx.strokeStyle = theme.paceLine[1] || '#fff'; ctx.lineWidth = 1; ctx.globalAlpha = 0.6
@@ -136,7 +137,7 @@ function Window({ t0, spanMs, loaded, pace, theme, onVisible, keys, fresh }) {
     const ecg = { key: 'ecg', range: [-1.5, 2.0], color: '#3ddc84', h: 'hx-ecg', lw: 1.6, grid: true }
     const thin = []
     if (keys.has('ppg')) thin.push({ key: 'ppg', range: [-1.2, 1.5], color: '#7cc4ff', h: 'hx-thin', lw: 1.1 })
-    if (keys.has('accel')) thin.push({ key: 'accel', axis: 0, range: [-1.6, 1.6], color: '#ff9783', h: 'hx-thin', lw: 1.1 })
+    if (keys.has('accel')) thin.push({ key: 'accel', axis: 0, over: [1, 2], range: [-1.6, 1.6], color: ACCEL_COLORS[0], h: 'hx-thin', lw: 1.1 })
     if (keys.has('resp_wave')) thin.push({ key: 'resp_wave', range: [-1.5, 1.5], color: '#f5d442', h: 'hx-thin', lw: 1.1 })
     return [ecg, ...thin]
   }, [keys])
@@ -148,17 +149,20 @@ function Window({ t0, spanMs, loaded, pace, theme, onVisible, keys, fresh }) {
       if (!c) return
       // stored copy vs the live strip's handoff: take whichever covers more of this window (the store lags by
       // seconds right after a rollover; the handoff has gaps if the viewer stalled while it was live)
-      const stored = slice(loaded, row.key, row.axis || 0, t0, t1)
-      const live = runsFromSamples(fresh?.find((x) => x.key === row.key), t0, t1)
-      const runs = samplesIn(live) > samplesIn(stored) ? live : stored
-      drawStrip(c, { runs, pace: row.key === 'ecg' ? pace : [], t0, spanMs, range: row.range, color: row.color, theme, lineWidth: row.lw, grid: !!row.grid })
+      const pick = (axis) => {
+        const stored = slice(loaded, row.key, axis, t0, t1)
+        const live = runsFromSamples(fresh?.find((x) => x.key === row.key && (x.axis || 0) === axis), t0, t1)
+        return samplesIn(live) > samplesIn(stored) ? live : stored
+      }
+      const layers = (row.over || []).map((ax) => ({ runs: pick(ax), color: ACCEL_COLORS[ax] }))
+      drawStrip(c, { runs: pick(row.axis || 0), layers, pace: row.key === 'ecg' ? pace : [], t0, spanMs, range: row.range, color: row.color, theme, lineWidth: row.lw, grid: !!row.grid })
     })
   }, [visible, loaded, pace, rows, t0, t1, spanMs, theme, fresh])
   const has = loaded.length > 0
   return (
     <div ref={ref} className="hx-win">
       <div className="hx-win-t"><b>{fmtTime(t0)}</b><span className="ds-dim"> ~ {fmtTime(t1)}</span>{!has && <span className="ds-dim"> · 불러오는 중…</span>}</div>
-      {rows.map((row, i) => <div key={row.key} className={'hx-box ' + row.h}><canvas ref={(el) => { canvases.current[i] = el }} /><span className="hx-lbl" style={{ color: row.color }}>{row.key === 'ecg' ? 'ECG' : row.key === 'ppg' ? 'Pleth' : row.key === 'accel' ? 'Accel' : 'Resp'}</span></div>)}
+      {rows.map((row, i) => <div key={row.key} className={'hx-box ' + row.h}><canvas ref={(el) => { canvases.current[i] = el }} />{row.key === 'accel' ? <AccelLegend /> : <span className="hx-lbl" style={{ color: row.color }}>{row.key === 'ecg' ? 'ECG' : row.key === 'ppg' ? 'Pleth' : 'Resp'}</span>}</div>)}
     </div>
   )
 }
@@ -173,24 +177,36 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
   const rows = useMemo(() => {
     const r = [{ key: 'ecg', ring: 'ecg', range: [-1.5, 2.0], color: '#3ddc84', h: 'hx-ecg', lw: 1.6, grid: true, label: 'ECG' }]
     if (keys.has('ppg')) r.push({ key: 'ppg', ring: 'ppg', range: [-1.2, 1.5], color: '#7cc4ff', h: 'hx-thin', lw: 1.1, label: 'Pleth' })
-    if (keys.has('accel')) r.push({ key: 'accel', ring: 'accel0', range: [-1.6, 1.6], color: '#ff9783', h: 'hx-thin', lw: 1.1, label: 'Accel' })
+    if (keys.has('accel')) {
+      // Y and Z trace onto X's canvas (overlay rows: no box of their own, no background of their own)
+      const base = r.length
+      r.push({ key: 'accel', ring: 'accel0', axis: 0, range: [-1.6, 1.6], color: ACCEL_COLORS[0], h: 'hx-thin', lw: 1.1, label: 'Accel' })
+      for (const ax of [1, 2]) r.push({ key: 'accel', ring: `accel${ax}`, axis: ax, base, range: [-1.6, 1.6], color: ACCEL_COLORS[ax], lw: 1.1 })
+    }
     if (keys.has('resp_wave')) r.push({ key: 'resp_wave', ring: 'resp_wave', range: [-1.5, 1.5], color: '#f5d442', h: 'hx-thin', lw: 1.1, label: 'Resp' })
     return r
   }, [keys])
   const loadedRef = useRef(loaded); loadedRef.current = loaded
   useEffect(() => {
     // per row: canvas prep + persistent tracer state
-    const S = rows.map(() => ({ ctx: null, W: 0, H: 0, dpr: 1, grid: null, tracer: new ColumnTracer(), stroker: null, drawn: 0, pT: null, barX: null, seeded: false, t: [], v: [], lastAbs: null, fs: 250 }))
+    const S = rows.map(() => ({ gen: 0, ctx: null, W: 0, H: 0, dpr: 1, grid: null, tracer: new ColumnTracer(), stroker: null, drawn: 0, pT: null, barX: null, seeded: false, t: [], v: [], lastAbs: null, fs: 250 }))
     let cur = null, curAt = 0, paceSeen = null
     const pace = [], paceDrawn = new Set()
     const prep = (i) => {
-      const st = S[i], canvas = canvases.current[i]
+      const st = S[i]
+      if (rows[i].base != null) { // overlay row: borrow the base row's canvas; "resized" when the base was
+        const b = S[rows[i].base]
+        if (!b.ctx || st.gen === b.gen) return false
+        st.gen = b.gen; st.ctx = b.ctx; st.W = b.W; st.H = b.H; st.dpr = b.dpr; st.stroker = new ColumnStroker(b.ctx, b.dpr)
+        return true
+      }
+      const canvas = canvases.current[i]
       if (!canvas) return false
       const r = canvas.parentElement.getBoundingClientRect()
       const W = Math.max(1, Math.round(r.width)), H = Math.max(1, Math.round(r.height)), dpr = Math.min(window.devicePixelRatio || 1, 2)
       const resized = W !== st.W || H !== st.H
       if (resized) {
-        st.W = W; st.H = H; st.dpr = dpr
+        st.W = W; st.H = H; st.dpr = dpr; st.gen++
         canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr)
         st.ctx = canvas.getContext('2d'); st.ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
         st.grid = document.createElement('canvas'); st.grid.width = canvas.width; st.grid.height = canvas.height
@@ -207,7 +223,7 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
       }
       return resized
     }
-    const restart = (i) => { const st = S[i]; if (!st.ctx) return; st.ctx.drawImage(st.grid, 0, 0, st.W, st.H); st.tracer.reset(); st.stroker.reset(); st.drawn = 0; st.pT = null; st.barX = null; st.seeded = false }
+    const restart = (i) => { const st = S[i]; if (!st.ctx) return; if (rows[i].base == null) st.ctx.drawImage(st.grid, 0, 0, st.W, st.H); st.tracer.reset(); st.stroker.reset(); st.drawn = 0; st.pT = null; st.barX = null; st.seeded = false }
     const yOf = (st, range, v) => { const vm = Math.max(3, st.H * 0.1), [lo, hi] = range; return st.H - vm - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (st.H - 2 * vm) }
     const xOf = (st, t) => ((t - cur) / spanMs) * st.W
     const traceRuns = (i, runs) => {
@@ -248,7 +264,7 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
         if (prev != null) pull(w0 - 1, cur)
         // hand the finished window's own samples over: the store needs up to ~15 s to hold that last minute,
         // and until then a strip drawn from it is missing its tail
-        const snap = prev == null ? null : rows.map((row, i) => ({ key: row.key, fs: S[i].fs, t: S[i].t.slice(), v: S[i].v.slice() }))
+        const snap = prev == null ? null : rows.map((row, i) => ({ key: row.key, axis: row.axis || 0, fs: S[i].fs, t: S[i].t.slice(), v: S[i].v.slice() }))
         cur = w0; curAt = performance.now(); pace.length = 0; paceDrawn.clear()
         for (let i = 0; i < S.length; i++) { S[i].t = []; S[i].v = []; S[i].lastAbs = null; prep(i); restart(i) }
         setT0(w0); onWindow?.(w0); if (prev != null) onRollover?.(prev, snap)
@@ -274,7 +290,7 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
         if (!st.seeded) {
           const ringStart = st.t.length ? st.t[0] : T
           const needSeed = ringStart > cur + 400
-          const stored = needSeed ? slice(loadedRef.current, row.key, 0, cur, ringStart) : []
+          const stored = needSeed ? slice(loadedRef.current, row.key, row.axis || 0, cur, ringStart) : []
           if (!needSeed || stored.length || performance.now() - curAt > 2500) {
             if (stored.length) traceRuns(i, stored)
             st.seeded = true
@@ -310,7 +326,7 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
   return (
     <div className="hx-win hx-live">
       <div className="hx-win-t"><b>{t0 != null ? fmtTime(t0) : '--:--:--'}</b><span className="ds-dim"> ~ {t0 != null ? fmtTime(t0 + spanMs) : ''}</span><span className="hx-live-tag">LIVE</span></div>
-      {rows.map((row, i) => <div key={row.key} className={'hx-box ' + row.h}><canvas ref={(el) => { canvases.current[i] = el }} /><span className="hx-lbl" style={{ color: row.color }}>{row.label}</span></div>)}
+      {rows.map((row, i) => row.base == null && <div key={row.key} className={'hx-box ' + row.h}><canvas ref={(el) => { canvases.current[i] = el }} />{row.key === 'accel' ? <AccelLegend /> : <span className="hx-lbl" style={{ color: row.color }}>{row.label}</span>}</div>)}
     </div>
   )
 }
@@ -415,7 +431,7 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
         <label className="hx-h"><span className="ds-dim">높이</span><input type="range" min="60" max="320" step="10" value={height} onChange={(e) => setHeight(Number(e.target.value))} title={`ECG ${height}px`} /><span className="ds-dim">{height}px</span></label>
         <span className="ds-dim">{loading ? '불러오는 중…' : `${(ix.records || 0).toLocaleString()} 레코드 · ${hours.length}개 시간 파일`}</span>
         <span className="spacer" />
-        <button className="btn btn-secondary" onClick={onClose}>실시간으로</button>
+        {!compact && <button className="btn btn-secondary" onClick={onClose}>실시간으로</button>}
       </div>
       <div className="hx-hours">{hours.map((f, i) => {
         const start = hourStart(f.hour), end = start + 3600000

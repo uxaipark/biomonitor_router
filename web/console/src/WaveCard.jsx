@@ -14,12 +14,12 @@ const WAVE_W = { normal: 460, compact: 300, dense: 300 }
 
 // Sweep-style ECG canvas (incremental drawing, shared rAF loop, auto-scaling envelope) — ported from the
 // 2026-08 viewer's ChannelCard. `id` is the patch id; the trace reads the `${id}:${wave}` ring.
-export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height }) {
+export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height, width }) {
   const canvasRef = useRef(null)
   const H = height || WAVE_H[density] || WAVE_H.normal
   useEffect(() => {
     const canvas = canvasRef.current
-    const W = WAVE_W[density] || 460
+    const W = width || WAVE_W[density] || 460
     const dpr = Math.min(window.devicePixelRatio || 1, density === 'normal' ? 2 : 1.25)
     const css = getComputedStyle(document.documentElement)
     const bg = css.getPropertyValue('--wave-bg').trim() || '#0b1220'
@@ -193,8 +193,8 @@ export function WaveCanvas({ id, wave = 'ecg', density = 'normal', color, height
     }
     const unregister = registerDraw(draw)
     return () => { unregister(); io.disconnect(); offMode() }
-  }, [id, wave, H, density, color])
-  return <canvas ref={canvasRef} width={WAVE_W[density] || 460} height={H} className="wave" />
+  }, [id, wave, H, density, color, width])
+  return <canvas ref={canvasRef} width={width || WAVE_W[density] || 460} height={H} className="wave" />
 }
 
 const V = ({ label, value, unit, cls }) => (
