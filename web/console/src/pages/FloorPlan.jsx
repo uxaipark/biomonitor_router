@@ -311,7 +311,7 @@ function ScaleBar({ k, height }) {
   )
 }
 
-export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, patientsByRoom, overlay, onPickRoom, picked }) {
+export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, patientsByRoom, overlay, onPickRoom, picked, focus, onZoomChange }) {
   const wrap = useRef(null)
   const [box, setBox] = useState({ w: 900, h: 560 })
   const [view, setView] = useState(null) // {k, x, y} — k: px per meter
@@ -325,27 +325,41 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, 
     return () => ro.disconnect()
   }, [])
 
+  // 기본 배율(층 전체가 들어오는 값)과 확대 배율 — 에뮬레이터 평면도처럼 2.5배 한 단계
+  const ZOOM = 2.5
+  const fitK = Math.min((box.w - 56) / W, (box.h - 56) / D)
   const fit = useCallback(() => {
-    const pad = 28
-    const k = Math.min((box.w - pad * 2) / W, (box.h - pad * 2) / D)
+    const k = Math.min((box.w - 56) / W, (box.h - 56) / D)
     setView({ k, x: (box.w - W * k) / 2, y: (box.h - D * k) / 2 })
   }, [box, W, D])
   useEffect(() => { fit() }, [fit, floor.building_idx, floor.floor])
 
   const v = view || { k: 1, x: 0, y: 0 }
-  const onWheel = (e) => {
+  const zoomed = v.k > fitK * 1.05
+  useEffect(() => { onZoomChange?.(zoomed) }, [zoomed]) // eslint-disable-line react-hooks/exhaustive-deps
+  /** 도면 좌표 (mx, my) 를 화면 가운데에 두고 2.5배로 — 층 밖이 보이지 않게 가장자리는 붙인다 */
+  const zoomTo = useCallback((mx, my) => {
+    const k = fitK * ZOOM
+    const cx = Math.min(Math.max(mx, box.w / 2 / k), W - box.w / 2 / k)
+    const cy = Math.min(Math.max(my, box.h / 2 / k), D - box.h / 2 / k)
+    setView({ k, x: box.w / 2 - (W * k > box.w ? cx : W / 2) * k, y: box.h / 2 - (D * k > box.h ? cy : D / 2) * k })
+  }, [fitK, box, W, D])
+  // 바깥(검색 등)에서 특정 지점으로 확대 요청: focus = { x, y, seq } — seq 가 바뀔 때마다 한 번
+  useEffect(() => { if (focus) zoomTo(focus.x, focus.y) }, [focus?.seq]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (focus === null) fit() }, [focus]) // eslint-disable-line react-hooks/exhaustive-deps
+  /** 빈 곳(방·환자·게이트웨이·버튼이 아닌 곳) 클릭: 확대 ↔ 원래 배율 */
+  const onPlanClick = (e) => {
+    if (e.target.closest('.rm, .pat, .gwm, .plan-zoom')) return
+    if (zoomed) { fit(); return }
     const rect = wrap.current.getBoundingClientRect()
-    const mx = e.clientX - rect.left, my = e.clientY - rect.top
-    const f = Math.exp(-e.deltaY * 0.0015)
-    const k = Math.min(Math.max(v.k * f, 2), 120)
-    setView({ k, x: mx - ((mx - v.x) * k) / v.k, y: my - ((my - v.y) * k) / v.k })
+    zoomTo((e.clientX - rect.left - v.x) / v.k, (e.clientY - rect.top - v.y) / v.k)
   }
   // 끌어서 이동. 누르는 순간 포인터를 가로채면 방·환자·게이트웨이의 click 이 wrapper 로 가 버리므로,
   // 4 px 넘게 움직여 "끌기"가 확정된 뒤에만 가로채고, 끌기 직후 따라오는 click 은 한 번 버린다.
   const drag = useRef(null)
   const suppressClick = useRef(false)
   const onDown = (e) => {
-    if (e.button !== 0) return
+    if (e.button !== 0 || !zoomed) return // 원래 배율에서는 끌어도 움직이지 않는다
     drag.current = { x: e.clientX, y: e.clientY, vx: v.x, vy: v.y, moved: false, id: e.pointerId }
   }
   const onMove = (e) => {
@@ -392,7 +406,7 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, 
   }, [W, D])
 
   return (
-    <div className="plan-wrap" ref={wrap} onWheel={onWheel} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onClickCapture={onClickCapture}>
+    <div className={'plan-wrap' + (zoomed ? ' zoomed' : '')} ref={wrap} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onClickCapture={onClickCapture} onClick={onPlanClick}>
       <svg className="plan" width={box.w} height={box.h}>
         <defs>
           <pattern id="hatch" width="1.1" height="1.1" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -472,9 +486,7 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, 
         </g>
       </svg>
       <div className="plan-zoom">
-        <button onClick={() => setView({ ...v, k: Math.min(v.k * 1.3, 120) })} title="확대">+</button>
-        <button onClick={() => setView({ ...v, k: Math.max(v.k / 1.3, 2) })} title="축소">−</button>
-        <button onClick={fit} title="전체 보기">⤢</button>
+        <button onClick={() => (zoomed ? fit() : zoomTo(W / 2, D / 2))} title={zoomed ? '원래 배율' : '확대 (빈 곳을 눌러도 됩니다)'}>{zoomed ? '−' : '+'}</button>
       </div>
     </div>
   )

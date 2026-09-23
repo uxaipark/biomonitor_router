@@ -242,8 +242,10 @@ canvas.wave { width: 100%; display: block; border-radius: 6px; }
   --c-other: #1b2026; --c-other-ink: #8e97a4;
 }
 
-.plan-wrap { position: relative; background: var(--plan-paper); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; touch-action: none; cursor: grab; }
-.plan-wrap:active { cursor: grabbing; }
+.plan-wrap { position: relative; background: var(--plan-paper); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; touch-action: none; cursor: zoom-in; }
+.plan-wrap.zoomed { cursor: grab; }
+.plan-wrap.zoomed:active { cursor: grabbing; }
+.plan-wrap .rm, .plan-wrap .pat, .plan-wrap .gwm { cursor: pointer; }
 svg.plan { display: block; }
 .slab { fill: var(--plan-slab); }
 .grid line { stroke: var(--plan-grid); stroke-width: .05; }
@@ -508,3 +510,13 @@ button.danger:hover { background: var(--err); color: #fff; }
 .cov-hatch { stroke: #4a5560; stroke-width: .04; stroke-opacity: .7; }
 [data-theme="dark"] .cov-dead, :root:not([data-theme="light"]) .cov-dead { fill: #000; fill-opacity: .35; }
 [data-theme="dark"] .cov-hatch, :root:not([data-theme="light"]) .cov-hatch { stroke: #8b9bb0; stroke-opacity: .45; }
+
+/* 병원 지도 검색 — 결과 목록과 하이라이트 링 (에뮬레이터 평면도와 같은 빨간 맥동 링) */
+.map-search { position: relative; display: inline-block; }
+.map-search input { width: 210px; min-width: 0; }
+.ms-list { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; min-width: 320px; max-height: 360px; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 4px; }
+.ms-item { padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+.ms-item:hover { background: var(--panel2); }
+.ms-item small { color: var(--muted); margin-left: 4px; }
+.ms-empty { padding: 8px; color: var(--muted); font-size: 13px; }
+.hl-ring { fill: none; stroke: #ff3b3b; stroke-width: .22; }

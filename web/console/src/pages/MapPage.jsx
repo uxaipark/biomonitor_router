@@ -7,6 +7,18 @@ import FloorPlan, { LEGEND, LOD, fixtureBox, bedBox, wallSegments, coveragePolyg
 
 const SEV_RANK = { critical: 4, high: 3, medium: 2, low: 1 }
 
+// 한글 자모 단위 비교 — 에뮬레이터 평면도 검색과 같다: 조합 중인 글자('안재ㅁ')도 '안재민'에 걸린다
+const JAMO_L = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ', JAMO_V = 'ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ'
+const JAMO_T = ['', 'ㄱ', 'ㄲ', 'ㄳ', 'ㄴ', 'ㄵ', 'ㄶ', 'ㄷ', 'ㄹ', 'ㄺ', 'ㄻ', 'ㄼ', 'ㄽ', 'ㄾ', 'ㄿ', 'ㅀ', 'ㅁ', 'ㅂ', 'ㅄ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ']
+const jamo = (str) => {
+  let out = ''
+  for (const ch of str) {
+    const c = ch.charCodeAt(0) - 0xac00
+    out += c >= 0 && c < 11172 ? JAMO_L[Math.floor(c / 588)] + JAMO_V[Math.floor((c % 588) / 28)] + JAMO_T[c % 28] : ch
+  }
+  return out
+}
+
 // 글자 폭(m) — 에뮬레이터 app.js textWidth 와 같은 근사: 한글·한자·가나 0.98, 대문자·숫자 0.66, 공백 0.32, 그 밖 0.56 (× 글자 크기)
 const textWidth = (str, fs) => {
   let w = 0
@@ -31,6 +43,11 @@ export default function MapPage({ alarms, hash }) {
   const [pick, setPick] = useState(null) // { room } | { gw }
   const [covMode, setCovMode] = useState(() => { try { return localStorage.getItem('map.cov') === '1' } catch { return false } })
   const [hoverGw, setHoverGw] = useState(null) // 마우스를 올린 게이트웨이 번호 → 반투명 커버리지
+  // 검색·하이라이트 (에뮬레이터 평면도와 같은 동작): 고르면 그 층으로 가서 빨간 링 + 확대, 검색어를 지우면 원래대로
+  const [q, setQ] = useState('')
+  const [qOpen, setQOpen] = useState(false)
+  const [hl, setHl] = useState(null) // { type: 'patient', id } | { type: 'gw', no }
+  const [focus, setFocus] = useState(undefined) // FloorPlan 확대 요청 { x, y, seq } / null = 원래 배율
   useEffect(() => { try { localStorage.setItem('map.cov', covMode ? '1' : '0') } catch { /* ignore */ } }, [covMode])
   useEffect(() => { api.emu.layout().then(setLayout).catch((e) => setErr(String(e))) }, [])
   useEffect(() => { if (sel) try { localStorage.setItem('map.sel', JSON.stringify(sel)) } catch { /* ignore */ } }, [sel])
@@ -64,6 +81,33 @@ export default function MapPage({ alarms, hash }) {
     return { value: b.idx, label: b.name, count: n }
   }), [buildings, floors, byRoom])
   const floorGws = useMemo(() => (layout?.gateways || []).filter((g) => cur && g.mount !== 'mobile' && g.building_idx === cur.building_idx && g.floor === cur.floor), [layout, cur])
+  // 검색 결과: 환자(이름 자모·MRN·패치 번호·환자 id), 게이트웨이(#번호·ID·방) 각 6개
+  const results = useMemo(() => {
+    const t = q.trim().toLowerCase()
+    if (!t) return { pats: [], gws: [] }
+    const tj = jamo(t), tn = t.replace(/^#/, '')
+    const pats = t.startsWith('#') ? [] : (rows || []).filter((r) => {
+      const n = (r.patient?.name || '').toLowerCase()
+      return n.includes(t) || jamo(n).includes(tj) || (r.mrn || '').toLowerCase().includes(t) || String(r.channel_id) === t || String(r.patient_id) === t
+    }).slice(0, 6)
+    const gws = (layout?.gateways || []).filter((g) => g.mount !== 'mobile' && (String(g.gw_no) === tn || g.id.toLowerCase().includes(t) || (g.room || '').toLowerCase().includes(t))).slice(0, 6)
+    return { pats, gws }
+  }, [q, rows, layout])
+  const bIdxByName = useMemo(() => new Map(buildings.map((b) => [b.name, b.idx])), [buildings])
+  const pickResult = (it) => {
+    setQOpen(false)
+    if (it.kind === 'patient') {
+      const r = it.row
+      const b = bIdxByName.get(r.patient?.building), f = parseInt(r.patient?.floor, 10)
+      if (b == null || !f || !floors.some((x) => x.building_idx === b && x.floor === f)) { setHl(null); window.alert('현재 도면에 없음 (원외·이동 중)'); return }
+      setSel({ b, f }); setHl({ type: 'patient', id: String(r.channel_id) })
+    } else {
+      const g = it.g
+      setSel({ b: g.building_idx, f: g.floor }); setHl({ type: 'gw', no: String(g.gw_no) })
+    }
+  }
+  const clearSearch = (v) => { setQ(v); if (!v.trim() && hl) { setHl(null); setFocus(null) } }
+
   // RF 커버리지: 벽 선분과 게이트웨이별 다각형은 층이 바뀔 때만 다시 계산한다 (광선 240개 × 벽 수 × 게이트웨이 수)
   const covPolys = useMemo(() => {
     if (!cur) return new Map()
@@ -148,6 +192,15 @@ export default function MapPage({ alarms, hash }) {
     return out
   }, [cur, byRoom, placements])
 
+  const hlPoint = useMemo(() => {
+    if (!hl || !cur) return null
+    if (hl.type === 'patient') { const L = nameLayout.get(hl.id); return L ? { x: L.px + L.dx, y: L.py } : null }
+    const g = floorGws.find((x) => String(x.gw_no) === hl.no)
+    return g ? { x: g.x, y: g.y } : null
+  }, [hl, cur, nameLayout, floorGws])
+  const hlKey = hl && hlPoint ? `${hl.type}:${hl.id || hl.no}:${cur?.building_idx}:${cur?.floor}` : null
+  useEffect(() => { if (hlKey) setFocus({ x: hlPoint.x, y: hlPoint.y, seq: hlKey + Date.now() }) }, [hlKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
   if (err) return <div className="page"><p className="err">도면을 불러오지 못했습니다: {err} (에뮬레이터 연결 확인)</p></div>
   if (!layout || !cur) return <div className="page"><p className="muted">도면 불러오는 중…</p></div>
 
@@ -168,6 +221,25 @@ export default function MapPage({ alarms, hash }) {
         </span>
         <span className="muted">{cur.name} · {cur.kind} · 환자 {stats.patients}명 · 알람 {stats.alarm}</span>
         <span className="spacer" />
+        <span className="map-search">
+          <input value={q} placeholder="환자·게이트웨이 검색 (이름, MRN, 패치, #번호)" onChange={(e) => { clearSearch(e.target.value); setQOpen(true) }}
+            onFocus={() => setQOpen(true)} onBlur={() => setTimeout(() => setQOpen(false), 150)} onKeyDown={(e) => { if (e.key === 'Escape') { clearSearch(''); e.currentTarget.blur() } }} />
+          {qOpen && q.trim() && (
+            <div className="ms-list">
+              {results.pats.map((r) => (
+                <div key={'p' + r.channel_id} className="ms-item" onMouseDown={() => pickResult({ kind: 'patient', row: r })}>
+                  🧑‍⚕️ <b>{r.patient?.name || r.mrn}</b> <small>{r.patient?.bed || r.patient?.room || ''} · {r.patient?.ward || ''} · {r.patient?.building || ''} {r.patient?.floor ? r.patient.floor + 'F' : ''}</small>
+                </div>
+              ))}
+              {results.gws.map((g) => (
+                <div key={'g' + g.gw_no} className="ms-item" onMouseDown={() => pickResult({ kind: 'gw', g })}>
+                  📡 <b>{g.id}</b> #{g.gw_no} <small>{buildings.find((b) => b.idx === g.building_idx)?.name || ''} {g.floor}F {g.room || ''}</small>
+                </div>
+              ))}
+              {!results.pats.length && !results.gws.length && <div className="ms-empty">결과 없음</div>}
+            </div>
+          )}
+        </span>
         <button className={covMode ? 'primary' : ''} onClick={() => setCovMode(!covMode)} title="모든 게이트웨이의 커버리지를 합쳐 음영지역(빗금)을 표시합니다. 게이트웨이에 마우스를 올리면 그 게이트웨이의 커버리지가 보입니다.">커버리지</button>
         <span className="legend">
           환자 신호 <i className="dot q-good" />양호 <i className="dot q-fair" />보통 <i className="dot q-weak" />약함 <i className="dot q-poor" />매우 약함 <i className="dot q-lost" />끊김
@@ -184,6 +256,7 @@ export default function MapPage({ alarms, hash }) {
           corridors={cur.corridors}
           fixtures={cur.fixtures}
           markers={floorGws}
+          focus={focus}
           patientsByRoom={byRoom}
           picked={pick?.room}
           onPickRoom={(id) => setPick({ room: id })}
@@ -208,6 +281,14 @@ export default function MapPage({ alarms, hash }) {
                       <rect x="0" y="0" width={cur.width} height={cur.depth} className="cov-dead" />
                       <rect x="0" y="0" width={cur.width} height={cur.depth} fill="url(#covhatch)" />
                     </g>
+                  </g>
+                )}
+                {hlPoint && (
+                  <g className="hl" pointerEvents="none">
+                    <circle cx={hlPoint.x} cy={hlPoint.y} r="1.6" className="hl-ring">
+                      <animate attributeName="r" values="1.2;2.16;1.2" dur="1.4s" repeatCount="indefinite" />
+                      <animate attributeName="stroke-opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite" />
+                    </circle>
                   </g>
                 )}
                 {hoverGw && covPolys.get(hoverGw) && (() => {
