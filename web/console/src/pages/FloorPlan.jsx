@@ -248,8 +248,16 @@ function RoomLabel({ r, count, k, obstacles }) {
   const raw = r.name || r.id
   // "02 격리(음압)" 처럼 번호로 시작할 때만 번호/설명으로 나눈다 ("간호사실 A" 는 한 덩어리)
   const m = /^(\d+[A-Za-z]?)\s+(.+)$/.exec(raw)
-  const head = m ? m[1] : raw
-  const tail = m ? m[2] : isWard ? null : (CATEGORY[r.kind] || [null, r.kind])[1]
+  let head = m ? m[1] : raw
+  let tail = m ? m[2] : isWard ? null : (CATEGORY[r.kind] || [null, r.kind])[1]
+  // 병실은 층마다 A·B 두 병동에 같은 호실 번호가 있으므로 층·호실·구역을 모두 쓴다:
+  // id "103A01" = 건물 1 · 03층 · A병동 · 01호 → "301호" + "3A병동" (격리실은 "3A병동 격리(음압)")
+  const wid = isWard && /^\d(\d\d)([A-Z])(\d\d)$/.exec(r.id)
+  if (wid) {
+    const fl = parseInt(wid[1], 10)
+    head = `${fl}${wid[3]}호`
+    tail = `${fl}${wid[2]}병동` + (m ? ` ${m[2]}` : '')
+  }
   const hasBeds = (r.beds?.length || 0) > 0
   const badge = count > 0 && !hasBeds && b.h >= 2.2
   const top = b.y + 0.3, bottom = b.y + b.h - 0.3 - (badge ? 0.95 : 0)
@@ -257,22 +265,34 @@ function RoomLabel({ r, count, k, obstacles }) {
   // 후보 자리: (가운데 폭 전체 | 좌·우 절반 폭) × 세로 5단 × 글자 크기 3단계.
   // 점수: 겹침이 가장 나쁘고, 다음이 이름 잘림, 그다음 작은 글자, 마지막으로 가운데에서 먼 자리.
   const cols = [[r.cx, b.w], [b.x + b.w * 0.27, b.w * 0.5], [b.x + b.w * 0.73, b.w * 0.5]]
-  const rows = [0.5, 0.3, 0.7, 0.18, 0.82]
+  const rows = [0.5, 0.3, 0.7, 0.18, 0.82, 0.9, 0.1]
+  // 병실은 호실 표기를 출입문 가까이 둔다 (에뮬레이터 평면도와 같음) — 문짝이 열리는 자리는 비워 두고 그 옆 빈 곳으로
+  const seg = wid ? doorSegment(r) : null
+  const door = seg && { x: (seg[0][0] + seg[1][0]) / 2, y: (seg[0][1] + seg[1][1]) / 2 }
+  const swing = seg && (() => {
+    const [[x1, y1], [x2, y2]] = seg, w = Math.hypot(x2 - x1, y2 - y1)
+    let nx = -(y2 - y1) / w, ny = (x2 - x1) / w
+    if ((r.cx - door.x) * nx + (r.cy - door.y) * ny < 0) { nx = -nx; ny = -ny }
+    const xs = [x1, x2, x1 + nx * (w + 0.15), x2 + nx * (w + 0.15)], ys = [y1, y2, y1 + ny * (w + 0.15), y2 + ny * (w + 0.15)]
+    return { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }
+  })()
+  const obst = swing ? [...(obstacles || []), swing] : obstacles || []
   const maxSize = isWard ? 1.4 : 1.2
   let best = null
   cols.forEach(([cx, width], ci) => {
     ;[1, 0.8, 0.64].forEach((shrink, si) => {
       const t = layoutText(head, width, maxSize * shrink, !isWard)
-      const showSub = tail && b.h >= 2.6 && (k >= LOD.sub || !isWard)
-      const st = showSub ? layoutText(tail, width, Math.min(0.78, t.size * 0.68), false) : null
-      const blockH = t.lines.length * t.size * 1.08 + (st ? st.size + 0.2 : 0)
-      const textW = Math.min(width * 0.86, Math.max(...t.lines.map((l) => l.length * t.size * 0.95), st ? st.lines[0].length * st.size : 0))
+      const showSub = tail && (wid ? b.h >= 2.0 : b.h >= 2.6 && (k >= LOD.sub || !isWard))
+      const st = showSub ? layoutText(tail, width, Math.min(0.78, t.size * (wid ? 0.6 : 0.68)), !!wid) : null
+      const blockH = t.lines.length * t.size * 1.08 + (st ? st.lines.length * st.size * 1.1 + 0.2 : 0)
+      const textW = Math.min(width * 0.86, Math.max(...t.lines.map((l) => l.length * t.size * 0.95), ...(st ? st.lines.map((l) => l.length * st.size) : [0])))
       const cutName = t.lines.some((l) => l.endsWith('…'))
       rows.forEach((fy, ri) => {
         const cy = Math.min(Math.max(b.y + b.h * fy, top + blockH / 2), bottom - blockH / 2)
         const box = { x: cx - textW / 2, y: cy - blockH / 2, w: textW, h: blockH }
-        const hit = (obstacles || []).reduce((a, o) => a + overlap(box, o), 0)
-        const score = hit * 100 + (cutName ? 25 : 0) - t.size * 3 + si * 0.3 + ci * 0.4 + ri * 0.15
+        const hit = obst.reduce((a, o) => a + overlap(box, o), 0)
+        const near = door ? Math.hypot(cx - door.x, cy - door.y) * 0.9 : ci * 0.4 + ri * 0.15 // 문에서 멀수록 감점
+        const score = hit * 100 + (cutName ? 25 : 0) - t.size * 3 + si * 0.3 + near
         if (!best || score < best.score) best = { score, cx, cy, t, st, blockH }
       })
     })
@@ -285,7 +305,9 @@ function RoomLabel({ r, count, k, obstacles }) {
       {t.lines.map((line, i) => (
         <text key={i} x={cx} y={y0 + i * t.size * 1.08} className="rl-name" style={{ fontSize: `${t.size}px` }}>{line}</text>
       ))}
-      {st && <text x={cx} y={y0 + (t.lines.length - 1) * t.size * 1.08 + st.size + 0.2} className="rl-kind" style={{ fontSize: `${st.size}px` }}>{st.lines[0]}</text>}
+      {st && st.lines.map((line, i) => (
+        <text key={'s' + i} x={cx} y={y0 + (t.lines.length - 1) * t.size * 1.08 + st.size + 0.2 + i * st.size * 1.1} className="rl-kind" style={{ fontSize: `${st.size}px` }}>{line}</text>
+      ))}
       {badge && (
         <g className="rl-badge">
           <rect x={r.cx - 0.92} y={badgeY - 0.42} width="1.84" height="0.84" rx="0.42" />

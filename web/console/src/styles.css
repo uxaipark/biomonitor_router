@@ -529,5 +529,5 @@ button.danger:hover { background: var(--err); color: #fff; }
 .gw-load-track { fill: none; stroke: var(--line); stroke-width: .12; }
 .gw-load { fill: none; stroke: var(--accent); stroke-width: .14; stroke-linecap: round; }
 .gwm.gwwarn .gw-load { stroke: var(--warn); } .gwm.gwbad .gw-load { stroke: var(--err); } .gwm.gwoff .gw-load { stroke: var(--muted); }
-.gw-no { font-size: .5px; font-weight: 700; fill: var(--plan-ink); text-anchor: middle; paint-order: stroke; stroke: var(--plan-slab); stroke-width: .14; pointer-events: none; }
+.gw-no { font-size: .34px; font-weight: 600; fill: var(--plan-ink); text-anchor: middle; paint-order: stroke; stroke: var(--plan-slab); stroke-width: .14; pointer-events: none; }
 .legend .dot.gwwarn { background: var(--warn); border-radius: 2px; } .legend .dot.gwbad { background: var(--err); border-radius: 2px; } .legend .dot.gwoff { background: var(--muted); border-radius: 2px; }

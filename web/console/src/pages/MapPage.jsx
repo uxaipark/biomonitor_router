@@ -3,7 +3,7 @@ import { api, usePoll } from '../api.js'
 import { alarmIndex, gatewayAlarmIndex, GW_STATUS } from '../model.js'
 import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
-import FloorPlan, { LEGEND, LOD, fixtureBox, bedBox, wallSegments, coveragePolygon, polyPoints, COV_OPEN_M } from './FloorPlan.jsx'
+import FloorPlan, { LEGEND, LOD, bedBox, wallSegments, coveragePolygon, polyPoints, COV_OPEN_M } from './FloorPlan.jsx'
 
 const SEV_RANK = { critical: 4, high: 3, medium: 2, low: 1 }
 
@@ -351,15 +351,9 @@ export default function MapPage({ alarms, hash }) {
                   if (cls === 'gw' && k < LOD.gateway && mode === 'patients' && pick?.gw !== String(g.gw_no)) return null
                   const detail = mode === 'gw' || mode === 'coverage' // 상태 모드: 연결 부하 파이 + 번호
                   const load = detail && live && g.capacity ? Math.min(0.9999, (live.patches || 0) / g.capacity) : 0
-                  // 에뮬레이터가 준 천장 설치 좌표(환자 상체 무게중심) 그대로. 복도 게이트웨이가 복도 모니터와
-                  // 정확히 겹칠 때만 모니터 옆으로 살짝 비켜 그린다 (좌표는 그대로, 그림만)
-                  let gx = g.x, gy = g.y
-                  if (!cur.rooms.some((r) => r.id === g.room)) {
-                    for (const f of cur.fixtures || []) {
-                      const fb = fixtureBox(f)
-                      if (gx > fb.x - 0.45 && gx < fb.x + fb.w + 0.45 && gy > fb.y - 0.45 && gy < fb.y + fb.h + 0.45) { gx = fb.x + fb.w + 0.55; gy = f.y }
-                    }
-                  }
+                  // 게이트웨이는 에뮬레이터가 준 천장 설치 좌표 그대로 그린다 — 물리적 위치이므로 어떤 표기 때문에도 옮기지 않는다.
+                  // (방 이름표·환자 이름이 게이트웨이를 피해 간다)
+                  const gx = g.x, gy = g.y
                   return (
                     <g key={g.gw_no} className={'gwm ' + cls + (pick?.gw === String(g.gw_no) ? ' picked' : '')} onClick={(e) => { e.stopPropagation(); setPick({ gw: String(g.gw_no) }) }}
                       onMouseEnter={() => setHoverGw(String(g.gw_no))} onMouseLeave={() => setHoverGw(null)}>
@@ -371,7 +365,8 @@ export default function MapPage({ alarms, hash }) {
                       <path d={`M ${gx - 0.19} ${gy + 0.03} a 0.27 0.27 0 0 1 0.38 0`} className="gw-wave" />
                       <path d={`M ${gx - 0.095} ${gy + 0.13} a 0.135 0.135 0 0 1 0.19 0`} className="gw-wave" />
                       <circle cx={gx} cy={gy + 0.22} r="0.05" className="gw-dot" />
-                      {detail && <text x={gx} y={gy + 1.05} className="gw-no">#{g.gw_no}</text>}
+                      {/* 게이트웨이 번호는 고유번호 — 숫자만 아이콘 아래에 작게 */}
+                      <text x={gx} y={gy + (detail ? 0.95 : 0.78)} className="gw-no">{g.gw_no}</text>
                       <title>{g.id} #{g.gw_no} · {g.type} · {g.room}{live ? ` · ${live.connected ? '연결' : '끊김'} · 패치 ${live.patches}/${g.capacity || '—'} · ${GW_STATUS[live.status?.status] || ''}` : ' · 미접속'}{al ? ` · ${al.message}` : ''}</title>
                     </g>
                   )
