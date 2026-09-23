@@ -107,6 +107,48 @@ export function fixtureBox(f) {
 }
 const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
 
+/** 게이트웨이 RF 커버리지 — 에뮬레이터(emulator/web/static/app.js `coveragePolygon`)와 같은 규칙.
+ *  시야가 트이면 ~10 m 까지 닿고, 벽을 하나 지날 때마다 남은 거리가 절반이 된다(벽 1개 뒤 ~5 m, 2개 ~2.5 m).
+ *  벽 = 그려진 모든 방의 윤곽선, 복도는 트인 공간, 층 외곽에서는 멈춘다. 광선 240개. */
+export const COV_OPEN_M = 10.0, COV_WALL_ATT = 0.5, COV_RAYS = 240
+export function wallSegments(rooms) {
+  const segs = []
+  for (const r of rooms || []) {
+    if (r.ensuite || !r.poly) continue
+    const q = r.poly
+    for (let i = 0; i < q.length; i++) {
+      const a = q[i], b = q[(i + 1) % q.length]
+      if (Math.hypot(b[0] - a[0], b[1] - a[1]) > 0.05) segs.push([a[0], a[1], b[0], b[1]])
+    }
+  }
+  return segs
+}
+export function coveragePolygon(ox, oy, segs, W, D) {
+  const pts = []
+  for (let k = 0; k < COV_RAYS; k++) {
+    const a = (k / COV_RAYS) * 2 * Math.PI, dx = Math.cos(a), dy = Math.sin(a)
+    // 층 외곽까지 거리 (여기서 무조건 멈춘다)
+    let tb = Infinity
+    if (dx > 1e-9) tb = Math.min(tb, (W - ox) / dx); else if (dx < -1e-9) tb = Math.min(tb, -ox / dx)
+    if (dy > 1e-9) tb = Math.min(tb, (D - oy) / dy); else if (dy < -1e-9) tb = Math.min(tb, -oy / dy)
+    // 광선이 지나는 벽 (맞붙은 두 방의 같은 벽은 0.12 m 안이면 하나로 친다)
+    const hits = []
+    for (const [x1, y1, x2, y2] of segs) {
+      const ex = x2 - x1, ey = y2 - y1, den = dx * ey - dy * ex
+      if (Math.abs(den) < 1e-9) continue
+      const fx = x1 - ox, fy = y1 - oy, t = (fx * ey - fy * ex) / den, u = (fx * dy - fy * dx) / den
+      if (t > 0.05 && t < COV_OPEN_M && u >= 0 && u <= 1) hits.push(t)
+    }
+    hits.sort((p, q) => p - q)
+    let budget = COV_OPEN_M, last = -1
+    for (const t of hits) { if (t - last < 0.12) continue; last = t; if (t >= budget) break; budget = t + (budget - t) * COV_WALL_ATT }
+    const rr = Math.min(budget, tb)
+    pts.push([ox + dx * rr, oy + dy * rr])
+  }
+  return pts
+}
+export const polyPoints = (pts) => pts.map((p) => `${p[0].toFixed(2)},${p[1].toFixed(2)}`).join(' ')
+
 /** 확대 배율(px/m)에 따라 보이는 정보를 늘린다 — 멀리서는 방 번호만, 가까이서 부가 정보. */
 export const LOD = { sub: 14, gateway: 22, names: 34 }
 
@@ -359,6 +401,10 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, 
           <filter id="slab-shadow" x="-6%" y="-6%" width="112%" height="112%">
             <feDropShadow dx="0" dy="1.1" stdDeviation="1.4" floodOpacity="0.20" />
           </filter>
+          <filter id="covblur" x="-15%" y="-15%" width="130%" height="130%" filterUnits="objectBoundingBox"><feGaussianBlur stdDeviation="0.45" /></filter>
+          <pattern id="covhatch" width="0.5" height="0.5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <path d="M0,0.25 H0.5 M0.25,0 V0.5" className="cov-hatch" />
+          </pattern>
           <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
             <path d="M 0 1 L 9 5 L 0 9 z" className="arrow-head" />
           </marker>

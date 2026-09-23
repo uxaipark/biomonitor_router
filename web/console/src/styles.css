@@ -484,3 +484,27 @@ button.danger:hover { background: var(--err); color: #fff; }
 .net-row { display: flex; gap: 8px; align-items: center; }
 .net-row input { flex: 1 1 auto; min-width: 0; font-family: ui-monospace, monospace; }
 .settings .ok { color: var(--ok); }
+
+/* 환자 표식 — 에뮬레이터 평면도와 같은 규칙: 사람 아이콘 색 = 패치 신호 세기(RSSI), 이름은 항상 옆에 */
+:root { --q-good: #0e9f6e; --q-fair: #8bc34a; --q-weak: #f0a500; --q-poor: #e5602c; --q-lost: #d33; }
+.pat { cursor: pointer; }
+.pat-body { fill: var(--q-good); }
+.pat.q-fair .pat-body { fill: var(--q-fair); } .pat.q-weak .pat-body { fill: var(--q-weak); }
+.pat.q-poor .pat-body { fill: var(--q-poor); } .pat.q-lost .pat-body { fill: var(--q-lost); }
+.pat-head { fill: #fff; }
+.pat-lead { fill: var(--warn); stroke: #fff; stroke-width: .05; }
+.pat-halo { fill: none; stroke: var(--sev-high); stroke-width: .14; animation: pat-halo 1.4s ease-out infinite; }
+.pat.sev-critical .pat-halo { stroke: var(--sev-critical); } .pat.sev-medium .pat-halo { stroke: var(--sev-medium); } .pat.sev-low .pat-halo { stroke: var(--sev-low); }
+@keyframes pat-halo { 0% { r: .5; opacity: .95; } 100% { r: 1.1; opacity: 0; } }
+.plbl.left { text-anchor: end; }
+.plbl { font-size: .52px; fill: var(--plan-ink); text-anchor: start; paint-order: stroke; stroke: var(--plan-slab); stroke-width: .16; stroke-linejoin: round; pointer-events: none; }
+.legend .dot.q-good { background: var(--q-good); } .legend .dot.q-fair { background: var(--q-fair); } .legend .dot.q-weak { background: var(--q-weak); }
+.legend .dot.q-poor { background: var(--q-poor); } .legend .dot.q-lost { background: var(--q-lost); }
+
+/* 게이트웨이 커버리지 — 마우스 올린 게이트웨이는 반투명 영역 + 10 m 점선 원, 커버리지 모드는 음영지역 빗금 */
+.cov-area { fill: var(--accent); fill-opacity: .28; }
+.cov-ring { fill: none; stroke: var(--accent); stroke-opacity: .35; stroke-width: .05; stroke-dasharray: .4 .3; }
+.cov-dead { fill: #4a5560; fill-opacity: .16; }
+.cov-hatch { stroke: #4a5560; stroke-width: .04; stroke-opacity: .7; }
+[data-theme="dark"] .cov-dead, :root:not([data-theme="light"]) .cov-dead { fill: #000; fill-opacity: .35; }
+[data-theme="dark"] .cov-hatch, :root:not([data-theme="light"]) .cov-hatch { stroke: #8b9bb0; stroke-opacity: .45; }
