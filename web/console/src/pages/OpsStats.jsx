@@ -34,7 +34,7 @@ function Chart({ points, series, range, height = 130, unit = '', stack = false }
   const x = (i) => pad.l + (points.length < 2 ? 0 : (i / (points.length - 1)) * (W - pad.l - pad.r))
   const y = (v) => H - pad.b - (Math.max(0, v) / top) * (H - pad.t - pad.b)
   const path = (s) => vals(s).map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
-  const area = (s) => `${path(s)} L${x(points.length - 1).toFixed(1)},${y(0)} L${x(0).toFixed(1)},${y(0)} Z`
+  const area = (s) => !points.length ? '' : `${path(s)} L${x(points.length - 1).toFixed(1)},${y(0)} L${x(0).toFixed(1)},${y(0)} Z`
   const ticks = [0, 0.5, 1].map((f) => top * f)
   const label = (v) => (unit === 'B' ? fmtBytes(v) : unit === '%' ? `${v.toFixed(0)}%` : v >= 1000 ? fmtNum(Math.round(v)) : v.toFixed(v < 10 ? 1 : 0))
   return (
