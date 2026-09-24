@@ -93,6 +93,9 @@ pub struct Alarm {
     pub patient_id: u32,
     pub patient_name: String,
     pub room: String,
+    /// 지금 있는 곳(게이트웨이의 방) — 입원 병실(`room`)과 다를 때만 (검사·이동 중)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub now: String,
     pub value: String,
     pub message: String,
     pub since_ms: u64,
@@ -111,6 +114,7 @@ struct Observed {
     patient_id: u32,
     patient_name: String,
     room: String,
+    now: String,
     value: String,
     message: String,
     /// Sustain required before raising (seconds).
@@ -210,6 +214,8 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
         }
         let pname = ch.patient.as_ref().map(|p| p.name.as_str()).unwrap_or("");
         let room = ch.patient.as_ref().map(|p| if p.room.is_empty() { ch.space.as_str() } else { p.room.as_str() }).unwrap_or(ch.space.as_str());
+        // 복도 게이트웨이는 병실에 게이트웨이가 없는 환자도 잡는다 — 복도는 '병실 밖'으로 치지 않는다
+        let now_at = if !ch.space.is_empty() && ch.space != room && !ch.space.contains("복도") { ch.space.as_str() } else { "" };
         let base = |kind: &'static str, sev: Severity, value: String, msg: String, sustain: u64| Observed {
             kind,
             severity: sev,
@@ -218,6 +224,7 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
             patient_id: ch.patient_id,
             patient_name: pname.to_string(),
             room: room.to_string(),
+            now: now_at.to_string(),
             value,
             message: msg,
             sustain,
@@ -301,6 +308,7 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
             patient_id: 0,
             patient_name: String::new(),
             room: gw.location.room.clone(),
+            now: String::new(),
             value,
             message: msg,
             sustain: 0,
@@ -330,6 +338,7 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
             patient_id: 0,
             patient_name: String::new(),
             room: String::new(),
+            now: String::new(),
             value: format!("{store_dropped} dropped"),
             message: "저장 큐 포화: 레코드 드롭 발생 (디스크 정체)".into(),
             sustain: 0,
@@ -359,6 +368,7 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
             if !o.room.is_empty() {
                 a.room = o.room;
             }
+            a.now = o.now; // 이동하면 따라간다 (돌아오면 비움)
             if o.severity > a.severity {
                 a.severity = o.severity;
             }
@@ -376,6 +386,7 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
                 patient_id: o.patient_id,
                 patient_name: o.patient_name,
                 room: o.room,
+                now: o.now,
                 value: o.value,
                 message: o.message,
                 since_ms: first,

@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { getStream, playoutNow } from './waveStore.js'
 import { registerDraw } from './renderLoop.js'
 import { latest } from './ws.js'
-import { flagNames } from './model.js'
+import { flagNames, homePlace, nowPlace } from './model.js'
 import { getRenderMode, onRenderMode } from './settings.js'
 import { ColumnTracer, ColumnStroker } from './traceRender.js'
 
@@ -244,7 +244,7 @@ export function WaveCard({ row, density = 'normal', alarm, onClick, waves }) {
       <div className="card-head">
         <span className="pid">{id}</span>
         <b className="pname">{p.name || row.mrn || '—'}</b>
-        <span className="ploc">{[p.building, p.floor && `${p.floor}F`, p.ward, p.room || row.space].filter(Boolean).join(' · ')}</span>
+        <span className="ploc">{homePlace(p, row.space)}{nowPlace(p, row.space) ? ` → ${nowPlace(p, row.space)}` : ''}</span>
         {density === 'normal' && <span className="pstaff">{[p.doctor, p.nurse].filter(Boolean).join(' · ')}</span>}
         <span className="spacer" />
         {alarm && <span className={`tag sev-${alarm.severity}`}>{alarm.message}</span>}

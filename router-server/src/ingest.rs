@@ -404,6 +404,13 @@ fn apply_meta_patches(state: &Arc<AppState>, gw_id: u32, meta: &serde_json::Valu
             .map(|a| a.iter().filter_map(|c| c.get("key").and_then(|x| x.as_str()).map(String::from)).collect())
             .unwrap_or_default();
         let prev = state.registry.patient_of(&channel_id);
+        // 병동 병실에 달린 게이트웨이면 "병실 id 첫 자리 → 건물"을 배운다
+        if let Some(d) = crate::registry::ward_room_digit(&loc.room) {
+            if !loc.building.is_empty() && crate::registry::BUILDING_OF.get(&d).map(|v| *v != loc.building).unwrap_or(true) {
+                crate::registry::BUILDING_OF.insert(d, loc.building.clone());
+            }
+        }
+        let room = prev.as_ref().map(|q| q.room.clone()).filter(|r| !r.is_empty()).unwrap_or_else(|| loc.room.clone());
         let patient = Patient {
             id: patient_id.to_string(),
             name: prev.as_ref().map(|q| q.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| mrn.clone()),
@@ -413,7 +420,8 @@ fn apply_meta_patches(state: &Arc<AppState>, gw_id: u32, meta: &serde_json::Valu
             zone: gw_name.clone(),
             // 병실 = 입원 병실(EMR 동기화가 채움). META 는 현재 위치(게이트웨이의 방)라 검사 이동 중엔 다르다 —
             // 둘이 번갈아 덮어써 지도에서 환자가 층을 오가던 문제. 현재 위치는 building/floor 와 행의 space 로 따로 둔다.
-            room: prev.as_ref().map(|q| q.room.clone()).filter(|r| !r.is_empty()).unwrap_or_else(|| loc.room.clone()),
+            home_building: crate::registry::home_building_of(&room),
+            room,
             // 침대는 EMR 동기화가 채운다. META 가 잠깐 다른 방을 가리켜도 지우지 않는다 — 화면이 그 방의 침대인지 확인한다
             bed: prev.as_ref().map(|q| q.bed.clone()).unwrap_or_default(),
             doctor: prev.as_ref().map(|q| q.doctor.clone()).unwrap_or_default(),

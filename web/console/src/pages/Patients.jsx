@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { api, usePoll, fmtAgo, fmtTime } from '../api.js'
-import { alarmIndex, flagNames, sortBy, SEV_LABEL, FLAG_LABEL, FLAG_WARN, wardText, wardRoom, patchLife, fmtDays } from '../model.js'
+import { alarmIndex, flagNames, sortBy, SEV_LABEL, FLAG_LABEL, FLAG_WARN, wardText, wardRoom, patchLife, fmtDays, nowPlace, spaceName, isAway } from '../model.js'
 import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
 import { useQuery, go, useRevealSelected, Cols, tableMin, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, GwLink, RoomLink, WardLink } from '../ListKit.jsx'
@@ -11,7 +11,7 @@ const COLS = [
 ]
 const PAGE = 100
 // 열 폭(px, null = 남는 폭) — COLS 순서와 같다
-const W = [70, 96, 118, 118, 64, 116, 50, 54, 46, 54, 58, 80, 50, 150, null, 50]
+const W = [70, 96, 118, 118, 128, 116, 50, 54, 46, 54, 58, 80, 50, 150, null, 50]
 const NUM = new Set(['hr', 'spo2', 'resp', 'temp', 'battery', 'replace', 'rssi'])
 // 요약 칩 = 조치가 필요한 조건 (누르면 그 조건만)
 const CHIPS = [
@@ -20,6 +20,7 @@ const CHIPS = [
   ['stale', '수신 없음/해제', (r) => r.stale || !r.connected, 'c-warn'],
   ['lowbat', '배터리 부족', (r) => r.flags & 0x04 || (r.battery > 0 && r.battery <= 15), 'c-warn'],
   ['replace', '패치 교체 1일 이내', (r) => r.replace != null && r.replace <= 1, 'c-warn'],
+  ['away', '병실 밖·이동 중', (r) => r.away, ''],
 ]
 const SEX = { M: '남', F: '여' }
 
@@ -38,7 +39,7 @@ export default function Patients({ alarms }) {
     const life = patchLife(r, r.battery)
     return {
       ...r, name: p.name || '', ward: p.ward || '', room: p.room || r.space || '', doctor: p.doctor, nurse: p.nurse,
-      life, replace: life?.left ?? null,
+      life, replace: life?.left ?? null, away: isAway(p, r.space),
       hr: r.vitals?.hr ?? null, spo2: r.vitals?.spo2 ?? null, resp: r.vitals?.resp ?? null, temp: r.vitals?.temp ?? null,
       alarm: al ? ({ critical: 3, high: 2, medium: 1, low: 0 })[al.severity] + 1 : 0, alarmObj: al, last: r.last_ts_ms,
     }
@@ -86,8 +87,8 @@ export default function Patients({ alarms }) {
             {shown.slice(cur * PAGE, cur * PAGE + PAGE).map((r) => (
               <tr key={r.channel_id} className={'clickable ' + (r.alarmObj ? `sev-${r.alarmObj.severity}` : '') + (r.stale || !r.connected ? ' stale' : '') + (sel === r.channel_id ? ' selected' : '')} onClick={() => setQs({ sel: sel === r.channel_id ? '' : r.channel_id })} onDoubleClick={() => openLive(r.channel_id)} title="누르면 상세 · 두 번 누르면 실시간 파형">
                 <td className="mono">{r.channel_id}</td><td><b>{r.name || r.mrn}</b></td><td className="mono muted">{r.mrn}</td>
-                <td title={r.ward}>{r.patient?.building && <span className="muted">{r.patient.building} </span>}<WardLink ward={r.ward} /></td>
-                <td title={r.room}><RoomLink room={r.room}>{wardRoom(r.room)?.room || r.room}</RoomLink></td>
+                <td title={r.ward}>{r.patient?.home_building && <span className="muted">{r.patient.home_building} </span>}<WardLink ward={r.ward} /></td>
+                <td title={r.away ? `입원 ${r.room} · 지금 ${spaceName(r.space)}` : r.room}><RoomLink room={r.room}>{wardRoom(r.room)?.room || r.room}</RoomLink>{r.away && <small className="away-to"> → {spaceName(r.space)}</small>}</td>
                 <td><GwLink id={r.gateway_id} /></td>
                 <td className="num">{r.hr ?? '—'}</td><td className="num">{r.spo2 ?? '—'}</td><td className="num">{r.resp ?? '—'}</td><td className="num">{r.temp != null ? r.temp.toFixed(1) : '—'}</td>
                 <td className="num">{r.battery}%</td>
@@ -128,6 +129,7 @@ export function PatientDetail({ r, alarms, onClose }) {
       <dl className="lk-kv">
         <KV k="병동"><WardLink ward={p.ward} /></KV>
         <KV k="병실 · 침대"><RoomLink room={p.room || r.space}>{wardRoom(p.room || r.space)?.room || p.room || r.space}</RoomLink>{p.bed ? ` · ${p.bed.slice(-1)} 침대` : ''}</KV>
+        <KV k="지금 위치">{nowPlace(p, r.space) ? <RoomLink room={r.space}>{nowPlace(p, r.space)}</RoomLink> : null}</KV>
         <KV k="진료">{[p.department, p.diagnosis].filter(Boolean).join(' · ')}</KV>
         <KV k="담당">{[p.doctor && `의사 ${p.doctor}`, p.nurse && `간호사 ${p.nurse}`].filter(Boolean).join(' · ')}</KV>
         <KV k="바이탈">{lost ? <span className="muted">수신 없음</span> : <>HR <b>{v.hr ?? '—'}</b> · SpO₂ <b>{v.spo2 ?? '—'}</b> · RR <b>{v.resp ?? '—'}</b>{v.temp != null ? <> · <b>{v.temp.toFixed(1)}</b>°C</> : null}</>}</KV>

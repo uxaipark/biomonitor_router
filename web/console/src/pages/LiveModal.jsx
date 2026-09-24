@@ -3,7 +3,7 @@ import { api, usePoll, fmtTime, fmtBytes } from '../api.js'
 import { claimLive, releaseLive, latest } from '../ws.js'
 import { WaveCanvas } from '../WaveCard.jsx'
 import { AccelPlot, accelNow, ACCEL_COLORS } from '../AccelPlot.jsx'
-import { alarmIndex, flagNames, SEV_LABEL, FLAG_LABEL, FLAG_WARN, patchLife, fmtDays, PATCH_WEAR_DAYS, PATCH_BATTERY_DAYS, gwLabel } from '../model.js'
+import { alarmIndex, flagNames, SEV_LABEL, FLAG_LABEL, FLAG_WARN, patchLife, fmtDays, PATCH_WEAR_DAYS, PATCH_BATTERY_DAYS, homePlace, nowPlace, gwLabel } from '../model.js'
 import HistoryPanel from '../viewer/History.jsx'
 import '../viewer/ds.css'
 import { useMe, canBio, canPhi } from '../auth.js'
@@ -22,15 +22,10 @@ const RHYTHM = {
 const SEX = { M: '남', F: '여' }
 const MOBILITY = { ambulatory: '보행 가능', limited: '보행 제한', bedridden: '와상' }
 
-/** "210A01" + bed "210A01-A" + floor → "10A병동 · 1001호 · A침대" (other spaces as given). */
+/** 입원 병실 (+ 다르면 지금 있는 곳) — 현재 위치의 건물·층을 입원 병실에 섞지 않는다 */
 function placeText(p, space) {
-  const room = p.room || space
-  const m = /^\d(\d\d)([A-Z])(\d\d)$/.exec(room || '')
-  const bed = /-([A-Z0-9]+)$/.exec(p.bed || '')
-  const parts = [p.building, p.floor && `${p.floor}층`]
-  if (m) { const fl = parseInt(m[1], 10); parts.push(`${fl}${m[2]}병동`, `${fl}${m[3]}호`) } else parts.push(p.ward, room)
-  if (bed) parts.push(`${bed[1]}침대`)
-  return parts.filter(Boolean).join(' · ')
+  const now = nowPlace(p, space)
+  return homePlace(p, space) + (now ? `  →  지금: ${now}` : '')
 }
 
 const Vital = ({ label, value, unit, cls, sub }) => (

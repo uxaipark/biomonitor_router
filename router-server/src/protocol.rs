@@ -21,8 +21,12 @@ pub struct Patient {
     pub ward: String,
     #[serde(default)]
     pub zone: String,
+    /// 입원 병실 (EMR). 지금 있는 곳은 `building`/`floor`(게이트웨이 위치)와 채널 행의 `space` — 검사·이동 중엔 다르다
     #[serde(default)]
     pub room: String,
+    /// 입원 병실이 있는 건물 이름 (병실 id 첫 자리 → 건물, 병실에 있는 환자의 게이트웨이 위치에서 배운다)
+    #[serde(default)]
+    pub home_building: String,
     /// 침대 id (예: "106A01-A") — EMR admissions 의 bed. 평면도가 환자를 실제 침대에 놓는 데 쓴다.
     #[serde(default)]
     pub bed: String,

@@ -944,3 +944,4 @@ td.ok { color: var(--ok); }
 .tbl.fixed th, .tbl.fixed td { overflow: hidden; text-overflow: ellipsis; }
 .tbl.fixed td .tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 .tbl td, .tbl th { font-variant-numeric: tabular-nums; }
+.tbl .away-to { color: var(--accent); font-weight: 600; }

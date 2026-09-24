@@ -478,7 +478,8 @@ function MapTip({ tip, row, gw, live, alarm, platform }) {
     const place = wardRoom(p.room || row.space)
     const lost = !row.connected || row.stale
     const clinical = [
-      R('위치', [wardText(p.ward), place?.room || p.room, p.bed ? `${p.bed.slice(-1)} 침대` : null].filter(Boolean).join(' · ') || row.space),
+      R('입원 병실', [p.home_building, wardText(p.ward), place?.room || p.room, p.bed ? `${p.bed.slice(-1)} 침대` : null].filter(Boolean).join(' · ') || row.space),
+      R('지금 위치', nowPlace(p, row.space)),
       R('진료', [p.department, p.diagnosis].filter(Boolean).join(' · ')),
       R('담당', [p.doctor && `의사 ${p.doctor}`, p.nurse && `간호사 ${p.nurse}`].filter(Boolean).join(' · ')),
       R('바이탈', lost ? <span className="muted">수신 없음</span> : <>HR <b>{v.hr ?? '—'}</b> · SpO₂ <b>{v.spo2 ?? '—'}</b> · RR <b>{v.resp ?? '—'}</b>{v.temp != null ? <> · <b>{v.temp.toFixed(1)}</b>°C</> : null}</>),

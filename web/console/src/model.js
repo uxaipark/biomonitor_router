@@ -105,3 +105,28 @@ export const fmtDays = (d) => (d == null ? '—' : d >= 1 ? `${d.toFixed(1)}일`
 
 /** 게이트웨이 이름 표시: 에뮬레이터 이름의 뒷번호는 0부터(GW-101-0000 = 1번) → 화면에서는 게이트웨이 번호와 같게 1부터 (GW-101-0001) */
 export const gwLabel = (name) => (typeof name === 'string' ? name.replace(/^(GW-\d+-)(\d+)$/, (_, p, n) => p + String(Number(n) + 1).padStart(n.length, '0')) : name)
+
+/** 게이트웨이 공간 id → 읽기 쉬운 이름: "B1-01-투석실" → "투석실", 병동 병실 id 는 "3B병동 304호" */
+export const spaceName = (id) => { if (!id) return ''; const w = wardRoom(id); if (w) return `${w.ward} ${w.room}`; const m = /^B\d+-\d+-(.+)$/.exec(id); return m ? m[1] : id }
+/**
+ * 입원 병실 표기 — 건물은 입원 병실의 건물(home_building). 현재 위치(검사·이동 중)의 건물·층과 섞지 않는다.
+ * p = row.patient, space = row.space (지금 있는 곳)
+ */
+export function homePlace(p = {}, space = '') {
+  const room = p.room || space
+  const m = /^\d(\d\d)([A-Z])(\d\d)$/.exec(room || '')
+  const bed = /-([A-Z0-9]+)$/.exec(p.bed || '')
+  if (m) {
+    const fl = parseInt(m[1], 10)
+    const b = p.home_building || (room === space ? p.building : '')
+    return [b, `${fl}층`, `${fl}${m[2]}병동`, `${fl}${m[3]}호`, bed && `${bed[1]}침대`].filter(Boolean).join(' · ')
+  }
+  return [p.building, p.floor && `${p.floor}층`, p.ward, spaceName(room)].filter(Boolean).join(' · ')
+}
+/**
+ * 병실 밖(검사·치료·이동 중): 지금 공간이 입원 병실과 다르고 복도가 아닐 때.
+ * 복도 게이트웨이는 게이트웨이 없는 병실의 환자도 잡으므로 복도는 '병실 밖'으로 치지 않는다.
+ */
+export const isAway = (p = {}, space = '') => !!space && !!p.room && space !== p.room && !space.includes('복도')
+/** 지금 있는 곳 — 병실 밖일 때만 ("" = 병실에 있음) */
+export const nowPlace = (p = {}, space = '') => (!isAway(p, space) ? '' : [p.building, p.floor && `${p.floor}층`, spaceName(space)].filter(Boolean).join(' · '))

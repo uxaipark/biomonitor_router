@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { TEMPLATES, viewerUrl } from '../viewer/templates.js'
-import { sortBy, wardText, wardRoom, roomText, gwLabel } from '../model.js'
+import { sortBy, wardText, wardRoom, roomText, gwLabel, isAway } from '../model.js'
 import Dropdown from '../Dropdown.jsx'
 import '../viewer/ds.css'
 
@@ -78,7 +78,11 @@ export default function Viewers({ alarms }) {
     for (const r of live) {
       const p = r.patient || {}
       if (kind === 'ward') { add(p.ward, r, p.ward, ''); const e = m.get(p.ward); if (e) { e.building = e.building || p.building || ''; e.floor = e.floor || p.floor || ''; e.sub2 = e.building } }
-      else if (kind === 'room') add(p.room || r.space, r, p.room || r.space, p.ward && `병동 ${p.ward}`)
+      else if (kind === 'room') {
+        // 입원 병실 + (다르면) 지금 있는 공간 — 검사실·투석실 같은 비병실 공간도 모니터 목록에 나온다
+        add(p.room || r.space, r, p.room || r.space, p.ward && `병동 ${p.ward}`)
+        if (isAway(p, r.space)) add(r.space, r, r.space, '현재 위치')
+      }
       else if (kind === 'doctor') { add(p.doctor, r, staffLabel(p.doctor), staffSub(p.doctor)); const e = m.get(p.doctor); if (e) e.sub2 = staff.get(p.doctor)?.specialty || '' }
       else if (kind === 'nurse') { add(p.nurse, r, staffLabel(p.nurse), staffSub(p.nurse)); const e = m.get(p.nurse); if (e) e.sub2 = staff.get(p.nurse)?.specialty || '' }
       else if (kind === 'department') add(p.department, r)
@@ -118,7 +122,7 @@ export default function Viewers({ alarms }) {
       if (k === 'group') { c[k] = (groups || []).length; continue }
       if (BOOL_KIND[k]) { c[k] = live.filter((r) => BOOL_KIND[k].test(r, mobile)).length; continue }
       const s = new Set()
-      for (const r of live) { const p = r.patient || {}; const v = k === 'gw' ? r.gateway_id : k === 'room' ? (p.room || r.space) : p[k]; if (v) s.add(v) }
+      for (const r of live) { const p = r.patient || {}; const v = k === 'gw' ? r.gateway_id : k === 'room' ? (p.room || r.space) : p[k]; if (v) s.add(v); if (k === 'room' && isAway(p, r.space)) s.add(r.space) }
       c[k] = s.size
     }
     return c

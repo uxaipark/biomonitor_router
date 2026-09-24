@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll, fmtTime, fmtAgo } from '../api.js'
-import { SEV_LABEL, ALARM_KIND, roomText, wardText, sortBy } from '../model.js'
+import { SEV_LABEL, ALARM_KIND, roomText, wardText, sortBy, spaceName } from '../model.js'
 import Dropdown from '../Dropdown.jsx'
 import { useQuery, go, useRevealSelected, Cols, tableMin, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, PatientLink, GwLink, RoomLink, WardLink, wardOfRoom } from '../ListKit.jsx'
 import { openLive } from '../App.jsx'
@@ -91,7 +91,7 @@ export default function Alarms({ alarms }) {
                     <td><span className={`tag sev-${a.severity}`}>{SEV_LABEL[a.severity]}</span></td>
                     <td title={a.kind}>{ALARM_KIND[a.kind] || a.kind}</td>
                     <td>{a.channel_id ? <PatientLink ch={a.channel_id}><b>{a.patient_name || a.channel_id}</b></PatientLink> : a.gateway_id ? <GwLink id={a.gateway_id} /> : <b>시스템</b>}{a.channel_id && <small className="mono muted"> {a.channel_id}</small>}</td>
-                    <td title={a.room}><RoomLink room={a.room} /></td><td title={a.message}>{a.message}</td><td className="num">{a.value}</td><td className="muted">{fmtTime(a.since_ms)}</td>
+                    <td title={a.now ? `입원 ${a.room} · 지금 ${spaceName(a.now)}` : a.room}>{a.now ? <><RoomLink room={a.now}>{spaceName(a.now)}</RoomLink> <small className="muted">({roomText(a.room)})</small></> : <RoomLink room={a.room} />}</td><td title={a.message}>{a.message}</td><td className="num">{a.value}</td><td className="muted">{fmtTime(a.since_ms)}</td>
                     <td>{tab === 'active' ? fmtAgo(a.since_ms) : a.cleared_ms ? fmtTime(a.cleared_ms) : <span className="muted">발생</span>}</td>
                     <td>{tab === 'active' && !a.acked && <button onClick={(e) => { e.stopPropagation(); ack(a.id) }}>확인</button>}{a.acked && <span className="muted">확인됨</span>}</td>
                   </tr>
@@ -142,7 +142,8 @@ function AlarmDetail({ a, onAck, onClose }) {
         <KV k="확인">{a.acked ? '확인됨' : '미확인'}</KV>
         <KV k="환자">{a.channel_id ? <PatientLink ch={a.channel_id}>{a.patient_name || a.channel_id}</PatientLink> : null}</KV>
         <KV k="병동">{a.room ? <WardLink ward={wardOfRoom(a.room)} /> : null}</KV>
-        <KV k="위치">{a.room ? <RoomLink room={a.room}>{roomText(a.room)}</RoomLink> : null}</KV>
+        <KV k="입원 병실">{a.room ? <RoomLink room={a.room}>{roomText(a.room)}</RoomLink> : null}</KV>
+        <KV k="지금 위치">{a.now ? <RoomLink room={a.now}>{spaceName(a.now)}</RoomLink> : null}</KV>
         <KV k="게이트웨이">{a.gateway_id || r?.gateway_id ? <GwLink id={a.gateway_id || r?.gateway_id} /> : null}</KV>
         {r && <KV k="현재 바이탈">HR <b>{v.hr ?? '—'}</b> · SpO₂ <b>{v.spo2 ?? '—'}</b> · RR <b>{v.resp ?? '—'}</b>{v.temp != null ? <> · <b>{v.temp.toFixed(1)}</b>°C</> : null}</KV>}
         {r && <KV k="진료">{[p.department, p.diagnosis].filter(Boolean).join(' · ')}</KV>}

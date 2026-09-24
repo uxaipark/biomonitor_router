@@ -128,6 +128,19 @@ pub enum PatchSeq {
 }
 
 /// 전 채널 레지스트리. DashMap 으로 락 경합을 채널 단위로 분산한다.
+/// 병실 id 첫 자리(1·2·3…) → 건물 이름. 자기 병실에 있는 환자의 게이트웨이 위치에서 배운다 (META).
+pub static BUILDING_OF: std::sync::LazyLock<DashMap<char, String>> = std::sync::LazyLock::new(DashMap::new);
+
+/// 병동 병실 id(`304B01`)면 첫 자리
+pub fn ward_room_digit(room: &str) -> Option<char> {
+    let b = room.as_bytes();
+    (b.len() == 6 && b[..3].iter().all(|c| c.is_ascii_digit()) && b[3].is_ascii_uppercase() && b[4..].iter().all(|c| c.is_ascii_digit())).then(|| b[0] as char)
+}
+/// 입원 병실의 건물 이름 (모르면 빈 문자열)
+pub fn home_building_of(room: &str) -> String {
+    ward_room_digit(room).and_then(|d| BUILDING_OF.get(&d).map(|v| v.clone())).unwrap_or_default()
+}
+
 pub struct Registry {
     channels: DashMap<String, ChannelState>,
     ring_capacity: usize,
@@ -608,5 +621,15 @@ impl Registry {
             .collect();
         v.sort_by(|a, b| a.channel_id.cmp(&b.channel_id));
         v
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn ward_room_digits() {
+        assert_eq!(super::ward_room_digit("304B01"), Some('3'));
+        assert_eq!(super::ward_room_digit("B1-01-투석실"), None);
+        assert_eq!(super::ward_room_digit("W103A"), None);
     }
 }

@@ -48,7 +48,8 @@ export default function Viewer({ alarms, hash }) {
     const gw = q.get('gw'), ward = q.get('ward'), room = q.get('room'), ids = q.get('ids'), b = q.get('b'), f = q.get('f')
     if (gw) v = v.filter((r) => r.gateway_id === gw)
     if (ward) v = v.filter((r) => r.patient?.ward === ward)
-    if (room) v = v.filter((r) => (r.patient?.room || r.space) === room)
+    // 병실(공간) 모니터 = 지금 그 공간에 있는 환자 + 그 병실에 입원한 환자(검사 등으로 잠시 나가 있어도)
+    if (room) v = v.filter((r) => r.space === room || r.patient?.room === room)
     if (ids) { const set = new Set(ids.split(',')); v = v.filter((r) => set.has(r.channel_id)) }
     const doctor = q.get('doctor'), nurse = q.get('nurse'), dept = q.get('dept'), dx = q.get('dx'), group = q.get('group'), paced = q.get('paced'), mode = q.get('mode')
     if (paced) v = v.filter((r) => (r.flags & 0x10) !== 0)

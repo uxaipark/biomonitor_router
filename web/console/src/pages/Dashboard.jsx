@@ -1,6 +1,6 @@
 import React, { useMemo, useRef } from 'react'
 import { api, usePoll, fmtBytes, fmtNum, fmtDur, fmtTime } from '../api.js'
-import { SEV_LABEL, roomText } from '../model.js'
+import { SEV_LABEL, roomText, spaceName } from '../model.js'
 import EventList from '../EventList.jsx'
 import { openLive } from '../App.jsx'
 import { can, useMe } from '../auth.js'
@@ -75,7 +75,7 @@ export default function Dashboard({ alarms }) {
                 <tr key={x.id} className={`sev-${x.severity} clickable`} onClick={() => x.channel_id && openLive(x.channel_id)}>
                   <td><span className={`tag sev-${x.severity}`}>{SEV_LABEL[x.severity]}</span></td>
                   <td><b>{x.patient_name || (x.gateway_id ? `GW ${x.gateway_id}` : '시스템')}</b></td>
-                  <td title={x.room}>{roomText(x.room)}</td><td>{x.message}</td><td className="num">{x.value}</td><td className="muted">{fmtTime(x.since_ms)}</td>
+                  <td title={x.now ? `입원 ${x.room} · 지금 ${spaceName(x.now)}` : x.room}>{x.now ? `${spaceName(x.now)} (${roomText(x.room)})` : roomText(x.room)}</td><td>{x.message}</td><td className="num">{x.value}</td><td className="muted">{fmtTime(x.since_ms)}</td>
                 </tr>
               ))}
               {!a.length && <tr><td colSpan="6" className="muted">활성 알람 없음</td></tr>}

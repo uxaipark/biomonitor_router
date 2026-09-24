@@ -360,6 +360,10 @@ pub fn apply_admissions(state: &Arc<AppState>, v: &serde_json::Value) -> usize {
         if !s(a, "room").is_empty() {
             p.room = s(a, "room");
         }
+        let hb = crate::registry::home_building_of(&p.room);
+        if !hb.is_empty() {
+            p.home_building = hb;
+        }
         // 방을 옮기면 침대도 바뀐다 — 빈 값이면 지운다(침대 없는 검사실 이동 등)
         p.bed = s(a, "bed");
         if !s(a, "sex").is_empty() {
