@@ -3,7 +3,7 @@ import { api, usePoll, fmtNum, fmtAgo } from '../api.js'
 import { gatewayAlarmIndex, GW_STATUS, SEV_LABEL, sortBy } from '../model.js'
 import Dropdown from '../Dropdown.jsx'
 import { openLive } from '../App.jsx'
-import { useQuery, go, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, PatientLink, RoomLink } from '../ListKit.jsx'
+import { useQuery, go, useRevealSelected, GwName, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, PatientLink, RoomLink } from '../ListKit.jsx'
 
 const COLS = [
   ['gw_id', 'GW'], ['name', '이름'], ['type', '유형'], ['loc', '위치'], ['state', '상태'], ['patches', '패치'], ['frames', '프레임'],
@@ -65,6 +65,7 @@ export default function Gateways({ alarms }) {
   const pages = Math.max(1, Math.ceil(shown.length / PAGE))
   const cur = Math.min(page, pages - 1)
   const selRow = sel ? flat.find((g) => String(g.gw_id) === sel) : null
+  useRevealSelected(sel, shown, (g) => String(g.gw_id), PAGE, setPage)
   const applied = [
     floor && { key: 'floor', label: `위치: ${floor}`, clear: () => setQs({ floor: '' }) },
     type && { key: 'type', label: `유형: ${GW_TYPE[type] || type}`, clear: () => setQs({ type: '' }) },
@@ -86,7 +87,7 @@ export default function Gateways({ alarms }) {
           <tbody>
             {shown.slice(cur * PAGE, cur * PAGE + PAGE).map((g) => (
               <tr key={g.gw_id} className={'clickable ' + (g.alarm ? `sev-${g.alarm.severity}` : g.state === 3 ? 'stale' : '') + (sel === String(g.gw_id) ? ' selected' : '')} onClick={() => setQs({ sel: sel === String(g.gw_id) ? '' : String(g.gw_id) })}>
-                <td className="mono"><b>{g.gw_id}</b></td><td className="mono muted">{g.name}</td><td>{GW_TYPE[g.type] || g.type}</td>
+                <td className="mono"><b>{g.gw_id}</b></td><td className="mono"><GwName id={g.gw_id} name={g.name} /></td><td>{GW_TYPE[g.type] || g.type}</td>
                 <td>{g.fl} <RoomLink room={g.location?.room}>{g.location?.room}</RoomLink></td>
                 <td>{STATE_TAG(g)}</td>
                 <td className="num"><Z v={g.patches} /></td><td className="num">{fmtNum(g.frames)}</td>
@@ -108,7 +109,7 @@ function GatewayDetail({ g, onClose }) {
   const [pats] = usePoll(() => api.channelsScoped(`gw=${encodeURIComponent(g.gw_id)}`), 5000, [g.gw_id])
   const st = g.status || {}
   return (
-    <DetailPanel title={`GW ${g.gw_id}`} sub={[g.name, GW_TYPE[g.type] || g.type].filter(Boolean).join(' · ')} onClose={onClose}
+    <DetailPanel title={<GwName id={g.gw_id} name={g.name} />} sub={[`#${g.gw_id}`, GW_TYPE[g.type] || g.type].filter(Boolean).join(' · ')} onClose={onClose}
       actions={<>
         <button onClick={() => go('#/map', { gw: g.gw_id })}>지도에서 보기</button>
         <button onClick={() => go('#/alarms', { q: `GW ${g.gw_id}`, tab: 'history' })}>알람 이력</button>

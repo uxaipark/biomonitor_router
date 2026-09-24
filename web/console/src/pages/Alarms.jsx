@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll, fmtTime, fmtAgo } from '../api.js'
 import { SEV_LABEL, ALARM_KIND, roomText, wardText, sortBy } from '../model.js'
 import Dropdown from '../Dropdown.jsx'
-import { useQuery, go, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, PatientLink, GwLink, RoomLink, WardLink, wardOfRoom } from '../ListKit.jsx'
+import { useQuery, go, useRevealSelected, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, PatientLink, GwLink, RoomLink, WardLink, wardOfRoom } from '../ListKit.jsx'
 import { openLive } from '../App.jsx'
 
 const RULE_FIELDS = [
@@ -55,6 +55,7 @@ export default function Alarms({ alarms }) {
   const pages = Math.max(1, Math.ceil(shown.length / PAGE))
   const cur = Math.min(page, pages - 1)
   const selA = sel ? src.find((a) => String(a.id) + (a.cleared_ms || '') === sel) || src.find((a) => String(a.id) === sel) : null
+  useRevealSelected(sel, shown, (a) => String(a.id) + (a.cleared_ms || ''), PAGE, setPage)
   const applied = [
     ward && { key: 'ward', label: `병동: ${wardText(ward)}`, clear: () => setQs({ ward: '' }) },
     kind && { key: 'kind', label: `종류: ${ALARM_KIND[kind] || kind}`, clear: () => setQs({ kind: '' }) },

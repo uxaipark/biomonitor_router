@@ -3,7 +3,7 @@ import { api, usePoll, fmtAgo, fmtTime } from '../api.js'
 import { alarmIndex, flagNames, sortBy, SEV_LABEL, FLAG_LABEL, FLAG_WARN, wardText, wardRoom, patchLife, fmtDays } from '../model.js'
 import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
-import { useQuery, go, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, GwLink, RoomLink, WardLink } from '../ListKit.jsx'
+import { useQuery, go, useRevealSelected, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, GwLink, RoomLink, WardLink } from '../ListKit.jsx'
 
 const COLS = [
   ['channel_id', '패치'], ['name', '환자'], ['mrn', 'MRN'], ['ward', '병동'], ['room', '병실'], ['gateway_id', 'GW'],
@@ -59,6 +59,7 @@ export default function Patients({ alarms }) {
   const pages = Math.max(1, Math.ceil(shown.length / PAGE))
   const cur = Math.min(page, pages - 1)
   const selRow = sel ? flat.find((r) => r.channel_id === sel) : null
+  useRevealSelected(sel, shown, (r) => r.channel_id, PAGE, setPage)
   const applied = [
     ward && { key: 'ward', label: `병동: ${wardText(ward)}`, clear: () => setQs({ ward: '' }) },
     chip && { key: 'f', label: CHIPS.find(([k]) => k === chip)?.[1] || chip, clear: () => setQs({ f: '' }) },
@@ -84,7 +85,7 @@ export default function Patients({ alarms }) {
                 <td className="mono">{r.channel_id}</td><td><b>{r.name || r.mrn}</b></td><td className="mono muted">{r.mrn}</td>
                 <td title={r.ward}>{r.patient?.building && <span className="muted">{r.patient.building} </span>}<WardLink ward={r.ward} /></td>
                 <td title={r.room}><RoomLink room={r.room}>{wardRoom(r.room)?.room || r.room}</RoomLink></td>
-                <td><GwLink id={r.gateway_id}>{r.gateway_id}</GwLink></td>
+                <td><GwLink id={r.gateway_id} /></td>
                 <td className="num">{r.hr ?? '—'}</td><td className="num">{r.spo2 ?? '—'}</td><td className="num">{r.resp ?? '—'}</td><td className="num">{r.temp != null ? r.temp.toFixed(1) : '—'}</td>
                 <td className="num">{r.battery}%</td>
                 <td className={'num' + (r.life?.level ? ` ${r.life.level === 'err' ? 'err' : 'warn'}` : '')} title={r.life ? `착용 ${fmtDays(r.life.worn)}째 · 배터리 약 ${fmtDays(r.life.batLeft)} · ${r.life.reason} 기준` : '착용 시작 모름'}>{r.life ? (r.life.left <= 0 ? '지금' : `D-${fmtDays(r.life.left)}`) : '—'}</td>
@@ -129,7 +130,7 @@ export function PatientDetail({ r, alarms, onClose }) {
         <KV k="바이탈">{lost ? <span className="muted">수신 없음</span> : <>HR <b>{v.hr ?? '—'}</b> · SpO₂ <b>{v.spo2 ?? '—'}</b> · RR <b>{v.resp ?? '—'}</b>{v.temp != null ? <> · <b>{v.temp.toFixed(1)}</b>°C</> : null}</>}</KV>
         <KV k="패치"><span className="mono">{r.channel_id}</span> · 배터리 {r.battery ?? '—'}%{life?.batLeft != null ? ` (약 ${fmtDays(life.batLeft)})` : ''}</KV>
         {life && <KV k="착용 · 교체"><span className={life.level ? `lk-${life.level}` : ''}>{fmtDays(life.worn)}째 · {life.left <= 0 ? '지금 교체' : `${fmtDays(life.left)} 뒤 교체`} ({life.reason})</span></KV>}
-        <KV k="게이트웨이"><GwLink id={r.gateway_id}>{r.gateway_id}</GwLink> · RSSI {r.rssi ?? '—'} dBm</KV>
+        <KV k="게이트웨이"><GwLink id={r.gateway_id} /> · RSSI {r.rssi ?? '—'} dBm</KV>
         <KV k="상태">{r.connected ? (r.stale ? '수신 지연' : '수신 중') : '해제'} · 마지막 {fmtAgo(r.last_ts_ms)}</KV>
       </dl>
     </DetailPanel>

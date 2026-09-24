@@ -928,7 +928,12 @@ td.ok { color: var(--ok); }
 .lk-err { color: var(--err, #dc2626); font-weight: 600; }
 .lk-link { color: inherit; text-decoration: underline dotted color-mix(in srgb, var(--accent) 60%, transparent); text-underline-offset: 3px; cursor: pointer; }
 .lk-link:hover { color: var(--accent); text-decoration-style: solid; }
-.tbl tr.selected td { background: color-mix(in srgb, var(--accent) 12%, transparent) !important; }
+.tbl tr.selected td { background: color-mix(in srgb, var(--accent) 20%, transparent) !important; }
+.tbl tr.selected td:first-child { box-shadow: inset 4px 0 var(--accent); }
+.tbl tr.flash td { animation: lk-flash 0.8s ease-in-out 3; }
+@keyframes lk-flash { 50% { background: color-mix(in srgb, var(--accent) 45%, transparent); } }
+.gw-name { white-space: nowrap; }
+.gw-name .gw-pre { opacity: .6; font-weight: 400; }
 @media (max-width: 1100px) {
   .lk-body.with-detail { grid-template-columns: minmax(0, 1fr); }
   .lk-detail { position: fixed; right: 12px; top: 64px; bottom: 12px; width: min(400px, calc(100vw - 24px)); max-height: none; z-index: 40; }
