@@ -370,10 +370,11 @@ export default function MapPage({ alarms, hash }) {
                       {detail && <circle cx={gx} cy={gy} r="0.58" className="gw-load-track" />}
                       {detail && load > 0 && (() => { const R = 0.58, a = load * 2 * Math.PI, ex = gx + R * Math.sin(a), ey = gy - R * Math.cos(a)
                         return <path d={`M${gx},${(gy - R).toFixed(3)} A${R},${R} 0 ${a > Math.PI ? 1 : 0} 1 ${ex.toFixed(3)},${ey.toFixed(3)}`} className="gw-load" /> })()}
-                      <circle cx={gx} cy={gy} r="0.4" className="gw-body" />
-                      <path d={`M ${gx - 0.19} ${gy + 0.03} a 0.27 0.27 0 0 1 0.38 0`} className="gw-wave" />
-                      <path d={`M ${gx - 0.095} ${gy + 0.13} a 0.135 0.135 0 0 1 0.19 0`} className="gw-wave" />
-                      <circle cx={gx} cy={gy + 0.22} r="0.05" className="gw-dot" />
+                      {/* 에뮬레이터와 같은 아이콘(ROUTER_FLOORPLAN.md §6): 채운 원 r0.36 + 흰 테두리, 흰 와이파이 점과 위로 퍼지는 호 두 개 */}
+                      <circle cx={gx} cy={gy} r="0.36" className="gw-body" />
+                      <circle cx={gx} cy={gy + 0.13} r="0.045" className="gw-dot" />
+                      {[0.13, 0.24].map((r) => { const cy = gy + 0.13, k = Math.SQRT1_2
+                        return <path key={r} d={`M${(gx - r * k).toFixed(3)},${(cy - r * k).toFixed(3)} A${r},${r} 0 0 1 ${(gx + r * k).toFixed(3)},${(cy - r * k).toFixed(3)}`} className="gw-wave" /> })}
                       {/* 게이트웨이 번호는 고유번호 — 숫자만 아이콘 아래에 작게 */}
                       <text x={gx} y={gy + (detail ? 0.95 : 0.78)} className="gw-no">{g.gw_no}</text>
                       <title>{g.id} #{g.gw_no} · {g.type} · {g.room}{live ? ` · ${live.connected ? '연결' : '끊김'} · 패치 ${live.patches}/${g.capacity || '—'} · ${GW_STATUS[live.status?.status] || ''}` : ' · 미접속'}{al ? ` · ${al.message}` : ''}</title>
