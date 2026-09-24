@@ -13,6 +13,9 @@ use tracing::{info, warn};
 /// - 끊기면 패스스루 모드로 전환하고 2초 백오프로 재접속한다.
 /// - 분석 응답의 (channel_id, seq) 로 서큘러 버퍼의 원본 파형을 찾아 병합 출력한다.
 pub async fn run(state: Arc<AppState>, mut rx: Receiver<String>) {
+    // Retry stays at 2 s (reconnect quickly), but the log only gets the first failure and then one line every
+    // 5 minutes — without an analysis server a WARN every 2 s grew router.log by ~8 MB a day.
+    let mut fails: u64 = 0;
     loop {
         // 미연결 상태: 큐에 쌓인 스테일 패킷 폐기 (연결되면 새 데이터부터 전송)
         while rx.try_recv().is_ok() {}
@@ -21,12 +24,16 @@ pub async fn run(state: Arc<AppState>, mut rx: Receiver<String>) {
         let stream = match TcpStream::connect(&addr).await {
             Ok(s) => s,
             Err(e) => {
-                warn!("analysis server connect failed ({}): retry in 2s", e);
+                if fails % 150 == 0 {
+                    warn!("analysis server connect failed ({}): retrying every 2s (attempt {}, pass-through meanwhile)", e, fails + 1);
+                }
+                fails += 1;
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 continue;
             }
         };
-        info!("analysis server connected: {}", addr);
+        info!("analysis server connected: {} (after {} failed attempts)", addr, fails);
+        fails = 0;
         state.registry.clear_all_pending();
         state.set_analysis_up(true);
         state.push_event("analysis_up", None, "분석 서버 연결됨 — 병합 모드".into());

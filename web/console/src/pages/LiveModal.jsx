@@ -41,7 +41,8 @@ const Row = ({ k, children }) => <><dt>{k}</dt><dd>{children}</dd></>
 /** One patient in detail: header (who / where / status), live vitals and waves (or the stored history), and
  *  side cards with alarms, the EMR profile (via the router's EMR proxy) and the storage index. */
 export function LiveModal({ channelId, alarms, onClose }) {
-  const [rows] = usePoll(api.channels, 5000)
+  // only this patch's row (the full list is ~1.7 MB for 2,100 patches)
+  const [rows] = usePoll(() => api.channelsScoped(`ids=${encodeURIComponent(channelId)}`), 3000, [channelId])
   const row = useMemo(() => (rows || []).find((r) => r.channel_id === channelId), [rows, channelId])
   const [idx] = usePoll(() => api.patch(channelId), 10000, [channelId])
   const [emr, setEmr] = useState(null)
@@ -50,14 +51,20 @@ export function LiveModal({ channelId, alarms, onClose }) {
   const aidx = useMemo(() => alarmIndex(alarms?.alarms), [alarms])
   const mine = (alarms?.alarms || []).filter((a) => a.channel_id === channelId)
   useEffect(() => { claimLive('modal', [channelId]); return () => releaseLive('modal') }, [channelId])
-  useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 500); return () => clearInterval(t) }, [])
+  // live numbers re-read from the WS map twice a second — not in history mode (the history list would re-render)
+  useEffect(() => { if (history) return; const t = setInterval(() => tick((x) => x + 1), 500); return () => clearInterval(t) }, [history])
   useEffect(() => {
     const f = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', f)
     return () => window.removeEventListener('keydown', f)
   }, [onClose])
   const pid = row?.profile_id || row?.patient?.profile_no
-  useEffect(() => { if (pid) api.emu.patient(pid).then(setEmr).catch(() => setEmr(null)) }, [pid])
+  useEffect(() => {
+    let alive = true
+    setEmr(null)
+    if (pid) api.emu.patient(pid).then((d) => { if (alive) setEmr(d) }).catch(() => { if (alive) setEmr(null) })
+    return () => { alive = false }
+  }, [pid])
   if (!row) return <div className="modal-bg" onClick={onClose}><div className="modal lm"><p className="muted">패치 {channelId} 정보를 불러오는 중…</p></div></div>
 
   const live = latest.get(channelId)
@@ -71,7 +78,8 @@ export function LiveModal({ channelId, alarms, onClose }) {
   const rssi = live?.rssi ?? row.rssi
   const acc = accelNow(channelId)
   const ix = idx?.index
-  const sevOf = (k) => (alarm && new RegExp(k, 'i').test(alarm.message) ? `sev-${alarm.severity}` : '')
+  // highlight the vital tile the alarm is about (alarm kinds: hr_*, spo2_*, resp_*, temp_*)
+  const sevOf = (prefix) => (alarm?.kind?.startsWith(prefix) ? `sev-${alarm.severity}` : '')
 
   return (
     <div className="modal-bg" onClick={onClose}>
@@ -111,10 +119,10 @@ export function LiveModal({ channelId, alarms, onClose }) {
             ) : (
               <>
                 <div className="lm-vitals">
-                  <Vital label="심박수 HR" value={v.hr} unit="bpm" cls={'hr ' + sevOf('HR|심박|brady|tachy|서맥|빈맥')} />
-                  {waves.includes('spo2') && <Vital label="산소포화도 SpO₂" value={v.spo2} unit="%" cls={'spo2 ' + sevOf('SpO|산소')} />}
-                  <Vital label="호흡수 RR" value={v.resp} unit="/min" cls={'rr ' + sevOf('RR|호흡|resp')} />
-                  {waves.includes('temp') && <Vital label="체온" value={v.temp != null ? v.temp.toFixed(1) : null} unit="°C" cls={'temp ' + sevOf('체온|temp|열')} />}
+                  <Vital label="심박수 HR" value={v.hr} unit="bpm" cls={'hr ' + sevOf('hr_')} />
+                  {waves.includes('spo2') && <Vital label="산소포화도 SpO₂" value={v.spo2} unit="%" cls={'spo2 ' + sevOf('spo2_')} />}
+                  <Vital label="호흡수 RR" value={v.resp} unit="/min" cls={'rr ' + sevOf('resp_')} />
+                  {waves.includes('temp') && <Vital label="체온" value={v.temp != null ? v.temp.toFixed(1) : null} unit="°C" cls={'temp ' + sevOf('temp_')} />}
                   {v.glucose != null && <Vital label="혈당" value={Math.round(v.glucose)} unit="mg/dL" cls="glu" />}
                 </div>
                 <section className="lm-panel">
