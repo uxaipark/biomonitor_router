@@ -52,6 +52,9 @@ pub struct ConnCfg {
     pub tz: String,
     #[serde(default)]
     pub fhir_base: String,
+    /// 기관 루트 URL (FHIR 외 형식의 경로 기준)
+    #[serde(default)]
+    pub base_url: String,
     #[serde(default)]
     pub token_url: String,
     #[serde(default)]
@@ -284,10 +287,21 @@ async fn run_conn(state: Arc<AppState>, id: String, stop: Arc<AtomicBool>) {
             if kicks.contains(&"census") || now.saturating_sub(last_census) > 300_000 {
                 census(&state, &cfg).await?;
                 last_census = now_ms();
+                // 매칭 0명(라우터 막 시작해 환자 명단이 아직 비었을 때 등)이면 5분이 아니라 30초 뒤 다시
+                if state.emr.state.lock().unwrap().get(&id).map(|s| s.links.is_empty()).unwrap_or(true) {
+                    last_census = last_census.saturating_sub(270_000);
+                    last_send = 0;
+                }
             }
-            if kicks.contains(&"send") || now.saturating_sub(last_send) >= cfg.interval_s.max(15) * 1000 {
-                send_all(&state, &cfg).await?;
+            // 매칭된 환자가 생길 때까지는 '보냈음'으로 치지 않는다 — 명단이 차면 바로 첫 전송
+            let has_links = state.emr.state.lock().unwrap().get(&id).map(|s| !s.links.is_empty()).unwrap_or(false);
+            if has_links && (kicks.contains(&"send") || now.saturating_sub(last_send) >= cfg.interval_s.max(15) * 1000) {
+                let tried = send_all(&state, &cfg).await?;
                 last_send = now_ms();
+                // 새 수치가 있는 환자가 없었으면(라우터 막 시작 등) 주기를 기다리지 않고 15초 뒤 다시
+                if tried == 0 {
+                    last_send = last_send.saturating_sub(cfg.interval_s.max(15) * 1000 - 15_000);
+                }
             }
             Ok(())
         }
@@ -463,6 +477,10 @@ async fn census(state: &AppState, cfg: &ConnCfg) -> Result<(), String> {
     let remotes = match cfg.protocol.as_str() {
         "fhir" => fhir_census(state, cfg).await?,
         "hl7v2" => hl7_census(state, cfg).await?,
+        "kr-json" => krjson_census(state, cfg).await?,
+        "kr-xml" => krxml_census(state, cfg).await?,
+        "cda" => cda_census(state, cfg).await?,
+        "athena" => athena_census(state, cfg).await?,
         p => return Err(format!("지원하지 않는 형식: {p}")),
     };
     let n = remotes.len();
@@ -681,10 +699,10 @@ fn fahrenheit(cfg: &ConnCfg) -> bool {
     matches!(cfg.flavor.as_str(), "epic" | "oracle" | "meditech" | "athena")
 }
 
-async fn send_all(state: &AppState, cfg: &ConnCfg) -> Result<(), String> {
+async fn send_all(state: &AppState, cfg: &ConnCfg) -> Result<u64, String> {
     let links: Vec<Link> = state.emr.state.lock().unwrap().get(&cfg.id).map(|s| s.links.clone()).unwrap_or_default();
     if links.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
     let mut ok = 0u64;
     let mut fail = 0u64;
@@ -696,6 +714,10 @@ async fn send_all(state: &AppState, cfg: &ConnCfg) -> Result<(), String> {
         let r = match cfg.protocol.as_str() {
             "fhir" => send_fhir(state, cfg, l, &v).await,
             "hl7v2" => send_hl7(cfg, l, &v, &mut mllp).await,
+            "kr-json" => send_krjson(cfg, l, &v).await,
+            "kr-xml" => send_krxml(cfg, l, &v).await,
+            "cda" => send_cda(cfg, l, &v).await,
+            "athena" => send_athena(state, cfg, l, &v).await,
             _ => Err("형식".into()),
         };
         let (good, msg) = match r {
@@ -737,10 +759,14 @@ async fn send_all(state: &AppState, cfg: &ConnCfg) -> Result<(), String> {
             break;
         }
     }
+    if ok + fail == 0 {
+        state.emr.log(&cfg.id, "send", true, "대기", "새 수치가 있는 매칭 환자 없음 — 15초 뒤 다시");
+        return Ok(0);
+    }
     state.emr.log(&cfg.id, "send", fail == 0, if fail == 0 { "OK" } else { "일부 실패" }, format!("바이탈 전송 {ok}명 성공 · {fail}명 실패"));
     match hard {
         Some(h) => Err(h),
-        None => Ok(()),
+        None => Ok(ok + fail),
     }
 }
 
@@ -964,13 +990,14 @@ async fn send_hl7(cfg: &ConnCfg, l: &Link, v: &Vit, conn: &mut Option<tokio::net
 fn strip_method(s: &str) -> String {
     let s = s.trim();
     let s = s.strip_prefix("GET ").or_else(|| s.strip_prefix("POST ")).unwrap_or(s);
-    s.split("  ").next().unwrap_or(s).trim().to_string()
+    // 뒤에 붙은 설명 "(Basic …)" · "  (Content-Type …)" 은 떼어 낸다
+    s.split("  ").next().unwrap_or(s).split(" (").next().unwrap_or(s).trim().to_string()
 }
 
 /// 가상 EMR 카탈로그의 기관 한 곳 → 연결 설정. 지원 형식이 아니면 None.
 pub fn from_catalog(site: &Value, emu_host: &str) -> Option<ConnCfg> {
     let protocol = site["protocol"].as_str()?.to_string();
-    if !matches!(protocol.as_str(), "fhir" | "hl7v2") {
+    if !matches!(protocol.as_str(), "fhir" | "hl7v2" | "kr-json" | "kr-xml" | "cda" | "athena") {
         return None;
     }
     let ep = &site["endpoints"];
@@ -983,7 +1010,8 @@ pub fn from_catalog(site: &Value, emu_host: &str) -> Option<ConnCfg> {
         tz: site["tz"].as_str().unwrap_or("UTC").into(),
         fhir_base: site["fhir_base"].as_str().unwrap_or("").into(),
         token_url: ep["token"].as_str().map(strip_method).unwrap_or_default(),
-        census_url: ep["census"].as_str().map(strip_method).unwrap_or_default(),
+        census_url: ["census", "inpatients", "list", "patients", "endpoint"].iter().find_map(|k| ep[*k].as_str()).map(strip_method).unwrap_or_default(),
+        base_url: site["base_url"].as_str().unwrap_or("").into(),
         auth: site["auth"].clone(),
         match_mode: "pair".into(),
         interval_s: 300,
@@ -999,6 +1027,332 @@ pub fn from_catalog(site: &Value, emu_host: &str) -> Option<ConnCfg> {
         c.charset = m["charset"].as_str().unwrap_or("utf-8").into();
     }
     Some(c)
+}
+
+
+// ───────────────────────────── 국내·벤더 형식 ─────────────────────────────
+
+fn xml_esc(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// `<name>값</name>` 의 값 (간단한 전문용 — 속성·중첩 없는 태그)
+fn tag(xml: &str, name: &str) -> String {
+    let open = format!("<{name}>");
+    let close = format!("</{name}>");
+    xml.find(&open).and_then(|i| xml[i + open.len()..].find(&close).map(|j| xml[i + open.len()..i + open.len() + j].to_string())).unwrap_or_default()
+}
+
+/// `<name>…</name>` 블록들
+fn blocks<'a>(xml: &'a str, name: &str) -> Vec<&'a str> {
+    let open = format!("<{name}>");
+    let close = format!("</{name}>");
+    let mut out = Vec::new();
+    let mut rest = xml;
+    while let Some(i) = rest.find(&open) {
+        let after = &rest[i + open.len()..];
+        let Some(j) = after.find(&close) else { break };
+        out.push(&after[..j]);
+        rest = &after[j + close.len()..];
+    }
+    out
+}
+
+fn krjson_headers(cfg: &ConnCfg) -> Vec<(&'static str, String)> {
+    vec![("X-API-KEY", auth_s(cfg, "key").to_string()), ("X-HOSP-CD", auth_s(cfg, "hosp_cd").to_string()), ("Accept", "application/json".into())]
+}
+
+/// 국내 대학병원 REST JSON (새솔): 업무 오류도 HTTP 200 — RESULT_CD 가 0000 이어야 성공
+async fn krjson_census(state: &AppState, cfg: &ConnCfg) -> Result<Vec<Remote>, String> {
+    let r = hc::request("GET", &cfg.census_url, &krjson_headers(cfg), None, Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
+    let j = r.json().ok_or_else(|| format!("재원 명단 HTTP {}", r.status))?;
+    if j["RESULT_CD"] != "0000" {
+        let m = format!("재원 명단 {} {}", j["RESULT_CD"].as_str().unwrap_or("?"), j["RESULT_MSG"].as_str().unwrap_or(""));
+        state.emr.log(&cfg.id, "census", false, r.status.to_string(), m.clone());
+        return Err(m);
+    }
+    let mut out: Vec<Remote> = j["DATA"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|d| Remote {
+            id: d["PT_NO"].as_str().unwrap_or("").into(),
+            ident: d["PT_NO"].as_str().unwrap_or("").into(),
+            name: d["PT_NM"].as_str().unwrap_or("").into(),
+            location: format!("{} {}-{}", d["WARD_NM"].as_str().unwrap_or(""), d["ROOM_NO"].as_str().unwrap_or(""), d["BED_NO"].as_str().unwrap_or("")),
+            encounter: d["ADM_NO"].as_str().map(String::from),
+            pid_seg: None,
+            pv1_seg: None,
+        })
+        .collect();
+    out.sort_by(|a, b| a.location.cmp(&b.location));
+    Ok(out)
+}
+
+async fn send_krjson(cfg: &ConnCfg, l: &Link, v: &Vit) -> Result<String, String> {
+    let mut list = Vec::new();
+    let mut add = |cd: &str, x: Option<f64>| {
+        if let Some(x) = x {
+            list.push(json!({"VS_CD": cd, "VS_VAL": if cd == "BT" { format!("{x:.1}") } else { format!("{}", x.round()) }}));
+        }
+    };
+    add("PR", v.hr);
+    add("RR", v.rr);
+    add("SPO2", v.spo2);
+    add("BT", v.temp_c);
+    let body = json!({
+        "HOSP_CD": auth_s(cfg, "hosp_cd"), "PT_NO": l.remote.id, "ADM_NO": l.remote.encounter.clone().unwrap_or_default(),
+        "MSR_DTM": local_time(cfg, v.ts_ms).format("%Y%m%d%H%M%S").to_string(), "DEVICE_ID": format!("BIOMON-{}", l.channel_id), "VS_LIST": list,
+    });
+    let url = format!("{}/api/v1/vs", cfg.base_url);
+    let mut h = krjson_headers(cfg);
+    h.push(("Content-Type", "application/json; charset=UTF-8".into()));
+    let r = hc::request("POST", &url, &h, Some(body.to_string().as_bytes()), Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
+    if r.status >= 500 {
+        return Err(format!("HTTP {}", r.status));
+    }
+    let j = r.json().unwrap_or_default();
+    match j["RESULT_CD"].as_str() {
+        Some("0000") => Ok(format!("{}항목 저장 (0000)", list_len(&body))),
+        Some(c) => Err(format!("{c} {}", j["RESULT_MSG"].as_str().unwrap_or(""))),
+        None => Err(format!("HTTP {}: {}", r.status, r.text().chars().take(120).collect::<String>())),
+    }
+}
+
+fn list_len(b: &Value) -> usize {
+    b["VS_LIST"].as_array().map(|a| a.len()).unwrap_or(0)
+}
+
+fn krxml_msg(if_id: &str, body: &str, ts: &str) -> String {
+    format!(
+        "<?xml version=\"1.0\" encoding=\"EUC-KR\"?>\n<IF_MSG><HEADER><IF_ID>{if_id}</IF_ID><SND_SYS_CD>BIOMON</SND_SYS_CD><RCV_SYS_CD>OCS</RCV_SYS_CD><TRX_ID>BM{}</TRX_ID><TRX_DTM>{ts}</TRX_DTM></HEADER><BODY>{body}</BODY></IF_MSG>",
+        crate::auth::random_hex(5)
+    )
+}
+
+async fn krxml_post(cfg: &ConnCfg, xml: &str) -> Result<String, String> {
+    let bytes = encoding_rs::EUC_KR.encode(xml).0.into_owned();
+    let r = hc::request("POST", &cfg.census_url, &[("Content-Type", "text/xml; charset=EUC-KR".into())], Some(&bytes), Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
+    if r.status >= 500 {
+        return Err(format!("HTTP {}", r.status));
+    }
+    Ok(encoding_rs::EUC_KR.decode(&r.body).0.into_owned())
+}
+
+/// EUC-KR XML 전문 (동해): IF_ID 로 업무를 고르고, 전문 오류도 HTTP 200 — RSLT_CD S 가 성공
+async fn krxml_census(state: &AppState, cfg: &ConnCfg) -> Result<Vec<Remote>, String> {
+    let ts = local_time(cfg, now_ms()).format("%Y%m%d%H%M%S").to_string();
+    let text = krxml_post(cfg, &krxml_msg("EMR_ADT_0001", "<REQ><WD_CD></WD_CD></REQ>", &ts)).await?;
+    if tag(&text, "RSLT_CD") != "S" {
+        let m = format!("재원 명단 {} {}", tag(&text, "RSLT_CD"), tag(&text, "RSLT_MSG"));
+        state.emr.log(&cfg.id, "census", false, "E", m.clone());
+        return Err(m);
+    }
+    let mut out: Vec<Remote> = blocks(&text, "DATA")
+        .iter()
+        .map(|d| Remote {
+            id: tag(d, "PTNT_NO"),
+            ident: tag(d, "PTNT_NO"),
+            name: tag(d, "PTNT_NM"),
+            location: format!("{} {}-{}", tag(d, "WD_CD"), tag(d, "RM_NO"), tag(d, "BD_NO")),
+            encounter: Some(tag(d, "INPT_NO")).filter(|x| !x.is_empty()),
+            pid_seg: None,
+            pv1_seg: None,
+        })
+        .collect();
+    out.sort_by(|a, b| a.location.cmp(&b.location));
+    Ok(out)
+}
+
+async fn send_krxml(cfg: &ConnCfg, l: &Link, v: &Vit) -> Result<String, String> {
+    let t = local_time(cfg, v.ts_ms);
+    let f = |x: Option<f64>, dec: bool| x.map(|x| if dec { format!("{x:.1}") } else { format!("{}", x.round()) }).unwrap_or_default();
+    let data = format!(
+        "<DATA_LIST><DATA><PTNT_NO>{}</PTNT_NO><VS_DT>{}</VS_DT><VS_TM>{}</VS_TM><BT>{}</BT><PR>{}</PR><RR>{}</RR><BP_H></BP_H><BP_L></BP_L><SPO2>{}</SPO2><EQUIP_ID>BIOMON-{}</EQUIP_ID></DATA></DATA_LIST>",
+        xml_esc(&l.remote.id), t.format("%Y%m%d"), t.format("%H%M"), f(v.temp_c, true), f(v.hr, false), f(v.rr, false), f(v.spo2, false), xml_esc(&l.channel_id)
+    );
+    let text = krxml_post(cfg, &krxml_msg("EMR_VS_0002", &data, &t.format("%Y%m%d%H%M%S").to_string())).await?;
+    match tag(&text, "RSLT_CD").as_str() {
+        "S" => Ok("전문 저장 (S)".into()),
+        c => {
+            let row = blocks(&text, "DATA").first().map(|d| format!("{} {}", tag(d, "PROC_CD"), tag(d, "PROC_MSG"))).unwrap_or_default();
+            Err(format!("RSLT_CD {c} {} {row}", tag(&text, "RSLT_MSG")))
+        }
+    }
+}
+
+/// 진료정보교류 CDA R2 (청람): 재원 환자 = 입원 중(ADMITTED=Y) 문서의 환자, 바이탈은 활력징후 CDA 문서로 등록
+async fn cda_census(state: &AppState, cfg: &ConnCfg) -> Result<Vec<Remote>, String> {
+    let h = [("Authorization", format!("Bearer {}", auth_s(cfg, "token")))];
+    let r = hc::request("GET", &cfg.census_url, &h, None, Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
+    if r.status != 200 {
+        let m = format!("문서 목록 HTTP {}: {}", r.status, r.text().chars().take(160).collect::<String>());
+        state.emr.log(&cfg.id, "census", false, r.status.to_string(), m.clone());
+        return Err(m);
+    }
+    let text = r.text();
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for d in blocks(&text, "Document") {
+        let id = tag(d, "PtNo");
+        if id.is_empty() || !seen.insert(id.clone()) {
+            continue;
+        }
+        out.push(Remote { id: id.clone(), ident: id, name: tag(d, "PtNm"), location: tag(d, "DocTitle"), encounter: None, pid_seg: None, pv1_seg: None });
+    }
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(out)
+}
+
+async fn send_cda(cfg: &ConnCfg, l: &Link, v: &Vit) -> Result<String, String> {
+    let ts = local_time(cfg, v.ts_ms).format("%Y%m%d%H%M%S%z").to_string();
+    let mut obs = String::new();
+    let mut add = |code: &str, val: Option<f64>, unit: &str, dec: bool| {
+        if let Some(x) = val {
+            let s = if dec { format!("{x:.1}") } else { format!("{}", x.round()) };
+            obs.push_str(&format!("<component><observation classCode=\"OBS\" moodCode=\"EVN\"><code code=\"{code}\" codeSystem=\"2.16.840.1.113883.6.1\" codeSystemName=\"LOINC\"/><effectiveTime value=\"{ts}\"/><value xsi:type=\"PQ\" value=\"{s}\" unit=\"{unit}\"/></observation></component>"));
+        }
+    };
+    add("8867-4", v.hr, "/min", false);
+    add("9279-1", v.rr, "/min", false);
+    add("59408-5", v.spo2, "%", false);
+    add("8310-5", v.temp_c, "Cel", true);
+    let doc = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <realmCode code="KR"/>
+  <typeId root="2.16.840.1.113883.1.3" extension="POCD_HD000040"/>
+  <templateId root="1.2.410.100110.40.2.1.9"/>
+  <id root="1.2.410.999999.1" extension="BM{}{}"/>
+  <code code="8716-3" codeSystem="2.16.840.1.113883.6.1" displayName="Vital signs"/>
+  <title>활력징후 기록 (생체신호 모니터링)</title>
+  <effectiveTime value="{ts}"/>
+  <confidentialityCode code="N" codeSystem="2.16.840.1.113883.5.25"/>
+  <recordTarget><patientRole><id root="1.2.410.100110.10.34100089.100" extension="{}"/><patient><name>{}</name></patient></patientRole></recordTarget>
+  <author><time value="{ts}"/><assignedAuthor><id root="1.2.410.999999.2" extension="BIOMON-{}"/></assignedAuthor></author>
+  <custodian><assignedCustodian><representedCustodianOrganization><id root="1.2.410.100110.10" extension="34100089"/></representedCustodianOrganization></assignedCustodian></custodian>
+  <component><structuredBody><component><section><code code="8716-3" codeSystem="2.16.840.1.113883.6.1"/><title>활력징후</title><text>장비 측정값</text>
+    <entry><organizer classCode="CLUSTER" moodCode="EVN"><statusCode code="completed"/>{obs}</organizer></entry>
+  </section></component></structuredBody></component>
+</ClinicalDocument>
+"#,
+        v.ts_ms,
+        crate::auth::random_hex(2),
+        xml_esc(&l.remote.id),
+        xml_esc(&l.remote.name),
+        xml_esc(&l.channel_id)
+    );
+    let url = format!("{}/cda/documents", cfg.base_url);
+    let h = [("Authorization", format!("Bearer {}", auth_s(cfg, "token"))), ("Content-Type", "application/xml; charset=utf-8".into())];
+    let r = hc::request("POST", &url, &h, Some(doc.as_bytes()), Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
+    match r.status {
+        200 | 201 => Ok(format!("문서 등록 ({})", r.status)),
+        s if s >= 500 => Err(format!("HTTP {s}")),
+        s => Err(format!("HTTP {s}: {}", r.text().chars().take(160).collect::<String>())),
+    }
+}
+
+/// athenaOne 계열 (Bayside): 토큰(Basic) → 모니터링 환자 목록(페이지) → 열린 encounter 에 form-encoded vitals, 체온 °F
+async fn athena_census(state: &AppState, cfg: &ConnCfg) -> Result<Vec<Remote>, String> {
+    let mut url = cfg.census_url.clone();
+    let mut out = Vec::new();
+    for _ in 0..30 {
+        let tok = token(state, cfg, false).await?.unwrap_or_default();
+        let r = hc::request("GET", &url, &[("Authorization", format!("Bearer {tok}"))], None, Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
+        if r.status == 401 {
+            if let Some(s) = state.emr.state.lock().unwrap().get_mut(&cfg.id) {
+                s.token = None;
+            }
+            continue;
+        }
+        if r.status != 200 {
+            let m = format!("환자 목록 HTTP {}: {}", r.status, r.text().chars().take(160).collect::<String>());
+            state.emr.log(&cfg.id, "census", false, r.status.to_string(), m.clone());
+            return Err(m);
+        }
+        let j = r.json().unwrap_or_default();
+        for p in j["patients"].as_array().cloned().unwrap_or_default() {
+            let id = p["patientid"].as_str().unwrap_or("").to_string();
+            out.push(Remote {
+                id: id.clone(),
+                ident: id,
+                name: format!("{} {}", p["firstname"].as_str().unwrap_or(""), p["lastname"].as_str().unwrap_or("")),
+                location: format!("department {}", p["departmentid"].as_str().unwrap_or("")),
+                encounter: None,
+                pid_seg: None,
+                pv1_seg: None,
+            });
+        }
+        match j["next"].as_str().filter(|n| !n.is_empty()) {
+            Some(n) if n.starts_with("http") => url = n.to_string(),
+            Some(n) => {
+                // athena 의 next 는 API 루트(= 기관 base_url) 기준 경로 — departmentid 가 빠져 있으면 붙인다
+                url = format!("{}/{}", cfg.base_url.trim_end_matches('/'), n.trim_start_matches('/'));
+                if !url.contains("departmentid=") {
+                    url.push_str(if url.contains('?') { "&departmentid=1" } else { "?departmentid=1" });
+                }
+            }
+            None => break,
+        }
+    }
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(out)
+}
+
+fn athena_prefix(cfg: &ConnCfg) -> String {
+    // .../v1/{practiceid}/patients?departmentid=1 → .../v1/{practiceid}
+    cfg.census_url.split("/patients").next().unwrap_or(&cfg.census_url).to_string()
+}
+
+async fn send_athena(state: &AppState, cfg: &ConnCfg, l: &Link, v: &Vit) -> Result<String, String> {
+    let tok = token(state, cfg, false).await?.unwrap_or_default();
+    let auth = ("Authorization", format!("Bearer {tok}"));
+    let enc = match &l.remote.encounter {
+        Some(e) => e.clone(),
+        None => {
+            let url = format!("{}/chart/{}/encounters?departmentid=1", athena_prefix(cfg), l.remote.id);
+            let r = hc::request("GET", &url, std::slice::from_ref(&auth), None, Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
+            let j = r.json().unwrap_or_default();
+            let e = j["encounters"]
+                .as_array()
+                .and_then(|a| a.iter().find(|e| e["status"] == "OPEN"))
+                .and_then(|e| e["encounterid"].as_str())
+                .map(String::from)
+                .ok_or("열린 encounter 가 없습니다")?;
+            if let Some(s) = state.emr.state.lock().unwrap().get_mut(&cfg.id) {
+                if let Some(x) = s.links.iter_mut().find(|x| x.channel_id == l.channel_id) {
+                    x.remote.encounter = Some(e.clone());
+                }
+            }
+            e
+        }
+    };
+    let mut groups: Vec<Value> = Vec::new();
+    let mut add = |id: &str, x: Option<f64>, dec: bool| {
+        if let Some(x) = x {
+            groups.push(json!([{"clinicalelementid": id, "value": if dec { format!("{x:.1}") } else { format!("{}", x.round()) }}]));
+        }
+    };
+    add("VITALS.HEARTRATE", v.hr, false);
+    add("VITALS.RESPIRATIONRATE", v.rr, false);
+    add("VITALS.O2SATURATION", v.spo2, false);
+    add("VITALS.TEMPERATURE", v.temp_c.map(|c| c * 9.0 / 5.0 + 32.0), true);
+    let n = groups.len();
+    let body = hc::form(&[("departmentid", "1"), ("source", "DEVICE"), ("vitals", &Value::Array(groups).to_string())]);
+    let url = format!("{}/chart/encounter/{}/vitals", athena_prefix(cfg), enc);
+    let r = hc::request("POST", &url, &[auth, ("Content-Type", "application/x-www-form-urlencoded".into())], Some(body.as_bytes()), Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
+    match r.status {
+        200 | 201 => Ok(format!("{n}항목 저장 ({})", r.status)),
+        s if s >= 500 => Err(format!("HTTP {s}")),
+        401 => {
+            if let Some(s) = state.emr.state.lock().unwrap().get_mut(&cfg.id) {
+                s.token = None;
+            }
+            Err("HTTP 401 (토큰 재발급 예정)".into())
+        }
+        s => Err(format!("HTTP {s}: {}", r.text().chars().take(160).collect::<String>())),
+    }
 }
 
 #[cfg(test)]
@@ -1038,6 +1392,15 @@ mod tests {
         let m = build_oru(&c, &link(), &v, "C3");
         assert!(m.contains("[degF]"), "US sends °F");
         assert!(m.split('\r').next().unwrap().ends_with("|2.5.1"), "{m}");
+    }
+
+    #[test]
+    fn xml_helpers() {
+        let x = "<R><RSLT_CD>S</RSLT_CD><DATA><A>1</A></DATA><DATA><A>2</A></DATA></R>";
+        assert_eq!(tag(x, "RSLT_CD"), "S");
+        assert_eq!(blocks(x, "DATA").iter().map(|d| tag(d, "A")).collect::<Vec<_>>(), vec!["1", "2"]);
+        assert_eq!(strip_method("POST http://h/t (Basic client_id:secret, x)"), "http://h/t");
+        assert_eq!(strip_method("POST http://h/if  (Content-Type: text/xml)"), "http://h/if");
     }
 
     #[test]

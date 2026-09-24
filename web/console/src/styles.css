@@ -842,3 +842,6 @@ header.top .user-menu { flex: none; }
 .ia-site.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .ia-site:disabled { opacity: .45; cursor: not-allowed; }
 button.danger { color: var(--err); border-color: color-mix(in srgb, var(--err) 50%, var(--line)); }
+.proto.p-kr-json, .proto.p-kr-xml { color: #1f8f72; border-color: color-mix(in srgb, #1f8f72 50%, var(--line)); }
+.proto.p-cda { color: #7a4fd0; border-color: color-mix(in srgb, #7a4fd0 50%, var(--line)); }
+.proto.p-athena { color: #c8672a; border-color: color-mix(in srgb, #c8672a 50%, var(--line)); }

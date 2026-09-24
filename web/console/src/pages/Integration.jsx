@@ -9,7 +9,7 @@ import Dropdown from '../Dropdown.jsx'
  * 연결 하나 = 이 라우터 병원 × 외부 EMR 한 곳(FHIR R4/STU3 · HL7 v2 MLLP). 인증·재원 명단·환자 매칭·전송·재시도는 라우터가 한다.
  * 시험용: 에뮬레이터의 가상 EMR 20곳 카탈로그에서 골라 붙인다(환자가 서로 달라 '시험용 짝짓기'로 매칭).
  */
-const PROTO = { fhir: 'FHIR', hl7v2: 'HL7 v2' }
+const PROTO = { fhir: 'FHIR', hl7v2: 'HL7 v2', 'kr-json': 'REST JSON', 'kr-xml': 'XML 전문', cda: 'CDA R2', athena: 'athena REST' }
 const ago = (ms) => (ms ? `${Math.max(0, Math.round((Date.now() - ms) / 1000))}초 전` : '—')
 
 export default function Integration() {
@@ -30,8 +30,8 @@ export default function Integration() {
         {edit && <button className="primary" onClick={() => setAdding(true)}>+ 연결 추가</button>}
       </div>
       <p className="muted adm-desc">
-        패치의 HR·호흡수·SpO₂·체온을 병원 EMR 에 간호 바이탈로 기록합니다. 기관마다 인증(SMART·OAuth·Basic·API 키), 재원 명단,
-        환자 식별자, 시간대·단위(미국 °F)·문자셋(ISO-2022-JP·ISO 8859-1)이 다르며 라우터가 맞춰 보냅니다. 이 라우터 병원({data?.site}) 환자만 보냅니다.
+        패치의 HR·호흡수·SpO₂·체온을 병원 EMR 에 간호 바이탈로 기록합니다. FHIR R4/STU3 · HL7 v2(MLLP) · 국내 REST JSON · EUC-KR XML 전문 ·
+        진료정보교류 CDA R2 · athena REST 를 지원하며, 기관마다 다른 인증, 재원 명단, 환자 식별자, 시간대·단위(미국 °F)·문자셋(ISO-2022-JP·ISO 8859-1·EUC-KR)을 라우터가 맞춰 보냅니다. 이 라우터 병원({data?.site}) 환자만 보냅니다.
       </p>
       {err && <p className="err">{err.message}</p>}
       <table className="tbl adm-tbl integ-tbl">
@@ -44,7 +44,7 @@ export default function Integration() {
               <tr key={g.id} className={'clickable' + (sel === g.id ? ' sel' : '')} onClick={() => setSel(g.id)}>
                 <td onClick={(e) => e.stopPropagation()}><label className="switch"><input type="checkbox" checked={g.enabled} disabled={!edit} onChange={(e) => toggle(c, e.target.checked)} /><i /></label></td>
                 <td><b>{g.name}</b></td>
-                <td><span className={'proto p-' + g.protocol}>{PROTO[g.protocol] || g.protocol} {g.version}</span> <small className="muted">{g.flavor}</small></td>
+                <td><span className={'proto p-' + g.protocol}>{PROTO[g.protocol] || g.protocol}{/^\d/.test(g.version) ? ` ${g.version}` : ''}</span> <small className="muted">{g.flavor}</small></td>
                 <td>{g.scope_ward ? wardText(g.scope_ward) : '전체'}</td>
                 <td className="num">{s.census || '—'}</td>
                 <td className="num">{s.linked || '—'}</td>
@@ -80,13 +80,13 @@ function Detail({ id, edit, onDeleted, onChanged }) {
     <section className="panel integ-detail">
       <div className="id-head">
         <h3>{g.name}</h3>
-        <span className={'proto p-' + g.protocol}>{PROTO[g.protocol]} {g.version}</span>
+        <span className={'proto p-' + g.protocol}>{PROTO[g.protocol] || g.protocol}{/^\d/.test(g.version) ? ` ${g.version}` : ''}</span>
         <span className="muted">{g.flavor} · {g.tz} · 인증 {authType}{g.charset && g.charset !== 'utf-8' ? ` · 문자셋 ${g.charset}` : ''}</span>
         <span className="spacer" />
         {edit && <><button onClick={() => run('census')} disabled={!g.enabled}>재원 명단 다시 받기</button><button className="primary" onClick={() => run('send')} disabled={!g.enabled}>지금 보내기</button><button className="danger" onClick={del}>삭제</button></>}
       </div>
       <div className="id-grid">
-        <div><small>주소</small><span className="mono">{g.protocol === 'fhir' ? g.fhir_base : `mllp://${g.mllp_host}:${g.mllp_port} · MSH-5/6 ${g.receiving_app}/${g.facility}`}</span></div>
+        <div><small>주소</small><span className="mono">{g.protocol === 'fhir' ? g.fhir_base : g.protocol === 'hl7v2' ? `mllp://${g.mllp_host}:${g.mllp_port} · MSH-5/6 ${g.receiving_app}/${g.facility}` : g.base_url}</span></div>
         <div><small>재원 명단</small><span className="mono">{g.census_url}</span></div>
         <div><small>보낼 환자 범위</small>
           <Dropdown value={g.scope_ward || ''} options={[{ value: '', label: '전체 병동' }, ...(wards || []).map((w) => ({ value: w, label: `${wardText(w)} (${w})` }))]} onChange={(v) => put({ scope_ward: v })} searchable width={220} />
@@ -98,7 +98,7 @@ function Detail({ id, edit, onDeleted, onChanged }) {
           <span className="seg">{[60, 300, 900, 3600].map((n) => <button key={n} className={g.interval_s === n ? 'active' : ''} disabled={!edit} onClick={() => put({ interval_s: n })}>{n < 3600 ? `${n / 60}분` : '1시간'}</button>)}</span>
         </div>
         <div><small>최대 환자 수</small><input type="number" min="1" max="500" defaultValue={g.max_patients} disabled={!edit} onBlur={(e) => put({ max_patients: Number(e.target.value) })} style={{ width: 90 }} /></div>
-        <div><small>토큰</small>{s.token_exp_ms ? `만료 ${fmtTime(s.token_exp_ms)}` : authType.includes('basic') || authType === 'bearer-static' || authType === 'api-key' || authType === 'mllp-facility' ? '필요 없음' : '—'}</div>
+        <div><small>토큰</small>{s.token_exp_ms ? `만료 ${fmtTime(s.token_exp_ms)}` : authType.includes('basic') || authType === 'bearer-static' || authType === 'api-key' || authType === 'mllp-facility' || authType === 'ip-allow' ? '필요 없음' : '—'}</div>
         <div><small>재원 명단 받은 때</small>{ago(s.census_ms)} · {s.census}명</div>
       </div>
       {s.last_error && <p className="integ-err">마지막 오류: {s.last_error}</p>}
@@ -119,7 +119,7 @@ function Detail({ id, edit, onDeleted, onChanged }) {
                 <td className="mono">{l.remote.encounter || <span className="muted">—</span>}</td>
                 <td className="num">{l.ok}</td>
                 <td className="num">{l.fail ? <span className="nz-bad">{l.fail}</span> : <span className="zero">0</span>}</td>
-                <td className={l.last_result && !/저장|ACK A/.test(l.last_result) ? 'err' : 'muted'}>{l.last_result || '—'}</td>
+                <td className={l.last_result && !/저장|등록|ACK A/.test(l.last_result) ? 'err' : 'muted'}>{l.last_result || '—'}</td>
               </tr>
             ))}
             {!d.links.length && <tr><td colSpan="9" className="muted">매칭된 환자가 없습니다 (연결을 켜면 재원 명단을 받아 짝짓습니다).</td></tr>}

@@ -96,7 +96,7 @@ async fn catalog(State(state): State<Arc<AppState>>) -> Response {
                     let proto = s["protocol"].as_str().unwrap_or("");
                     json!({ "id": s["id"], "name": s["name"], "name_local": s["name_local"], "country_ko": s["country_ko"], "city": s["city"],
                             "protocol": proto, "protocol_ko": s["protocol_ko"], "flavor": s["flavor"], "version": s["version"], "style": s["style"],
-                            "supported": matches!(proto, "fhir" | "hl7v2"), "added": have.iter().any(|h| s["id"].as_str() == Some(h)) })
+                            "supported": matches!(proto, "fhir" | "hl7v2" | "kr-json" | "kr-xml" | "cda" | "athena"), "added": have.iter().any(|h| s["id"].as_str() == Some(h)) })
                 })
                 .collect();
             Json(json!({"sites": sites, "mllp_port": c["mllp_port"]})).into_response()
@@ -130,7 +130,7 @@ async fn create(State(state): State<Arc<AppState>>, Extension(p): Extension<Prin
     };
     let emu_host = state.net.emulator().unwrap_or_default().split(':').next().unwrap_or("").to_string();
     let Some(mut c) = from_catalog(s, &emu_host) else {
-        return err(StatusCode::BAD_REQUEST, "아직 지원하지 않는 형식입니다 (FHIR·HL7 v2 만 지원)");
+        return err(StatusCode::BAD_REQUEST, "아직 지원하지 않는 형식입니다");
     };
     c.id = format!("{}-{}", b.site_id, &crate::auth::random_hex(2));
     c.tenant_id = site.clone();

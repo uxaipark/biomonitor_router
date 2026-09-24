@@ -83,7 +83,7 @@ Basic·고정 Bearer·API 키·RNDS 토큰, 401 → 재발급 1회) → 재원 �
 페이지 따라가기, HL7 `hl7/census`) → 환자 매칭(`mrn` 일치 / `pair` 시험용 짝짓기) → 전송(FHIR transaction Bundle, STU3 는 `context`;
 HL7 v2 ORU^R01 over MLLP — PID·PV1 은 기관 명단의 세그먼트 그대로, 버전별 MSH-9·MSH-17/18/20, 시간대 오프셋 유무, ISO-2022-JP·8859-1
 인코딩, 미국 °F) → 응답(201/200·ACK AA, 5xx 3연속이면 회차 중단, 지수 백오프 4 s → 5 분).
-에뮬레이터 가상 EMR 카탈로그(`/api/v1/emrsim`)에서 기관을 골라 추가한다. FHIR R4/STU3 10곳 + HL7 v2 6곳 지원, 미지원 4곳(athena REST·국내 JSON·EUC-KR XML·CDA)은 다음 단계.
+에뮬레이터 가상 EMR 카탈로그(`/api/v1/emrsim`)에서 기관을 골라 추가한다. 20곳 전부 지원: FHIR R4/STU3 10 · HL7 v2 6 · 국내 REST JSON(`RESULT_CD`) · EUC-KR XML 전문(`IF_ID` EMR_ADT_0001/EMR_VS_0002, `RSLT_CD`) · 진료정보교류 CDA R2(활력징후 문서 등록) · athena REST(Basic 토큰, 페이지, 열린 encounter, form-encoded vitals, °F).
 HTTPS 는 아직 없음(`http_client.rs` — 실제 병원은 TLS 종단 필요). JWT 서명은 시험 기관이 검증하지 않아 더미 서명 — 실제 기관용 키 관리 필요.
 API: `GET/POST /api/integration`, `GET /api/integration/catalog`, `GET/PUT/DELETE /api/integration/{id}`, `POST /api/integration/{id}/run {what: census|send}`, `GET /api/integration/{id}/received`.
 
