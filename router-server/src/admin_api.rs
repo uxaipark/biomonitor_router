@@ -57,6 +57,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/backup/order", put(backup_order))
         .route("/api/backup/test", post(backup_test))
         .route("/api/backup/scan", post(backup_scan))
+        .route("/api/backup/catalog/{id}", get(backup_catalog))
+        .route("/api/backup/catalog/{id}/sync", post(backup_catalog_sync))
+        .route("/api/backup/catalog/{id}/purge", post(backup_catalog_purge))
+        .route("/api/backup/abort", post(backup_abort))
         .route("/api/settings/network", get(net_get).put(net_put))
         .route("/api/settings/network/test", post(net_test))
         .merge(crate::auth_api::routes())
@@ -1063,6 +1067,49 @@ async fn backup_order(State(state): State<Arc<AppState>>, Json(b): Json<OrderBod
 async fn backup_test(State(state): State<Arc<AppState>>, Json(t): Json<crate::backup::TargetInput>) -> impl IntoResponse {
     let b = state.backup.clone();
     let r = tokio::task::spawn_blocking(move || b.resolve_for_test(t).map(|t| b.test_target(&t))).await.unwrap_or_else(|e| Err(e.to_string()));
+    bk_result(r)
+}
+
+#[derive(serde::Deserialize)]
+struct CatalogQ {
+    hour: Option<String>,
+    #[serde(default)]
+    q: String,
+}
+
+/// 대상별 백업 목록: 시간별 요약, `?hour=` 이면 그 시간의 파일
+async fn backup_catalog(State(state): State<Arc<AppState>>, Path(id): Path<String>, Query(q): Query<CatalogQ>) -> impl IntoResponse {
+    let b = state.backup.clone();
+    Json(tokio::task::spawn_blocking(move || b.catalog(&id, q.hour.as_deref(), &q.q)).await.unwrap_or_default())
+}
+
+async fn backup_catalog_sync(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
+    bk_result(state.backup.sync_catalog(&id).map(|_| serde_json::json!({ "ok": true })))
+}
+
+/// 백업 중단: 전송 중인 파일까지 바로 끊고 일시 중지
+async fn backup_abort(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let r = state.backup.abort().map(|n| serde_json::json!({ "ok": true, "killed": n }));
+    if r.is_ok() {
+        state.push_event("backup_config", None, "백업 중단 (사용자)".into());
+    }
+    bk_result(r)
+}
+
+/// 대상의 백업 파일 전체 삭제 (설정된 디렉터리의 patches/ 만). 확인 문구가 대상 이름과 같아야 한다.
+#[derive(serde::Deserialize)]
+struct PurgeBody {
+    confirm: String,
+}
+async fn backup_catalog_purge(State(state): State<Arc<AppState>>, Path(id): Path<String>, Json(b): Json<PurgeBody>) -> impl IntoResponse {
+    let Some(t) = state.backup.target(&id) else { return bk_result(Err("대상 없음".into())) };
+    if b.confirm.trim() != t.name.trim() {
+        return bk_result(Err("확인 문구가 대상 이름과 다릅니다".into()));
+    }
+    let r = state.backup.purge_target(&id).map(|_| serde_json::json!({ "ok": true }));
+    if r.is_ok() {
+        state.push_event("backup_config", None, format!("백업 파일 전체 삭제 시작: {}", t.name));
+    }
     bk_result(r)
 }
 

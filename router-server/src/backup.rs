@@ -36,6 +36,45 @@ pub static EMERGENCY_FREE_PCT: AtomicU64 = AtomicU64::new(5);
 /// FTP/FTPS/SFTP: 설정된 원격 디렉터리에 들어가 본 시각 (대상 id + 경로 → ms). 10분 동안은 다시 확인하지 않는다.
 static BASE_OK: LazyLock<Mutex<HashMap<String, u64>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// 전송 중인 curl/smbclient 프로세스 — '백업 중단'이 바로 끊는다
+static CHILDREN: LazyLock<Mutex<HashSet<u32>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+/// '백업 중단' 횟수. 작업 중에 바뀌면 그 작업의 실패는 대상 장애로 세지 않는다.
+static ABORT_GEN: AtomicU64 = AtomicU64::new(0);
+
+fn spawn_tracked(cmd: &mut Command) -> Result<std::process::Child, String> {
+    let child = cmd.spawn().map_err(|e| format!("실행 실패: {e}"))?;
+    CHILDREN.lock().unwrap().insert(child.id());
+    Ok(child)
+}
+fn wait_tracked(child: std::process::Child) -> Result<std::process::Output, String> {
+    let pid = child.id();
+    let r = child.wait_with_output().map_err(|e| format!("대기 실패: {e}"));
+    CHILDREN.lock().unwrap().remove(&pid);
+    r
+}
+
+/// 원격 목록 읽기 진행 상태 (대상 id → JSON)
+static SYNC: LazyLock<Mutex<HashMap<String, serde_json::Value>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// `patches/00076509/20260923-07.rec` → `20260923-07`
+fn hour_of(rel: &str) -> String {
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    name.strip_suffix(".rec.gz").or_else(|| name.strip_suffix(".rec")).unwrap_or(name).to_string()
+}
+
+/// FTP/SFTP LIST 한 줄(`-rw-r--r-- 1 u g 3582000 Sep 24 19:45 name`) → (이름, 크기, 디렉터리?)
+fn parse_list_line(l: &str) -> Option<(String, Option<u64>, bool)> {
+    let tok: Vec<&str> = l.split_whitespace().collect();
+    if tok.len() >= 9 && (tok[0].starts_with('-') || tok[0].starts_with('d') || tok[0].starts_with('l')) {
+        let name = tok[8..].join(" ");
+        if name == "." || name == ".." {
+            return None;
+        }
+        return Some((name, tok[4].parse().ok(), tok[0].starts_with('d')));
+    }
+    None
+}
+
 pub static FORGET_Q: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 /// 상한을 넘었지만 백업이 안 돼 지우지 못한 바이트 (마지막 prune 기준)
 pub static BLOCKED_BYTES: AtomicU64 = AtomicU64::new(0);
@@ -271,6 +310,11 @@ CREATE TABLE IF NOT EXISTS backup_files (rel TEXT NOT NULL, target TEXT NOT NULL
 CREATE TABLE IF NOT EXISTS backup_tombs (rel TEXT PRIMARY KEY, deleted_ms INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS backup_daily (day TEXT NOT NULL, target TEXT NOT NULL, files INTEGER NOT NULL, bytes INTEGER NOT NULL,
   PRIMARY KEY (day, target));
+-- 대상별 백업 목록: 로컬 파일을 지워도 남는다 (backup_files 는 로컬에 있는 파일의 사본 기록이라 지우면 같이 빠진다).
+-- src: upload = 라우터가 올리고 검증함, remote = 원격 목록 읽기로 찾음(크기만 확인)
+CREATE TABLE IF NOT EXISTS backup_catalog (target TEXT NOT NULL, rel TEXT NOT NULL, hour TEXT NOT NULL, size INTEGER NOT NULL, sha BLOB,
+  done_ms INTEGER NOT NULL, src TEXT NOT NULL DEFAULT 'upload', PRIMARY KEY (target, rel));
+CREATE INDEX IF NOT EXISTS backup_catalog_th ON backup_catalog (target, hour);
 ";
 
 fn now_ms() -> u64 {
@@ -365,11 +409,11 @@ fn kq(s: &str) -> String {
 
 fn run_with_stdin(mut cmd: Command, stdin: &str) -> Result<std::process::Output, String> {
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = cmd.spawn().map_err(|e| format!("실행 실패: {e}"))?;
+    let mut child = spawn_tracked(&mut cmd)?;
     if let Some(mut si) = child.stdin.take() {
         let _ = si.write_all(stdin.as_bytes());
     }
-    child.wait_with_output().map_err(|e| format!("대기 실패: {e}"))
+    wait_tracked(child)
 }
 
 /// curl / smbclient 종료 코드 → 원인 안내
@@ -486,8 +530,9 @@ impl Target {
             cmd.args(["-p", &self.port.to_string()]);
         }
         cmd.arg("-c").arg(cmds);
-        cmd.stdin(Stdio::null());
-        cmd.output().map_err(|e| format!("smbclient 실행 실패 ({e}) — apt install smbclient 필요"))
+        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let child = spawn_tracked(&mut cmd).map_err(|e| format!("smbclient {e} — apt install smbclient 필요"))?;
+        wait_tracked(child)
     }
 }
 
@@ -526,6 +571,20 @@ impl Backup {
                     }
                     ledger.entry(rel).or_default().push(Copy { target, size: size as u64, sha: s });
                 }
+            }
+        }
+        // 대상별 목록이 생기기 전에 올린 사본(아직 로컬에 있는 것)을 목록에 채운다
+        if let Ok(mut st) = db.prepare("SELECT rel, target, size, sha, done_ms FROM backup_files") {
+            let rows: Vec<(String, String, i64, Vec<u8>, i64)> = st
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+                .map(|it| it.flatten().collect())
+                .unwrap_or_default();
+            drop(st);
+            for (rel, target, size, sha, done) in rows {
+                let _ = db.execute(
+                    "INSERT OR IGNORE INTO backup_catalog (target, rel, hour, size, sha, done_ms, src) VALUES (?1,?2,?3,?4,?5,?6,'upload')",
+                    params![target, rel, hour_of(&rel), size, sha, done],
+                );
             }
         }
         let cutoff = now_ms().saturating_sub(14 * 86_400_000) as i64;
@@ -836,6 +895,354 @@ impl Backup {
         serde_json::json!({"ok": ok, "steps": steps, "where": self.describe(t, &remote)})
     }
 
+    /// 백업 중단: 전송 일시 중지 + 대기열 비움 + 전송 중인 curl/smbclient 즉시 종료. 재개는 정책의 일시 중지 해제.
+    pub fn abort(&self) -> Result<usize, String> {
+        let mut p = self.policy.read().unwrap().clone();
+        p.paused = true;
+        self.set_policy(p)?;
+        ABORT_GEN.fetch_add(1, Ordering::Relaxed);
+        self.queue.lock().unwrap().clear();
+        let pids: Vec<u32> = CHILDREN.lock().unwrap().iter().copied().collect();
+        #[cfg(unix)]
+        for pid in &pids {
+            unsafe {
+                libc::kill(*pid as i32, libc::SIGTERM);
+            }
+        }
+        self.cv.notify_all();
+        info!("backup: aborted by user ({} transfers killed)", pids.len());
+        Ok(pids.len())
+    }
+
+    /// 대상의 백업 파일 전체 삭제: 설정된 디렉터리 안의 `patches/` 만 지운다(루트·다른 폴더는 건드리지 않음).
+    /// 먼저 백업을 중단한다. 끝나면 이 대상의 목록·사본 기록을 비워, 로컬에 남은 파일은 재개 뒤 다시 올라간다.
+    pub fn purge_target(self: &Arc<Self>, target: &str) -> Result<(), String> {
+        let t = self.target(target).ok_or("대상 없음")?;
+        if t.kind == "nas" {
+            if !t.path.trim().starts_with('/') || t.path.trim().trim_matches('/').is_empty() {
+                return Err("NAS 경로가 올바르지 않습니다".into());
+            }
+        } else {
+            t.remote_base()?;
+        }
+        {
+            let mut s = SYNC.lock().unwrap();
+            if s.get(target).and_then(|v| v["running"].as_bool()) == Some(true) {
+                return Err("이 대상에서 다른 작업이 진행 중입니다".into());
+            }
+            s.insert(target.into(), serde_json::json!({ "op": "purge", "running": true, "started_ms": now_ms(), "dirs": 0, "deleted": 0 }));
+        }
+        self.abort()?;
+        let b = self.clone();
+        std::thread::Builder::new()
+            .name("backup-purge".into())
+            .spawn(move || {
+                let r = b.purge_run(&t);
+                let mut s = SYNC.lock().unwrap();
+                let e = s.entry(t.id.clone()).or_default();
+                e["running"] = serde_json::json!(false);
+                e["done_ms"] = serde_json::json!(now_ms());
+                if let Err(err) = r {
+                    e["error"] = serde_json::json!(err);
+                }
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn purge_run(&self, t: &Target) -> Result<(), String> {
+        let p = self.policy.read().unwrap().clone();
+        let set = |k: &str, v: serde_json::Value| {
+            if let Some(e) = SYNC.lock().unwrap().get_mut(&t.id) {
+                e[k] = v;
+            }
+        };
+        let mut deleted = 0u64;
+        match t.kind.as_str() {
+            "nas" => {
+                let dir = Path::new(t.path.trim()).join("patches");
+                if dir.is_dir() {
+                    deleted = fs::read_dir(&dir).map(|rd| rd.flatten().filter_map(|d| fs::read_dir(d.path()).ok()).map(|f| f.count() as u64).sum()).unwrap_or(0);
+                    fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+                }
+            }
+            "smb" => {
+                let auth = t.smb_auth(&self.work)?;
+                let full = join_remote(&t.path, "patches").trim_start_matches('/').to_string();
+                let o = t.smbclient(&auth, &p, &format!("deltree \"{full}\""));
+                let _ = fs::remove_file(&auth);
+                let o = o?;
+                if !o.status.success() && !String::from_utf8_lossy(&o.stderr).contains("NT_STATUS_OBJECT_NAME_NOT_FOUND") {
+                    return Err(stderr_msg(&o));
+                }
+            }
+            kind => {
+                let dirs: Vec<String> = match self.list_remote(t, &p, "patches") {
+                    Ok(v) => v.into_iter().filter(|x| x.2).map(|x| x.0).collect(),
+                    Err(e) if e.contains("(9)") || e.contains("(78)") => Vec::new(), // patches/ 가 없다 = 지울 것 없음
+                    Err(e) => return Err(e),
+                };
+                set("dirs_total", serde_json::json!(dirs.len()));
+                // SFTP 명령 경로: '/..' 절대, 아니면 홈 기준
+                let sftp_path = |rel: &str| {
+                    let full = join_remote(&t.path, rel);
+                    if t.path.trim().starts_with('/') { format!("/{}", full.trim_start_matches('/')) } else { full.trim_start_matches("~/").to_string() }
+                };
+                let mut done = 0usize;
+                for chunk in dirs.chunks(50) {
+                    let subs: Vec<String> = chunk.iter().map(|d| format!("patches/{d}")).collect();
+                    let lists = self.list_remote_many(t, &p, &subs);
+                    let mut q: Vec<String> = Vec::new();
+                    for (d, r) in chunk.iter().zip(lists) {
+                        for (name, _, is_dir) in r.unwrap_or_default() {
+                            if is_dir {
+                                continue;
+                            }
+                            deleted += 1;
+                            q.push(if kind == "sftp" { format!("-*rm \"{}\"", sftp_path(&format!("patches/{d}/{name}"))) } else { format!("-*DELE {d}/{name}") });
+                        }
+                        q.push(if kind == "sftp" { format!("-*rmdir \"{}\"", sftp_path(&format!("patches/{d}"))) } else { format!("-*RMD {d}") });
+                    }
+                    // patches/ 목록을 받은 뒤(-) 그 안에서 명령 실행, 실패한 명령(*)은 건너뛰고 계속
+                    let mut cmd = t.curl(&p);
+                    cmd.args(["-o", "/dev/null"]);
+                    for c in &q {
+                        cmd.arg("-Q").arg(c);
+                    }
+                    cmd.arg(format!("{}/", t.url("patches").trim_end_matches('/')));
+                    let o = run_with_stdin(cmd, &t.curl_cfg())?;
+                    if !o.status.success() {
+                        return Err(format!("삭제 실패: {}", stderr_msg(&o)));
+                    }
+                    done += chunk.len();
+                    set("dirs", serde_json::json!(done));
+                    set("deleted", serde_json::json!(deleted));
+                }
+                let mut cmd = t.curl(&p);
+                let rm = if kind == "sftp" { format!("-*rmdir \"{}\"", sftp_path("patches")) } else { "-*RMD patches".to_string() };
+                cmd.args(["-o", "/dev/null", "-Q", &rm]).arg(format!("{}/", t.url("").trim_end_matches('/')));
+                let _ = run_with_stdin(cmd, &t.curl_cfg());
+            }
+        }
+        // 이 대상의 기록 비우기 → 로컬에 남은 파일은 백업 안 된 것으로 돌아가 재개 뒤 다시 올라간다
+        {
+            let mut led = self.ledger.lock().unwrap();
+            for v in led.values_mut() {
+                v.retain(|c| c.target != t.id);
+            }
+            led.retain(|_, v| !v.is_empty());
+        }
+        if let Ok(db) = self.db.lock() {
+            let _ = db.execute("DELETE FROM backup_catalog WHERE target = ?1", params![t.id]);
+            let _ = db.execute("DELETE FROM backup_files WHERE target = ?1", params![t.id]);
+        }
+        self.rebuild_safe();
+        set("deleted", serde_json::json!(deleted));
+        info!("backup: purged target {} — {} files deleted", t.name, deleted);
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------- 대상별 백업 목록
+
+    /// hour 없으면 시간별 요약, 있으면 그 시간의 파일 목록 (q = 패치 번호 일부)
+    pub fn catalog(&self, target: &str, hour: Option<&str>, q: &str) -> serde_json::Value {
+        let db = self.db.lock().unwrap();
+        let (files, bytes): (i64, i64) = db
+            .query_row("SELECT COUNT(*), COALESCE(SUM(size),0) FROM backup_catalog WHERE target = ?1", params![target], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap_or((0, 0));
+        let sync = SYNC.lock().unwrap().get(target).cloned();
+        let mut out = serde_json::json!({ "target": target, "files": files, "bytes": bytes, "sync": sync });
+        if let Some(h) = hour {
+            let like = format!("%{}%", q.trim());
+            let mut v = Vec::new();
+            if let Ok(mut st) = db.prepare(
+                "SELECT rel, size, sha, done_ms, src FROM backup_catalog WHERE target = ?1 AND hour = ?2 AND rel LIKE ?3 ORDER BY rel LIMIT 5000",
+            ) {
+                if let Ok(rows) = st.query_map(params![target, h, like], |r| {
+                    let rel: String = r.get(0)?;
+                    let sha: Option<Vec<u8>> = r.get(2)?;
+                    Ok(serde_json::json!({
+                        "rel": rel, "patch": rel.split('/').nth(1).unwrap_or(""), "size": r.get::<_, i64>(1)?,
+                        "sha": sha.filter(|s| s.len() == 32).map(|s| hex(&s)), "done_ms": r.get::<_, i64>(3)?, "src": r.get::<_, String>(4)?,
+                    }))
+                }) {
+                    v.extend(rows.flatten());
+                }
+            }
+            out["hour"] = serde_json::json!(h);
+            out["list"] = serde_json::json!(v);
+        } else {
+            let mut v = Vec::new();
+            if let Ok(mut st) = db.prepare(
+                "SELECT hour, COUNT(*), SUM(size), MIN(done_ms), MAX(done_ms), SUM(src = 'remote') FROM backup_catalog WHERE target = ?1 GROUP BY hour ORDER BY hour DESC LIMIT 2000",
+            ) {
+                if let Ok(rows) = st.query_map(params![target], |r| {
+                    Ok(serde_json::json!({ "hour": r.get::<_, String>(0)?, "files": r.get::<_, i64>(1)?, "bytes": r.get::<_, i64>(2)?,
+                                           "first_ms": r.get::<_, i64>(3)?, "last_ms": r.get::<_, i64>(4)?, "remote_only": r.get::<_, i64>(5)? }))
+                }) {
+                    v.extend(rows.flatten());
+                }
+            }
+            out["hours"] = serde_json::json!(v);
+        }
+        out
+    }
+
+    /// 원격 저장소의 patches/ 를 읽어 목록에 없는 파일을 채운다 (백그라운드). 목록에 있는데 원격에 없는 건 세기만 한다.
+    pub fn sync_catalog(self: &Arc<Self>, target: &str) -> Result<(), String> {
+        let t = self.target(target).ok_or("대상 없음")?;
+        if t.kind == "smb" {
+            return Err("SMB 대상은 아직 원격 목록 읽기를 지원하지 않습니다".into());
+        }
+        if t.kind != "nas" {
+            t.remote_base()?;
+        }
+        {
+            let mut s = SYNC.lock().unwrap();
+            if s.get(target).and_then(|v| v["running"].as_bool()) == Some(true) {
+                return Err("이 대상에서 다른 작업이 진행 중입니다".into());
+            }
+            s.insert(target.into(), serde_json::json!({ "op": "sync", "running": true, "started_ms": now_ms(), "dirs": 0, "found": 0, "added": 0 }));
+        }
+        let b = self.clone();
+        std::thread::Builder::new()
+            .name("backup-sync".into())
+            .spawn(move || {
+                let r = b.sync_run(&t);
+                let mut s = SYNC.lock().unwrap();
+                let e = s.entry(t.id.clone()).or_default();
+                e["running"] = serde_json::json!(false);
+                e["done_ms"] = serde_json::json!(now_ms());
+                if let Err(err) = r {
+                    e["error"] = serde_json::json!(err);
+                }
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// 원격 디렉터리 한 곳 (patches 아래 상대 경로) 목록
+    fn list_remote(&self, t: &Target, p: &Policy, sub: &str) -> Result<Vec<(String, Option<u64>, bool)>, String> {
+        if t.kind == "nas" {
+            let rd = fs::read_dir(Path::new(t.path.trim()).join(sub)).map_err(|e| e.to_string())?;
+            return Ok(rd
+                .flatten()
+                .map(|e| {
+                    let md = e.metadata().ok();
+                    (e.file_name().to_string_lossy().to_string(), md.as_ref().map(|m| m.len()), md.map(|m| m.is_dir()).unwrap_or(false))
+                })
+                .collect());
+        }
+        let mut cmd = t.curl(p);
+        cmd.arg(format!("{}/", t.url(sub).trim_end_matches('/')));
+        let o = run_with_stdin(cmd, &t.curl_cfg())?;
+        if !o.status.success() {
+            return Err(format!("{sub}: {}", stderr_msg(&o)));
+        }
+        Ok(String::from_utf8_lossy(&o.stdout).lines().filter_map(parse_list_line).collect())
+    }
+
+    /// 여러 디렉터리를 curl 한 번(연결 재사용)으로 읽는다. 각 결과는 subs 순서대로.
+    fn list_remote_many(&self, t: &Target, p: &Policy, subs: &[String]) -> Vec<Result<Vec<(String, Option<u64>, bool)>, String>> {
+        if t.kind == "nas" {
+            return subs.iter().map(|s| self.list_remote(t, p, s)).collect();
+        }
+        const MARK: &str = "@@BM_END@@";
+        let mut cmd = t.curl(p);
+        // --fail 로 한 폴더가 실패해도 다음 URL 은 계속 받는다. 폴더마다 끝 표시 + 응답 코드
+        cmd.args(["-w", &format!("\n{MARK} %{{response_code}}\n")]);
+        for sub in subs {
+            cmd.arg(format!("{}/", t.url(sub).trim_end_matches('/')));
+        }
+        let o = match run_with_stdin(cmd, &t.curl_cfg()) {
+            Ok(o) => o,
+            Err(e) => return subs.iter().map(|_| Err(e.clone())).collect(),
+        };
+        let out = String::from_utf8_lossy(&o.stdout).to_string();
+        let mut res = Vec::new();
+        let mut cur = Vec::new();
+        for l in out.lines() {
+            if let Some(code) = l.strip_prefix(MARK) {
+                let c: u32 = code.trim().parse().unwrap_or(0);
+                // FTP 150/125/226/250 = 목록 성공, SFTP 는 0
+                res.push(if c < 400 { Ok(std::mem::take(&mut cur)) } else { cur.clear(); Err(format!("응답 {c}")) });
+            } else if let Some(x) = parse_list_line(l) {
+                cur.push(x);
+            }
+        }
+        while res.len() < subs.len() {
+            res.push(Err(stderr_msg(&o)));
+        }
+        res
+    }
+
+    fn sync_run(&self, t: &Target) -> Result<(), String> {
+        let p = self.policy.read().unwrap().clone();
+        let set = |k: &str, v: serde_json::Value| {
+            if let Some(e) = SYNC.lock().unwrap().get_mut(&t.id) {
+                e[k] = v;
+            }
+        };
+        let dirs: Vec<String> = self.list_remote(t, &p, "patches")?.into_iter().filter(|x| x.2).map(|x| x.0).collect();
+        set("dirs_total", serde_json::json!(dirs.len()));
+        let known: HashSet<String> = {
+            let db = self.db.lock().unwrap();
+            let mut st = db.prepare("SELECT rel FROM backup_catalog WHERE target = ?1").map_err(|e| e.to_string())?;
+            let v: HashSet<String> = st.query_map(params![t.id], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?.flatten().collect();
+            v
+        };
+        let (mut found, mut added, mut errs) = (0u64, 0u64, 0u64);
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut done_dirs = 0usize;
+        for chunk in dirs.chunks(100) {
+          let subs: Vec<String> = chunk.iter().map(|d| format!("patches/{d}")).collect();
+          let lists = self.list_remote_many(t, &p, &subs);
+          for (d, r) in chunk.iter().zip(lists) {
+            done_dirs += 1;
+            let files = match r {
+                Ok(f) => f,
+                Err(_) => {
+                    errs += 1;
+                    continue;
+                }
+            };
+            let mut new = Vec::new();
+            for (name, size, is_dir) in files {
+                if is_dir || !(name.ends_with(".rec") || name.ends_with(".rec.gz")) {
+                    continue;
+                }
+                let rel = format!("patches/{d}/{name}");
+                found += 1;
+                if !known.contains(&rel) {
+                    new.push((rel.clone(), size.unwrap_or(0)));
+                }
+                seen.insert(rel);
+            }
+            if !new.is_empty() {
+                let mut db = self.db.lock().unwrap();
+                if let Ok(tx) = db.transaction() {
+                    for (rel, size) in &new {
+                        let _ = tx.execute(
+                            "INSERT OR IGNORE INTO backup_catalog (target, rel, hour, size, sha, done_ms, src) VALUES (?1,?2,?3,?4,NULL,?5,'remote')",
+                            params![t.id, rel, hour_of(rel), *size as i64, now_ms() as i64],
+                        );
+                    }
+                    let _ = tx.commit();
+                }
+                added += new.len() as u64;
+            }
+          }
+          set("dirs", serde_json::json!(done_dirs));
+          set("found", serde_json::json!(found));
+          set("added", serde_json::json!(added));
+        }
+        let missing = known.iter().filter(|r| !seen.contains(*r)).count();
+        set("missing", serde_json::json!(missing));
+        set("dir_errors", serde_json::json!(errs));
+        info!("backup: catalog sync {} — {} dirs, {} files found, {} added, {} listed but not on remote", t.name, dirs.len(), found, added, missing);
+        Ok(())
+    }
+
     fn describe(&self, t: &Target, remote: &str) -> String {
         match t.kind.as_str() {
             "nas" => Path::new(&t.path).join(remote).display().to_string(),
@@ -974,12 +1381,12 @@ impl Backup {
                 if by_sha {
                     let mut cmd = t.curl(p);
                     cmd.arg(&url).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-                    let mut child = cmd.spawn().map_err(|e| format!("curl 실행 실패: {e}"))?;
+                    let mut child = spawn_tracked(&mut cmd).map_err(|e| format!("curl {e}"))?;
                     if let Some(mut si) = child.stdin.take() {
                         let _ = si.write_all(t.curl_cfg().as_bytes());
                     }
                     let res = sha_reader(child.stdout.take().unwrap());
-                    let o = child.wait_with_output().map_err(|e| e.to_string())?;
+                    let o = wait_tracked(child)?;
                     if !o.status.success() {
                         return Err(format!("다시 읽기 실패: {}", stderr_msg(&o)));
                     }
@@ -1172,6 +1579,7 @@ impl Backup {
         if md.len() != job.size {
             return; // 다음 스캔에서 새 크기로
         }
+        let gen = ABORT_GEN.load(Ordering::Relaxed);
         let Ok((sha, size)) = sha_file(&local) else { return };
         if size != job.size {
             return;
@@ -1198,7 +1606,7 @@ impl Backup {
             }
         };
         for t in &targets {
-            if have.len() >= need {
+            if have.len() >= need || ABORT_GEN.load(Ordering::Relaxed) != gen {
                 break;
             }
             if have.contains(&t.id) {
@@ -1236,11 +1644,20 @@ impl Backup {
                             params![job.rel, t.id, size as i64, sha.to_vec(), remote, now_ms() as i64],
                         );
                         let _ = db.execute(
+                            "INSERT OR REPLACE INTO backup_catalog (target, rel, hour, size, sha, done_ms, src) VALUES (?1,?2,?3,?4,?5,?6,'upload')",
+                            params![t.id, job.rel, hour_of(&job.rel), size as i64, sha.to_vec(), now_ms() as i64],
+                        );
+                        let _ = db.execute(
                             "INSERT INTO backup_daily (day, target, files, bytes) VALUES (?1,?2,1,?3) ON CONFLICT(day, target) DO UPDATE SET files = files + 1, bytes = bytes + ?3",
                             params![day_key(now_ms()), t.id, size as i64],
                         );
                     }
                     self.logit(&t.name, &remote, size, ms, true, format!("검증 완료 ({})", if p.verify == "sha256" { format!("SHA-256 {}…", &hex(&sha)[..12]) } else { "크기".into() }));
+                }
+                Err(_) if ABORT_GEN.load(Ordering::Relaxed) != gen => {
+                    // 사용자가 중단했다: 대상 장애가 아니다 (올리다 만 원격 파일은 재개 때 덮어쓴다)
+                    drop(st);
+                    self.logit(&t.name, &remote, size, ms, false, "사용자 중단".into());
                 }
                 Err(e) => {
                     s.fail += 1;
@@ -1319,6 +1736,16 @@ pub fn start(state: Arc<AppState>) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn catalog_helpers() {
+        assert_eq!(hour_of("patches/00076509/20260923-07.rec"), "20260923-07");
+        assert_eq!(hour_of("patches/00076509/20260923-07.rec.gz"), "20260923-07");
+        assert_eq!(parse_list_line("-rw-r--r--   1 user  users  3582000 Sep 24 19:45 20260923-07.rec"), Some(("20260923-07.rec".into(), Some(3582000), false)));
+        assert_eq!(parse_list_line("drwxrwxrwx   1 user  users        0 Sep 24 19:45 00076509"), Some(("00076509".into(), Some(0), true)));
+        assert_eq!(parse_list_line("drwxr-xr-x 2 u g 4096 Sep 24 19:45 ."), None);
+        assert_eq!(parse_list_line("total 12"), None);
+    }
+
     use super::*;
 
     #[test]

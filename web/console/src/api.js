@@ -73,6 +73,10 @@ export const api = {
     order: (ids) => send('PUT', '/api/backup/order', { ids }),
     test: (t) => send('POST', '/api/backup/test', t),
     scan: () => send('POST', '/api/backup/scan'),
+    catalog: (id, hour, q = '') => get(`/api/backup/catalog/${encodeURIComponent(id)}${hour ? `?hour=${encodeURIComponent(hour)}&q=${encodeURIComponent(q)}` : ''}`),
+    catalogSync: (id) => send('POST', `/api/backup/catalog/${encodeURIComponent(id)}/sync`),
+    catalogPurge: (id, confirm) => send('POST', `/api/backup/catalog/${encodeURIComponent(id)}/purge`, { confirm }),
+    abort: () => send('POST', '/api/backup/abort'),
   },
   auth: {
     me: () => get('/api/auth/me'),

@@ -72,7 +72,9 @@ export default function BiosignalAdmin() {
           </div>
           <div className="toolbar" style={{ marginBottom: 0 }}>
             <button onClick={async () => { await api.backup.scan(); setTimeout(() => refresh?.(), 1200) }}>지금 검사</button>
-            {st && <button onClick={async () => { try { await api.backup.setPolicy({ ...st.policy, paused: !st.policy.paused }); refresh?.() } catch (e) { setMsg(e.message) } }}>{st.policy.paused ? '전송 재개' : '전송 일시 중지'}</button>}
+            {st && (st.policy.paused
+              ? <button className="primary" onClick={async () => { try { await api.backup.setPolicy({ ...st.policy, paused: false }); refresh?.() } catch (e) { setMsg(e.message) } }}>백업 재개</button>
+              : <button className="danger" title="전송 중인 파일까지 바로 끊고 멈춥니다 (끊긴 파일은 재개할 때 처음부터 다시 올립니다)" onClick={async () => { try { const r = await api.backup.abort(); setMsg(r.killed ? `백업을 중단했습니다 — 전송 중이던 ${r.killed}건을 끊었습니다` : '백업을 중단했습니다'); refresh?.() } catch (e) { setMsg(e.message) } }}>백업 중단</button>)}
             {msg && <span className="muted">{msg}</span>}
           </div>
         </section>
@@ -123,6 +125,8 @@ export default function BiosignalAdmin() {
         </section>
 
         {st && <PolicyCard policy={st.policy} nTargets={Math.max(1, enabled)} onSaved={refresh} />}
+
+        {st?.targets?.length > 0 && <BackupCatalog targets={st.targets} />}
 
         <section>
           <h3>최근 전송 기록</h3>
@@ -262,5 +266,91 @@ function TargetModal({ target, onClose, onSaved }) {
         </div>
       </div>
     </div>
+  )
+}
+
+/** 백업 저장소별 목록: 대상 → 시간(UTC 시간 파일)별 요약 → 그 시간의 패치 파일 */
+function BackupCatalog({ targets }) {
+  const [tid, setTid] = useState(targets[0]?.id)
+  const id = targets.some((t) => t.id === tid) ? tid : targets[0]?.id
+  const [cat, err, refresh] = usePoll(() => api.backup.catalog(id), 10000, [id])
+  const [open, setOpen] = useState(null) // 펼친 시간
+  const [q, setQ] = useState('')
+  const [files, setFiles] = useState(null)
+  const [msg, setMsg] = useState('')
+  useEffect(() => { setOpen(null); setFiles(null) }, [id])
+  useEffect(() => {
+    if (!open) return
+    let dead = false
+    const t = setTimeout(() => api.backup.catalog(id, open, q).then((r) => { if (!dead) setFiles(r.list || []) }).catch((e) => setMsg(e.message)), 200)
+    return () => { dead = true; clearTimeout(t) }
+  }, [id, open, q])
+  const sync = cat?.sync
+  const t = targets.find((x) => x.id === id)
+  const startSync = async () => { setMsg(''); try { await api.backup.catalogSync(id); setTimeout(() => refresh?.(), 800) } catch (e) { setMsg(e.message) } }
+  const purge = async () => {
+    setMsg('')
+    const v = window.prompt(`'${t?.name}' 의 백업 파일을 전부 지웁니다 (${where(t)} 안의 patches/ 폴더).\n` +
+      '로컬에서 이미 지워진 시간의 파형은 되살릴 수 없습니다. 삭제하는 동안 백업은 중단되고, 끝난 뒤 "백업 재개"를 누르면 로컬에 남은 파일부터 다시 올립니다.\n\n' +
+      `계속하려면 대상 이름을 그대로 입력하세요: ${t?.name}`)
+    if (v == null) return
+    try { await api.backup.catalogPurge(id, v); setOpen(null); setTimeout(() => refresh?.(), 800) } catch (e) { setMsg(e.message) }
+  }
+  return (
+    <section>
+      <h3>백업 저장소별 목록</h3>
+      <div className="toolbar">
+        <Seg value={id} options={targets.map((x) => [x.id, x.name])} onChange={setTid} />
+        <span className="muted">{t && where(t)} · 파일 {(cat?.files ?? 0).toLocaleString()}개 · {fmtBytes(cat?.bytes || 0)}</span>
+        <span className="spacer" />
+        {t?.kind !== 'smb' && <button onClick={startSync} disabled={sync?.running} title="원격 저장소의 patches/ 를 읽어 목록에 없는 파일을 채웁니다 (목록 기능 이전에 올린 파일 포함)">{sync?.running && sync.op !== 'purge' ? `원격 목록 읽는 중… ${sync.dirs || 0}/${sync.dirs_total ?? '?'}` : '원격 목록 읽기'}</button>}
+        <button className="danger" onClick={purge} disabled={sync?.running}>{sync?.running && sync.op === 'purge' ? `삭제 중… 폴더 ${sync.dirs || 0}/${sync.dirs_total ?? '?'} · 파일 ${(sync.deleted || 0).toLocaleString()}` : '백업 파일 전체 삭제'}</button>
+      </div>
+      {sync && !sync.running && sync.done_ms && sync.op === 'purge' && (
+        <p className={sync.error ? 'err' : 'muted'}>백업 파일 전체 삭제 {fmtDateTime(sync.done_ms)}: {sync.error ? sync.error : `파일 ${(sync.deleted ?? 0).toLocaleString()}개 삭제 · 백업은 중단 상태입니다 ("백업 재개"로 다시 시작)`}</p>
+      )}
+      {sync && !sync.running && sync.done_ms && sync.op !== 'purge' && (
+        <p className={sync.error ? 'err' : 'muted'}>
+          원격 목록 읽기 {fmtDateTime(sync.done_ms)}: {sync.error ? sync.error : `폴더 ${sync.dirs_total ?? 0}개 · 파일 ${(sync.found ?? 0).toLocaleString()}개 확인 · ${(sync.added ?? 0).toLocaleString()}개 추가${sync.missing ? ` · 목록에 있으나 원격에 없음 ${sync.missing}개` : ''}${sync.dir_errors ? ` · 읽기 실패 폴더 ${sync.dir_errors}개` : ''}`}
+        </p>
+      )}
+      {(err || msg) && <p className="err">{msg || err.message}</p>}
+      <div style={{ overflowX: 'auto', maxHeight: 520, overflowY: 'auto' }}>
+        <table className="tbl dense">
+          <thead><tr><th>시간 파일 (현지 시각)</th><th className="num">패치 파일</th><th className="num">크기</th><th>백업 시각</th><th /></tr></thead>
+          <tbody>
+            {(cat?.hours || []).map((h) => (
+              <React.Fragment key={h.hour}>
+                <tr className="clickable" onClick={() => { setFiles(null); setOpen(open === h.hour ? null : h.hour) }}>
+                  <td><b>{hourLabel(h.hour)}</b> <span className="mono muted">{h.hour}</span></td>
+                  <td className="num">{h.files.toLocaleString()}</td>
+                  <td className="num">{fmtBytes(h.bytes)}</td>
+                  <td className="muted">{h.remote_only === h.files ? '원격 목록에서 확인' : `${fmtDateTime(h.first_ms)} ~ ${new Date(h.last_ms).toLocaleTimeString('ko-KR', { hour12: false })}`}</td>
+                  <td>{open === h.hour ? '▾' : '▸'}</td>
+                </tr>
+                {open === h.hour && (
+                  <tr><td colSpan={5} style={{ background: 'var(--bg2, transparent)' }}>
+                    <div className="toolbar"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="패치 번호 찾기" style={{ width: 200 }} /><span className="muted">{files ? `${files.length.toLocaleString()}개${files.length >= 5000 ? ' (앞 5000개)' : ''}` : '불러오는 중…'}</span></div>
+                    <table className="tbl dense">
+                      <thead><tr><th>패치</th><th>원격 파일</th><th className="num">크기</th><th>검증</th><th>백업 시각</th></tr></thead>
+                      <tbody>
+                        {(files || []).map((f) => (
+                          <tr key={f.rel}>
+                            <td className="mono">{f.patch}</td><td className="mono muted">{f.rel}</td><td className="num">{fmtBytes(f.size)}</td>
+                            <td className="mono">{f.sha ? `SHA-256 ${f.sha.slice(0, 12)}…` : <span className="muted">원격 목록 (크기만)</span>}</td>
+                            <td className="muted">{f.src === 'remote' ? '—' : fmtDateTime(f.done_ms)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </td></tr>
+                )}
+              </React.Fragment>
+            ))}
+            {!cat?.hours?.length && <tr><td colSpan={5} className="muted">이 저장소에 기록된 백업이 없습니다.{t?.kind !== 'smb' ? ' 목록 기능 이전에 올린 파일은 "원격 목록 읽기"로 채울 수 있습니다.' : ''}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }
