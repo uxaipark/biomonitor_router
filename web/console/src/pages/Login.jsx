@@ -44,8 +44,9 @@ export default function Login({ onLogin }) {
   const hosp = accounts.filter((a) => a.tenant_id)
   const plat = accounts.filter((a) => !a.tenant_id)
   const tname = tenants.find((t) => t.id === T)?.name
-  // 병원 계정을 고르면 제품 이름이 Patient Monitor 로 바뀐다 (로그인 뒤 머리글·탭 제목도 같음)
-  const brand = hosp.some((a) => a.username === username) ? 'Patient Monitor' : 'Biomonitor Router'
+  // 제품 이름: 계정을 아직 안 골랐으면(직접 입력 중 포함) Biosignal Platform, 병원 계정이면 Patient Monitor, 플랫폼 계정이면 Biomonitor Router
+  // (로그인 뒤 머리글·탭 제목도 같은 규칙)
+  const brand = hosp.some((a) => a.username === username) ? 'Patient Monitor' : plat.some((a) => a.username === username) ? 'Biomonitor Router' : 'Biosignal Platform'
   useEffect(() => { document.title = brand }, [brand])
   const Acc = ({ a }) => (
     <button className={'login-acc' + (username === a.username ? ' on' : '')} onClick={() => { setUsername(a.username); setPassword(a.password); setErr('') }} onDoubleClick={() => submit(tenant, a.username, a.password)} title="두 번 누르면 바로 로그인">
@@ -95,7 +96,7 @@ export default function Login({ onLogin }) {
           <div className="login-test">
             <h4>{T ? `${T} · ${tname || ''}` : '플랫폼'} 시험용 계정 <small>개발 모드 · 임시 비밀번호 — 누르면 입력, 두 번 누르면 로그인</small></h4>
             {hosp.length > 0 && <div className="la-group"><span className="la-gt">병원 계정</span><div className="la-list">{hosp.map((a) => <Acc key={a.username} a={a} />)}</div></div>}
-            {plat.length > 0 && <div className="la-group"><span className="la-gt">{T ? '이 병원을 담당하는 플랫폼 계정' : '플랫폼 계정'}{T && <small>이 병원으로만 들어갑니다</small>}</span><div className="la-list">{plat.map((a) => <Acc key={a.username} a={a} />)}</div></div>}
+            {plat.length > 0 && <div className="la-group"><span className="la-gt">{T ? '선택한 병원 플랫폼 계정' : '플랫폼 계정'}{T && <small>선택한 병원으로 접속됩니다.</small>}</span><div className="la-list">{plat.map((a) => <Acc key={a.username} a={a} />)}</div></div>}
           </div>
         )}
         {info && !dev && <p className="muted login-note">운영 모드입니다. 병원 ID 와 계정은 병원 IT 매니저나 관리자에게 받으세요.</p>}

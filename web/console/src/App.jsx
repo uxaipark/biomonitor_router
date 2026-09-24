@@ -140,7 +140,7 @@ export default function App() {
   useEffect(() => { setWsAllowed(!!me && canBio(me) && canPhi(me)) }, [me])
   useTheme()
   // 병원 계정(소속 병원이 있는 계정)으로 들어오면 제품 이름을 Patient Monitor 로, 플랫폼 계정은 Biomonitor Router 그대로
-  useEffect(() => { document.title = appTitle(me?.user) }, [me])
+  useEffect(() => { if (me) document.title = appTitle(me.user) }, [me]) // 로그인 전 제목은 Login 이 정한다
   if (me === undefined) return <div className="boot muted">확인 중…</div>
   if (!me) return <Login onLogin={setMe} />
   return <MeContext.Provider value={me}><Console me={me} setMe={setMe} /></MeContext.Provider>
