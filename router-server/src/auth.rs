@@ -47,12 +47,21 @@ pub const CLINICAL_DELEGATED: [&str; 2] = ["nurse", "staff"];
 pub fn role_label(code: &str) -> &'static str {
     ROLES.iter().find(|r| r.0 == code).map(|r| r.1).unwrap_or("알 수 없음")
 }
+/// 위계 순위 (ROLES 순서, 0 = 가장 높음). 모르는 역할은 가장 낮게.
+pub fn role_rank(code: &str) -> usize {
+    ROLES.iter().position(|r| r.0 == code).unwrap_or(ROLES.len())
+}
+/// 권한 표에서 viewer 가 이 역할의 열을 볼 수 있나: 자기와 같거나 낮은 역할만.
+/// 병원 역할에게는 플랫폼 역할(수퍼 어드민·시스템 관리자·리셀러·영업)이 절대 보이지 않는다.
+pub fn role_visible_to(viewer: &str, role: &str) -> bool {
+    role_rank(role) >= role_rank(viewer) && (is_platform(viewer) || !is_platform(role))
+}
 pub fn is_platform(code: &str) -> bool {
     ROLES.iter().find(|r| r.0 == code).map(|r| r.2).unwrap_or(false)
 }
 
 /// (코드, 이름, 묶음, 기본값 [SA, SYS, RES, CRM, IT, DOC, NUR, STF])
-pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 24] = [
+pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 25] = [
     ("page.dashboard", "대시보드", "메뉴", [2, 1, 1, 0, 1, 1, 1, 1]),
     ("page.alarms", "알람", "메뉴", [2, 1, 0, 0, 1, 2, 2, 1]),
     ("page.events", "이벤트", "메뉴", [2, 1, 0, 0, 1, 1, 1, 0]),
@@ -70,13 +79,16 @@ pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 24] = [
     ("page.admin_users", "관리 › 계정", "메뉴", [2, 1, 1, 0, 2, 1, 0, 0]),
     ("page.admin_permissions", "관리 › 권한 설정", "메뉴", [2, 1, 0, 0, 1, 2, 0, 0]),
     ("page.admin_tenants", "관리 › 병원(테넌트)", "메뉴", [2, 1, 2, 1, 1, 0, 0, 0]),
-    ("page.admin_audit", "관리 › 감사 기록", "메뉴", [2, 2, 0, 0, 1, 1, 0, 0]),
+    // 병원에서는 IT 매니저만
+    ("page.admin_audit", "관리 › 감사 기록", "메뉴", [2, 2, 0, 0, 1, 0, 0, 0]),
     ("action.alarm_ack", "알람 확인", "동작", [2, 0, 0, 0, 0, 2, 2, 0]),
     ("action.alarm_rules", "알람 규칙 변경", "동작", [2, 0, 0, 0, 0, 2, 1, 0]),
     ("action.groups_edit", "그룹 편집", "동작", [2, 1, 0, 0, 1, 2, 2, 0]),
     ("action.wave_reset", "저장 파형 전체 삭제", "동작", [2, 0, 0, 0, 0, 0, 0, 0]),
     ("data.phi", "개인정보 원문 (없으면 마스킹)", "데이터", [2, 0, 0, 0, 0, 2, 2, 1]),
     ("data.biosignal", "생체신호 (파형·수치)", "데이터", [2, 0, 0, 0, 0, 2, 2, 1]),
+    // 대시보드의 게이트웨이 연결·수신·송신·유실·CPU/메모리·저장소·가동 시간 카드와 수신 이상 카운터 — 임상 역할에는 필요 없음
+    ("data.system", "시스템 상태 (대시보드 운영 카드)", "데이터", [2, 2, 1, 0, 2, 0, 0, 0]),
 ];
 
 fn role_idx(role: &str) -> Option<usize> {
@@ -908,15 +920,22 @@ impl Auth {
 
     /// 편집 화면 자료: 역할·자원 목록, 기본값, 전역 표, 병원 덮어쓰기, 요청자가 고칠 수 있는 칸
     pub fn permissions_view(&self, p: &Principal, tenant: &str) -> serde_json::Value {
+        // 상위 역할의 열은 아예 보내지 않는다 (병원 역할에게 플랫폼 역할은 절대 안 보임)
+        let shown = |role: &str| role_visible_to(&p.role, role);
         let m = self.matrix.read().unwrap();
-        let global = merged(&builtin_matrix(), m.get(GLOBAL));
-        let overrides = m.get(tenant).cloned().unwrap_or_default();
+        let mut global = merged(&builtin_matrix(), m.get(GLOBAL));
+        let mut overrides = m.get(tenant).cloned().unwrap_or_default();
         drop(m);
-        let effective: BTreeMap<String, HashMap<String, u8>> = ROLES.iter().map(|r| (r.0.to_string(), self.effective(r.0, Some(tenant)))).collect();
+        let mut defaults = builtin_matrix();
+        global.retain(|r, _| shown(r));
+        overrides.retain(|r, _| shown(r));
+        defaults.retain(|r, _| shown(r));
+        let effective: BTreeMap<String, HashMap<String, u8>> =
+            ROLES.iter().filter(|r| shown(r.0)).map(|r| (r.0.to_string(), self.effective(r.0, Some(tenant)))).collect();
         serde_json::json!({
-            "roles": ROLES.iter().map(|r| serde_json::json!({"code": r.0, "label": r.1, "platform": r.2})).collect::<Vec<_>>(),
+            "roles": ROLES.iter().filter(|r| shown(r.0)).map(|r| serde_json::json!({"code": r.0, "label": r.1, "platform": r.2})).collect::<Vec<_>>(),
             "resources": RESOURCES.iter().map(|r| serde_json::json!({"code": r.0, "label": r.1, "group": r.2})).collect::<Vec<_>>(),
-            "defaults": builtin_matrix(),
+            "defaults": defaults,
             "global": global,
             "tenant": tenant,
             "tenant_overrides": overrides,
@@ -994,14 +1013,17 @@ impl Auth {
         Ok(())
     }
 
-    pub fn permission_versions(&self, scope: &str, tenant: &str) -> Vec<serde_json::Value> {
+    pub fn permission_versions(&self, p: &Principal, scope: &str, tenant: &str) -> Vec<serde_json::Value> {
+
         let key = if scope == "tenant" { tenant } else { GLOBAL };
         let db = self.db.lock().unwrap();
         let mut v = Vec::new();
         if let Ok(mut st) = db.prepare("SELECT id, saved_ms, saved_by, note, matrix FROM perm_versions WHERE tenant = ?1 ORDER BY id DESC LIMIT 50") {
             if let Ok(rows) = st.query_map(params![key], |r| {
+                let mut m = serde_json::from_str::<Matrix>(&r.get::<_, String>(4)?).unwrap_or_default();
+                m.retain(|role, _| role_visible_to(&p.role, role));
                 Ok(serde_json::json!({ "id": r.get::<_, i64>(0)?, "saved_ms": r.get::<_, i64>(1)?, "saved_by": r.get::<_, String>(2)?,
-                                       "note": r.get::<_, String>(3)?, "matrix": serde_json::from_str::<serde_json::Value>(&r.get::<_, String>(4)?).unwrap_or_default() }))
+                                       "note": r.get::<_, String>(3)?, "matrix": m }))
             }) {
                 v.extend(rows.flatten());
             }
@@ -1341,7 +1363,7 @@ fn requirement(path: &str, method: &axum::http::Method) -> Option<(Vec<&'static 
         return r(&["page.admin_tenants"], lv);
     }
     if p.starts_with("/api/admin/audit") {
-        return r(&["page.admin_audit", "page.admin_users"], 1);
+        return r(&["page.admin_audit"], 1);
     }
     if p.starts_with("/api/integration") {
         return r(&["page.integration"], lv);
@@ -1480,6 +1502,19 @@ pub fn cookie_token(headers: &axum::http::HeaderMap) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn higher_roles_hidden_in_permission_table() {
+        assert!(role_visible_to("super_admin", "super_admin") && role_visible_to("super_admin", "staff"));
+        assert!(!role_visible_to("system_admin", "super_admin") && role_visible_to("system_admin", "reseller"));
+        for r in ["super_admin", "system_admin", "reseller", "sales_crm"] {
+            for v in ["hospital_it", "doctor", "nurse", "staff"] {
+                assert!(!role_visible_to(v, r), "{v} must not see {r}");
+            }
+        }
+        assert!(!role_visible_to("doctor", "hospital_it") && role_visible_to("doctor", "doctor") && role_visible_to("doctor", "nurse"));
+        assert!(!role_visible_to("nurse", "doctor") && role_visible_to("nurse", "staff"));
+    }
+
     use super::*;
 
     #[test]

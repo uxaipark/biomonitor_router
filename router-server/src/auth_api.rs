@@ -174,7 +174,7 @@ async fn perm_versions(State(state): State<Arc<AppState>>, Extension(p): Extensi
     if !p.can_access(&t) {
         return err(StatusCode::FORBIDDEN, "담당하지 않는 병원입니다");
     }
-    Json(state.auth.permission_versions(q.scope.as_deref().unwrap_or("global"), &t)).into_response()
+    Json(state.auth.permission_versions(&p, q.scope.as_deref().unwrap_or("global"), &t)).into_response()
 }
 
 #[derive(Deserialize)]

@@ -3,6 +3,7 @@ import { api, usePoll, fmtBytes, fmtNum, fmtDur, fmtTime } from '../api.js'
 import { SEV_LABEL, roomText } from '../model.js'
 import EventList from '../EventList.jsx'
 import { openLive } from '../App.jsx'
+import { can, useMe } from '../auth.js'
 
 const Tile = ({ label, value, sub, cls }) => (
   <div className={'tile ' + (cls || '')}><div className="tile-label">{label}</div><div className="tile-value">{value}</div>{sub && <div className="tile-sub">{sub}</div>}</div>
@@ -16,6 +17,7 @@ const ANOM_LABEL = {
 }
 
 export default function Dashboard({ alarms }) {
+  const me = useMe()
   const [stats] = usePoll(api.stats, 1000)
   const [events] = usePoll(api.events, 4000)
   // Per-second rates from consecutive /api/stats snapshots. Computed only when a new snapshot arrives and
@@ -46,21 +48,23 @@ export default function Dashboard({ alarms }) {
   const s = alarms?.summary || {}
   const memPct = stats ? Math.round((stats.mem_sys_used_bytes / stats.mem_sys_total_bytes) * 100) : 0
   const diskPct = stats ? Math.round(100 - (stats.disk_free_bytes / stats.disk_total_bytes) * 100) : 0
+  // 운영 카드(게이트웨이 연결·수신·송신·유실·CPU/메모리·저장소·가동 시간·수신 이상)는 시스템 상태 권한이 있을 때만 — 의사·간호사·스태프는 기본 없음
+  const sys = can(me, 'data.system')
   return (
     <div className="page">
       <section className="tiles dash">
-        <Tile label="게이트웨이 연결" value={`${fmtNum(g.connected)} / ${fmtNum(g.gateways)}`} sub={`다운 ${g.down ?? 0} · 무응답 ${g.silent ?? 0} · 저하 ${g.degraded ?? 0}`} cls={g.down || g.silent ? 'warn' : ''} />
+        {sys && <Tile label="게이트웨이 연결" value={`${fmtNum(g.connected)} / ${fmtNum(g.gateways)}`} sub={`다운 ${g.down ?? 0} · 무응답 ${g.silent ?? 0} · 저하 ${g.degraded ?? 0}`} cls={g.down || g.silent ? 'warn' : ''} />}
         <Tile label="패치 (환자)" value={fmtNum(stats?.channels_connected ?? stats?.channel_count)} sub={`전체 행 ${fmtNum(stats?.channel_count)} · 저장 중 ${fmtNum(stats?.store_patches)}`} />
-        <Tile label="수신" value={rate ? `${fmtNum(Math.round(rate.frames))} fr/s` : '—'} sub={rate ? `${fmtNum(Math.round(rate.records))} rec/s · ${fmtBytes(rate.bytes)}/s` : ''} />
-        <Tile label="송신 (WS·분석)" value={rate ? `${fmtBytes(rate.tx)}/s` : '—'} sub={`누적 ${fmtBytes(stats?.total_tx_bytes)}`} />
-        <Tile label="유실 레코드" value={fmtNum(stats?.total_lost_packets)} sub={`NACK ${fmtNum(g.nack_tx)} · 복구 ${fmtNum(g.recovered)} · 재전송 실패 ${fmtNum(g.resend_lost)}`} cls={g.resend_lost ? 'warn' : ''} />
+        {sys && <Tile label="수신" value={rate ? `${fmtNum(Math.round(rate.frames))} fr/s` : '—'} sub={rate ? `${fmtNum(Math.round(rate.records))} rec/s · ${fmtBytes(rate.bytes)}/s` : ''} />}
+        {sys && <Tile label="송신 (WS·분석)" value={rate ? `${fmtBytes(rate.tx)}/s` : '—'} sub={`누적 ${fmtBytes(stats?.total_tx_bytes)}`} />}
+        {sys && <Tile label="유실 레코드" value={fmtNum(stats?.total_lost_packets)} sub={`NACK ${fmtNum(g.nack_tx)} · 복구 ${fmtNum(g.recovered)} · 재전송 실패 ${fmtNum(g.resend_lost)}`} cls={g.resend_lost ? 'warn' : ''} />}
         <Tile label="알람" value={fmtNum(s.active)} sub={`위험 ${s.critical || 0} · 높음 ${s.high || 0} · 중간 ${s.medium || 0} · 낮음 ${s.low || 0}`} cls={s.critical ? 'crit' : s.high ? 'err' : ''} />
-        <Tile label="CPU / 메모리" value={stats ? `${stats.cpu_percent.toFixed(0)}% / ${memPct}%` : '—'} sub={`라우터 RSS ${fmtBytes(stats?.mem_process_bytes)}`} cls={stats && (stats.cpu_percent > 70 || memPct > 80) ? 'warn' : ''} />
-        <Tile label="저장소" value={fmtBytes(stats?.wave_store_bytes)} sub={`디스크 사용 ${diskPct}% · 여유 ${fmtBytes(stats?.disk_free_bytes)} · 큐 드롭 ${fmtNum(stats?.queue_dropped_wave)}`} cls={stats?.queue_dropped_wave ? 'err' : diskPct > 85 ? 'warn' : ''} />
-        <Tile label="가동 시간" value={fmtDur(stats?.uptime_s)} sub={`분석 서버 ${stats?.analysis_connected ? '연결' : '패스스루'}`} />
+        {sys && <Tile label="CPU / 메모리" value={stats ? `${stats.cpu_percent.toFixed(0)}% / ${memPct}%` : '—'} sub={`라우터 RSS ${fmtBytes(stats?.mem_process_bytes)}`} cls={stats && (stats.cpu_percent > 70 || memPct > 80) ? 'warn' : ''} />}
+        {sys && <Tile label="저장소" value={fmtBytes(stats?.wave_store_bytes)} sub={`디스크 사용 ${diskPct}% · 여유 ${fmtBytes(stats?.disk_free_bytes)} · 큐 드롭 ${fmtNum(stats?.queue_dropped_wave)}`} cls={stats?.queue_dropped_wave ? 'err' : diskPct > 85 ? 'warn' : ''} />}
+        {sys && <Tile label="가동 시간" value={fmtDur(stats?.uptime_s)} sub={`분석 서버 ${stats?.analysis_connected ? '연결' : '패스스루'}`} />}
       </section>
 
-      <div className="cols">
+      <div className={sys ? 'cols' : ''}>
         <section className="panel">
           <h3>활성 알람 <small>{a.length}건{a.length > 15 ? ' · 위 15건' : ''} · <a href="#/alarms">전체 보기 →</a></small></h3>
           <table className="tbl">
@@ -77,7 +81,7 @@ export default function Dashboard({ alarms }) {
             </tbody>
           </table>
         </section>
-        <section className="panel">
+        {sys && <section className="panel">
           <h3>수신 이상 카운터 <small>누적</small></h3>
           <table className="tbl">
             <tbody>
@@ -91,7 +95,7 @@ export default function Dashboard({ alarms }) {
               <tr><td>재전송 대기</td><td className="num">{fmtNum(g.resend_pending)}</td></tr>
             </tbody>
           </table>
-        </section>
+        </section>}
       </div>
 
       <section className="panel">
