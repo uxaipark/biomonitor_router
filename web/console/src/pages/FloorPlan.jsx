@@ -444,12 +444,14 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, 
   // 바깥(검색 등)에서 특정 지점으로 확대 요청: focus = { x, y, seq } — seq 가 바뀔 때마다 한 번
   useEffect(() => { if (focus) zoomTo(focus.x, focus.y) }, [focus?.seq]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (focus === null) fit() }, [focus]) // eslint-disable-line react-hooks/exhaustive-deps
-  /** 빈 곳(방·환자·게이트웨이·버튼이 아닌 곳) 클릭: 확대 ↔ 원래 배율 */
+  /** 빈 곳(방·환자·게이트웨이·버튼이 아닌 곳) 클릭: 확대 ↔ 원래 배율. 건물(층 슬래브) 바깥을 눌러서는 확대하지 않는다 */
   const onPlanClick = (e) => {
     if (e.target.closest('.rm, .pat, .gwm, .plan-zoom')) return
     if (zoomed) { fit(); return }
     const rect = wrap.current.getBoundingClientRect()
-    zoomTo((e.clientX - rect.left - v.x) / v.k, (e.clientY - rect.top - v.y) / v.k)
+    const mx = (e.clientX - rect.left - v.x) / v.k, my = (e.clientY - rect.top - v.y) / v.k
+    if (mx < 0 || my < 0 || mx > W || my > D) return
+    zoomTo(mx, my)
   }
   // 끌어서 이동. 누르는 순간 포인터를 가로채면 방·환자·게이트웨이의 click 이 wrapper 로 가 버리므로,
   // 4 px 넘게 움직여 "끌기"가 확정된 뒤에만 가로채고, 끌기 직후 따라오는 click 은 한 번 버린다.

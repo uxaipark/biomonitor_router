@@ -245,7 +245,8 @@ canvas.wave { width: 100%; display: block; border-radius: 6px; }
   --plan-name: #bac6d4; --plan-alarm-mix: 9%;
 }
 
-.plan-wrap { position: relative; background: var(--plan-paper); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; touch-action: none; cursor: zoom-in; }
+.plan-wrap { position: relative; background: var(--plan-paper); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; touch-action: none; }
+.plan-wrap:not(.zoomed) .slab, .plan-wrap:not(.zoomed) .plan > g > g, .plan-wrap:not(.zoomed) .corridor { cursor: zoom-in; }
 .plan-wrap.zoomed { cursor: grab; }
 .plan-wrap.zoomed:active { cursor: grabbing; }
 .plan-wrap .rm, .plan-wrap .pat, .plan-wrap .gwm { cursor: pointer; }
