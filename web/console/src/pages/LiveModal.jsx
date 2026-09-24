@@ -3,7 +3,7 @@ import { api, usePoll, fmtTime, fmtBytes } from '../api.js'
 import { claimLive, releaseLive, latest } from '../ws.js'
 import { WaveCanvas } from '../WaveCard.jsx'
 import { AccelPlot, accelNow, ACCEL_COLORS } from '../AccelPlot.jsx'
-import { alarmIndex, flagNames, SEV_LABEL, FLAG_LABEL, FLAG_WARN, patchLife, fmtDays, PATCH_WEAR_DAYS, PATCH_BATTERY_DAYS } from '../model.js'
+import { alarmIndex, flagNames, SEV_LABEL, FLAG_LABEL, FLAG_WARN, patchLife, fmtDays, PATCH_WEAR_DAYS, PATCH_BATTERY_DAYS, gwLabel } from '../model.js'
 import HistoryPanel from '../viewer/History.jsx'
 import '../viewer/ds.css'
 import { useMe, canBio, canPhi } from '../auth.js'
@@ -126,7 +126,7 @@ function EmrPanel({ emr, p, row, platform }) {
         {rt.patch_wear_days != null && <Row k="착용">{rt.patch_wear_days}일 / 최대 14일 · 배터리 약 15.5일</Row>}
         {rt.channels?.length > 0 && <Row k="전송 채널"><span className="mono">{rt.channels.join(', ')}</span></Row>}
         {row.sample_rate > 0 && <Row k="ECG">{row.sample_rate} Hz</Row>}
-        {rt.gateway && <Row k="게이트웨이"><span className="mono">{rt.gateway}</span> · RSSI {rt.rssi} dBm</Row>}
+        {rt.gateway && <Row k="게이트웨이"><span className="mono">{gwLabel(rt.gateway)}</span> · RSSI {rt.rssi} dBm</Row>}
       </dl>
     </section>
   )

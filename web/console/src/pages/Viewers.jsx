@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { TEMPLATES, viewerUrl } from '../viewer/templates.js'
-import { sortBy, wardText, wardRoom, roomText } from '../model.js'
+import { sortBy, wardText, wardRoom, roomText, gwLabel } from '../model.js'
 import Dropdown from '../Dropdown.jsx'
 import '../viewer/ds.css'
 
@@ -83,7 +83,7 @@ export default function Viewers({ alarms }) {
       else if (kind === 'nurse') { add(p.nurse, r, staffLabel(p.nurse), staffSub(p.nurse)); const e = m.get(p.nurse); if (e) e.sub2 = staff.get(p.nurse)?.specialty || '' }
       else if (kind === 'department') add(p.department, r)
       else if (kind === 'diagnosis') add(p.diagnosis, r)
-      else if (kind === 'gw') { const g = (gws || []).find((x) => String(x.gw_id) === r.gateway_id); add(r.gateway_id, r, `#${r.gateway_id}${g?.name ? ' ' + g.name : ''}`, g ? [g.location?.building, g.location?.floor && `${g.location.floor}F`, g.location?.room, g.type].filter(Boolean).join(' · ') : '') }
+      else if (kind === 'gw') { const g = (gws || []).find((x) => String(x.gw_id) === r.gateway_id); add(r.gateway_id, r, `#${r.gateway_id}${g?.name ? ' ' + gwLabel(g.name) : ''}`, g ? [g.location?.building, g.location?.floor && `${g.location.floor}F`, g.location?.room, g.type].filter(Boolean).join(' · ') : '') }
     }
     const v = [...m.values()]
     if (kind === 'gw') v.sort((a, b) => Number(a.key) - Number(b.key))

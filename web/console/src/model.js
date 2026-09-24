@@ -102,3 +102,6 @@ export function patchLife(row, battery, now = Date.now(), wearDays = PATCH_WEAR_
   }
 }
 export const fmtDays = (d) => (d == null ? '—' : d >= 1 ? `${d.toFixed(1)}일` : `${Math.max(0, d * 24).toFixed(0)}시간`)
+
+/** 게이트웨이 이름 표시: 에뮬레이터 이름의 뒷번호는 0부터(GW-101-0000 = 1번) → 화면에서는 게이트웨이 번호와 같게 1부터 (GW-101-0001) */
+export const gwLabel = (name) => (typeof name === 'string' ? name.replace(/^(GW-\d+-)(\d+)$/, (_, p, n) => p + String(Number(n) + 1).padStart(n.length, '0')) : name)

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
-import { alarmIndex, gatewayAlarmIndex, GW_STATUS, SEV_LABEL, wardText, wardRoom, patchLife, fmtDays } from '../model.js'
+import { alarmIndex, gatewayAlarmIndex, GW_STATUS, SEV_LABEL, wardText, wardRoom, patchLife, fmtDays, gwLabel } from '../model.js'
 import { openLive } from '../App.jsx'
 import { useMe } from '../auth.js'
 import Dropdown from '../Dropdown.jsx'
@@ -98,7 +98,7 @@ export default function MapPage({ alarms, hash }) {
       const n = (r.patient?.name || '').toLowerCase()
       return n.includes(t) || jamo(n).includes(tj) || (r.mrn || '').toLowerCase().includes(t) || String(r.channel_id) === t || String(r.patient_id) === t
     }).slice(0, 6)
-    const gws = (layout?.gateways || []).filter((g) => g.mount !== 'mobile' && (String(g.gw_no) === tn || g.id.toLowerCase().includes(t) || (g.room || '').toLowerCase().includes(t))).slice(0, 6)
+    const gws = (layout?.gateways || []).filter((g) => g.mount !== 'mobile' && (String(g.gw_no) === tn || gwLabel(g.id).toLowerCase().includes(t) || (g.room || '').toLowerCase().includes(t))).slice(0, 6)
     return { pats, gws }
   }, [q, rows, layout])
   const bIdxByName = useMemo(() => new Map(buildings.map((b) => [b.name, b.idx])), [buildings])
@@ -271,7 +271,7 @@ export default function MapPage({ alarms, hash }) {
               ))}
               {results.gws.map((g) => (
                 <div key={'g' + g.gw_no} className="ms-item" onMouseDown={() => pickResult({ kind: 'gw', g })}>
-                  📡 <b>{g.id}</b> #{g.gw_no} <small>{buildings.find((b) => b.idx === g.building_idx)?.name || ''} {g.floor}F {g.room || ''}</small>
+                  📡 <b>{gwLabel(g.id)}</b> #{g.gw_no} <small>{buildings.find((b) => b.idx === g.building_idx)?.name || ''} {g.floor}F {g.room || ''}</small>
                 </div>
               ))}
               {!results.pats.length && !results.gws.length && <div className="ms-empty">결과 없음</div>}
@@ -415,7 +415,7 @@ export default function MapPage({ alarms, hash }) {
           alarm={tip.kind === 'pat' ? aidx.get(tip.id) : gidx.get(tip.id)} platform={!me?.user?.tenant_id} />}
         <aside className="map-side">
           {pickRoom && <><h4>{pickRoom.id} <small>{pickRoom.kind} · {pickRoom.ward}</small></h4><small className="muted">게이트웨이 {pickRoom.gateway ? '있음' : '없음'} · 침대 {pickRoom.beds?.length || 0}</small></>}
-          {pickGw && <><h4>{pickGw.id} <small>{pickGw.type}</small></h4><GwInfo g={gwById.get(String(pickGw.gw_no))} />
+          {pickGw && <><h4>{gwLabel(pickGw.id)} <small>{pickGw.type}</small></h4><GwInfo g={gwById.get(String(pickGw.gw_no))} />
             {pickPatients.length > 0
               ? <p><a href={`#/viewer?tpl=central&gw=${pickGw.gw_no}`} target="_blank" rel="noopener"><button className="primary">중앙 모니터 열기 (새 탭)</button></a></p>
               : <p className="muted">이 게이트웨이에 연결된 환자가 없습니다.</p>}</>}
@@ -506,7 +506,7 @@ function MapTip({ tip, row, gw, live, alarm, platform }) {
     ] : []
     body = (
       <>
-        <div className="mt-head"><b>{gw.id}</b><span>#{gw.gw_no} · {gw.type}</span></div>
+        <div className="mt-head"><b>{gwLabel(gw.id)}</b><span>#{gw.gw_no} · {gw.type}</span></div>
         {alarm && <div className={`mt-alarm sev-${alarm.severity}`}>{SEV_LABEL[alarm.severity]} · {alarm.message}</div>}
         <dl>{platform ? [place[1], place[2], ...tech, place[0]] : [...place, ...tech]}</dl>
         <div className="mt-foot">누르면 상세 · 올려 두면 커버리지</div>

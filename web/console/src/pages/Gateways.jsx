@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { api, usePoll, fmtNum, fmtAgo } from '../api.js'
-import { gatewayAlarmIndex, GW_STATUS, SEV_LABEL, sortBy } from '../model.js'
+import { gatewayAlarmIndex, GW_STATUS, SEV_LABEL, sortBy, gwLabel } from '../model.js'
 import Dropdown from '../Dropdown.jsx'
 import { openLive } from '../App.jsx'
 import { useQuery, go, useRevealSelected, GwName, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, PatientLink, RoomLink } from '../ListKit.jsx'
@@ -57,7 +57,7 @@ export default function Gateways({ alarms }) {
   const chips = useMemo(() => [{ key: 'all', label: '전체', count: scoped.length }, ...CHIPS.map(([k, l, f, cls]) => ({ key: k, label: l, count: scoped.filter(f).length, cls }))], [scoped])
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase()
-    let v = scoped.filter((g) => !needle || [g.gw_id, g.name, g.loc, g.type].some((x) => String(x || '').toLowerCase().includes(needle)))
+    let v = scoped.filter((g) => !needle || [g.gw_id, gwLabel(g.name), g.loc, g.type].some((x) => String(x || '').toLowerCase().includes(needle)))
     const c = CHIPS.find(([k]) => k === chip)
     if (c) v = v.filter(c[2])
     return sortBy(v, sort[0], sort[1])

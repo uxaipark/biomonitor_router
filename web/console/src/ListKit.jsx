@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { roomText, wardText, wardRoom } from './model.js'
+import { roomText, wardText, wardRoom, gwLabel } from './model.js'
 import { api } from './api.js'
 
 /**
@@ -62,7 +62,7 @@ export function useGwNames() {
 /** GW-101-0000 → 앞은 흐리게, 뒤 번호는 굵게 */
 export function GwName({ id, name }) {
   const names = useGwNames()
-  const n = name || names.get(String(id)) || ''
+  const n = gwLabel(name || names.get(String(id)) || '')
   const m = /^(.*-)(\d+)$/.exec(n)
   if (!m) return <span className="gw-name">GW <b>{id}</b></span>
   return <span className="gw-name" title={`게이트웨이 #${id}`}><span className="gw-pre">{m[1]}</span><b>{m[2]}</b></span>

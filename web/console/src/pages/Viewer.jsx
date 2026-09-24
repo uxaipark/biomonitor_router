@@ -1,3 +1,4 @@
+import { gwLabel } from '../model.js'
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { claimLive, releaseLive } from '../ws.js'
@@ -68,7 +69,7 @@ export default function Viewer({ alarms, hash }) {
   const unit = useMemo(() => {
     if (q.get('label')) return q.get('label')
     const gw = q.get('gw')
-    if (gw) { const g = (gws || []).find((x) => String(x.gw_id) === gw); return g ? `${g.location?.building || ''} ${g.location?.floor ? g.location.floor + 'F' : ''} · ${g.location?.room || ''} · ${g.name} #${g.gw_id}` : `GW #${gw}` }
+    if (gw) { const g = (gws || []).find((x) => String(x.gw_id) === gw); return g ? `${g.location?.building || ''} ${g.location?.floor ? g.location.floor + 'F' : ''} · ${g.location?.room || ''} · ${gwLabel(g.name)} #${g.gw_id}` : `GW #${gw}` }
     return [q.get('ward') && `병동 ${q.get('ward')}`, q.get('room') && `병실 ${q.get('room')}`, q.get('doctor') && `담당의 ${q.get('doctor')}`, q.get('nurse') && `간호사 ${q.get('nurse')}`, q.get('dept') && `진료과 ${q.get('dept')}`, q.get('dx') && `주진단 ${q.get('dx')}`, q.get('group') && `그룹 ${q.get('group')}`, q.get('paced') && '페이스메이커', q.get('region') && `외부 · ${q.get('region')}`, q.get('mode') && q.get('mode').toUpperCase(), q.get('b') != null && `건물 ${q.get('b')} · ${q.get('f')}F`, q.get('ids') && `선택 ${scoped.length}명`].filter(Boolean).join(' · ') || '전체'
   }, [q, gws, scoped.length])
   const Template = tpl.component
