@@ -37,6 +37,8 @@ export function useQuery() {
 
 /** 다른 목록으로 이동 (뒤로 가기로 돌아올 수 있게 기록을 남김) */
 export const go = (page, params = {}) => {
+  // 지도는 같은 곳을 다시 눌러도 강조를 다시 보여야 한다 — 주소가 같으면 브라우저가 이동으로 치지 않으므로 시각 값을 붙인다
+  if (page === '#/map') params = { ...params, t: Date.now() }
   const s = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString()
   location.hash = page + (s ? '?' + s : '')
 }

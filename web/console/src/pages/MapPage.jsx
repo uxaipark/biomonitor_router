@@ -122,8 +122,8 @@ export default function MapPage({ alarms, hash }) {
   const [linked, setLinked] = useState('')
   useEffect(() => {
     const qs = new URLSearchParams((hash || '').split('?')[1] || '')
-    const key = ['pat', 'gw', 'room', 'b', 'f'].map((k) => qs.get(k) || '').join('|')
-    if (key === '||||' || key === linked || !layout || !rows) return
+    const key = ['pat', 'gw', 'room', 'b', 'f', 't'].map((k) => qs.get(k) || '').join('|')
+    if (key === '|||||' || key === linked || !layout || !rows) return
     setLinked(key)
     const pat = qs.get('pat'), gwq = qs.get('gw'), room = qs.get('room')
     // 우선순위: 환자 → 도면에 있는 실 → 게이트웨이(실이 아닌 복도·홀은 가까운 게이트웨이) → 층만
