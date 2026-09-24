@@ -6,6 +6,8 @@ registry/gateway row counts, pending NACKs, queue drops. One CSV line per minute
   scripts/leakwatch.py report [--hours 6] [--out data/leakwatch.csv]      # slopes + current vs first sample
 """
 import argparse, csv, json, os, re, subprocess, sys, time, urllib.request
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import router_token  # noqa: E402  (bearer token for /api/*)
 
 FIELDS = ["ts", "uptime_s", "pid", "pss_mb", "rss_mb", "anon_mb", "fds", "threads",
           "in_estab", "in_close_wait", "in_fin_wait", "in_other", "in_peers",
@@ -62,7 +64,7 @@ def sockets(port):
 
 def api(path):
     try:
-        return json.load(urllib.request.urlopen(f"http://127.0.0.1:7300{path}", timeout=5))
+        return json.load(urllib.request.urlopen(router_token.request(f"http://127.0.0.1:7300{path}"), timeout=5))
     except Exception:
         return None
 

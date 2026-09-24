@@ -687,3 +687,109 @@ canvas.accel-plot { width: 100%; display: block; border-radius: 6px; }
 /* 확인(ack)한 알람은 깜박이지 않고 옅게 — 아직 아무도 보지 않은 환자가 먼저 눈에 띄도록 */
 .pat.urgent.acked .pat-beacon { animation: none; fill-opacity: .18; }
 @media (prefers-reduced-motion: reduce) { .pat-beacon { animation: none; } }
+
+/* ── 로그인 ─────────────────────────────────────────────────────────────── */
+.boot { padding: 40px; text-align: center; }
+.login-wrap { min-height: 100vh; display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px 32px; background: radial-gradient(1200px 500px at 50% -10%, color-mix(in srgb, var(--accent) 16%, transparent), transparent), var(--bg); }
+.login-card { width: min(980px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 26px 28px; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+.login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.login-brand b { display: block; font-size: 20px; }
+.login-brand small { color: var(--muted); }
+.login-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px 12px; align-items: end; }
+.login-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.login-form input { font-size: 15px; padding: 8px 10px; color: var(--text); }
+.login-form button { height: 38px; padding: 0 22px; font-size: 15px; }
+.login-form .err { grid-column: 1 / -1; margin: 0; }
+@media (max-width: 700px) { .login-form { grid-template-columns: 1fr; } }
+.login-test { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 16px; }
+.login-test h4 { margin: 0 0 10px; font-size: 14px; }
+.login-test h4 small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+.la-group { display: grid; grid-template-columns: 170px 1fr; gap: 10px; margin-bottom: 10px; align-items: start; }
+.la-gt { font-size: 12.5px; color: var(--muted); padding-top: 8px; }
+.la-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.login-acc { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; text-align: left; padding: 8px 10px; border-radius: 9px; background: var(--panel2); border: 1px solid var(--line); cursor: pointer; }
+.login-acc:hover { border-color: var(--accent); }
+.login-acc.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.login-acc b { grid-column: 1 / -1; font-size: 13.5px; }
+.la-role { grid-column: 1 / -1; font-size: 11px; color: var(--accent); font-weight: 700; }
+.la-id { font-size: 12px; color: var(--muted); }
+.la-pw { font-size: 11.5px; color: var(--muted); background: var(--panel); border-radius: 4px; padding: 0 5px; }
+.login-note { margin-top: 16px; }
+@media (max-width: 700px) { .la-group { grid-template-columns: 1fr; } }
+
+/* ── 머리글 계정 메뉴 ── */
+.user-menu { position: relative; }
+.user-btn { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; max-width: 260px; }
+.um-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+.user-btn small { color: var(--muted); white-space: nowrap; }
+.role-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.r-super_admin { --rc: #e5484d; } .r-system_admin { --rc: #f0a500; } .r-reseller { --rc: #a07cf0; } .r-sales_crm { --rc: #c792ea; }
+.r-hospital_it { --rc: #4da3ff; } .r-doctor { --rc: #3ddc84; } .r-nurse { --rc: #4dd0e1; } .r-staff { --rc: #8b9bb0; }
+.role-dot[class*="r-"] { background: var(--rc); }
+.role-tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--rc, var(--line)); color: var(--rc, var(--text)); white-space: nowrap; }
+.um-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; width: 300px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.35); padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.um-who { display: flex; flex-direction: column; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.um-who .mono { color: var(--muted); }
+.um-row { display: grid; grid-template-columns: 110px 1fr; font-size: 13px; }
+.um-row small { color: var(--muted); }
+.um-row.dev { color: var(--warn); }
+.um-acts { display: flex; gap: 6px; justify-content: flex-end; padding-top: 6px; border-top: 1px solid var(--line); }
+.no-access { max-width: 640px; }
+.no-access h3 { margin: 0 0 6px; }
+
+/* ── 관리 화면 공통 ── */
+.adm-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.adm-head .h { margin: 0 8px 0 0; }
+.adm-desc { font-size: 13px; max-width: 1100px; line-height: 1.55; margin: 0 0 10px; }
+.adm-tbl td { white-space: nowrap; }
+.adm-tbl td.acts { display: flex; gap: 6px; }
+.adm-tbl .tag { margin-left: 6px; }
+.adm-notice { background: color-mix(in srgb, var(--warn) 12%, var(--panel)); border: 1px solid var(--warn); border-radius: 8px; padding: 8px 12px; margin: 0 0 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13.5px; }
+.adm-notice .pw { font-size: 15px; font-weight: 700; }
+.adm-form { width: min(520px, 100%); display: flex; flex-direction: column; gap: 10px; }
+.adm-form h3 { margin: 0 0 4px; }
+.adm-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.adm-form label.chk { flex-direction: row; align-items: center; gap: 8px; color: var(--text); font-size: 13.5px; }
+.adm-form input:not([type=checkbox]) { color: var(--text); font-size: 14px; }
+.adm-chk { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.adm-chk label.chk { display: flex; gap: 8px; align-items: center; color: var(--text); font-size: 13.5px; }
+.adm-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.adm-note { width: 220px; }
+.dev-pill { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 3px 4px 3px 10px; border-radius: 14px; border: 1px solid var(--line); color: var(--muted); }
+.dev-pill.on { border-color: var(--warn); color: var(--warn); }
+.dev-pill button { padding: 2px 10px; font-size: 12px; }
+
+/* ── 권한 매트릭스 ── */
+.perm-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 10px; max-height: calc(100vh - 250px); }
+table.perm { border-collapse: separate; border-spacing: 0; width: 100%; background: var(--panel); font-size: 13px; }
+.perm th, .perm td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: center; white-space: nowrap; }
+.perm thead th { position: sticky; top: 0; z-index: 2; background: var(--panel); font-weight: 700; vertical-align: bottom; }
+.perm thead th span { display: block; font-size: 13px; }
+.perm thead th small { display: block; font-weight: 400; color: var(--muted); font-size: 11px; }
+.perm thead th.ed { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+.perm thead th.ed small { color: var(--accent); }
+.perm .perm-res { text-align: left; position: sticky; left: 0; z-index: 1; background: var(--panel); min-width: 230px; }
+.perm thead .perm-res { z-index: 3; }
+.perm-res b { display: block; font-weight: 600; }
+.perm-res small { color: var(--muted); font-size: 11px; }
+.perm-group td { text-align: left; background: var(--panel2); font-weight: 700; font-size: 12px; color: var(--muted); letter-spacing: .04em; position: sticky; left: 0; }
+.perm-cell.ed { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.perm-cell.dirty { background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.lvseg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.lvseg button { border: 0; border-radius: 0; padding: 3px 8px; font-size: 12px; background: transparent; color: var(--muted); }
+.lvseg button + button { border-left: 1px solid var(--line); }
+.lvseg button:disabled { opacity: .3; cursor: not-allowed; }
+.lvseg button.on.lv0 { background: var(--panel2); color: var(--text); font-weight: 700; }
+.lvseg button.on.lv1 { background: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--text); font-weight: 700; }
+.lvseg button.on.lv2 { background: var(--accent); color: #fff; font-weight: 700; }
+.lvtag { display: inline-block; min-width: 38px; font-size: 12px; padding: 2px 8px; border-radius: 10px; }
+.lvtag.lv0 { color: var(--muted); opacity: .6; }
+.lvtag.lv1 { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); }
+.lvtag.lv2 { background: color-mix(in srgb, var(--accent) 38%, transparent); color: var(--text); font-weight: 600; }
+
+/* header stays on one line with the account chip: nav scrolls sideways when the window is narrow */
+@media (max-width: 1500px) { header nav a { padding: 6px 8px; } }
+header.top .pill { white-space: nowrap; flex: none; }
+header.top .user-menu { flex: none; }
+.user-btn small { display: none; }
+@media (min-width: 1700px) { .user-btn small { display: inline; } }

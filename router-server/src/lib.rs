@@ -22,3 +22,5 @@ pub mod sysmon;
 pub mod alarms;
 pub mod backup;
 pub mod netcfg;
+pub mod auth;
+pub mod auth_api;

@@ -5,11 +5,11 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, post, put};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
+use crate::auth::{mask_json, mask_name, Principal};
 use serde::Serialize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use tower_http::cors::CorsLayer;
 
 /// 어드민 REST API + 출력 WS 를 하나의 HTTP 서버(7300)로 제공
 pub fn router(state: Arc<AppState>) -> Router {
@@ -59,7 +59,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/backup/scan", post(backup_scan))
         .route("/api/settings/network", get(net_get).put(net_put))
         .route("/api/settings/network/test", post(net_test))
-        .layer(CorsLayer::permissive())
+        .merge(crate::auth_api::routes())
+        // 로그인·병원 접근·경로별 권한 (모든 /api/*·/ws). CORS 는 쿠키 인증이라 같은 출처만 — permissive 제거.
+        .layer(axum::middleware::from_fn_with_state(state.clone(), crate::auth::guard))
         .fallback_service(spa(&web_dir))
         .with_state(state)
 }
@@ -120,8 +122,29 @@ async fn debug_sizes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }))
 }
 
-async fn alarms_active(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    Json(serde_json::json!({"summary": state.alarms.summary(), "alarms": state.alarms.active()}))
+async fn alarms_active(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> impl IntoResponse {
+    let mut v = serde_json::json!({"summary": state.alarms.summary(), "alarms": state.alarms.active()});
+    if !p.phi() || !p.bio() {
+        mask_alarm_values(&mut v["alarms"], p.phi(), p.bio());
+    }
+    Json(v)
+}
+
+/// 알람 목록 마스킹: 이름·환자번호는 개인정보, 값·문구의 수치는 생체신호
+fn mask_alarm_values(v: &mut serde_json::Value, phi: bool, bio: bool) {
+    mask_json(v, phi, true);
+    if !bio {
+        if let Some(a) = v.as_array_mut() {
+            for x in a {
+                if x.get("channel_id").and_then(|c| c.as_str()).map(|c| !c.is_empty()).unwrap_or(false) {
+                    x["value"] = serde_json::json!("●●");
+                    if let Some(m) = x.get("message").and_then(|m| m.as_str()) {
+                        x["message"] = serde_json::json!(crate::auth::mask_numbers(m));
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -129,8 +152,12 @@ struct LimitQ {
     limit: Option<usize>,
 }
 
-async fn alarms_history(State(state): State<Arc<AppState>>, Query(q): Query<LimitQ>) -> impl IntoResponse {
-    Json(state.alarms.history(q.limit.unwrap_or(200).min(500)))
+async fn alarms_history(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Query(q): Query<LimitQ>) -> impl IntoResponse {
+    let mut v = serde_json::to_value(state.alarms.history(q.limit.unwrap_or(200).min(500))).unwrap_or_default();
+    if !p.phi() || !p.bio() {
+        mask_alarm_values(&mut v, p.phi(), p.bio());
+    }
+    Json(v)
 }
 
 async fn alarm_rules(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -195,7 +222,28 @@ fn body_with_type(body: axum::body::Bytes, ctype: &'static str) -> axum::respons
     ([(axum::http::header::CONTENT_TYPE, ctype)], body).into_response()
 }
 
-async fn emr_proxy(State(state): State<Arc<AppState>>, Path(path): Path<String>, axum::extract::RawQuery(q): axum::extract::RawQuery) -> impl IntoResponse {
+/// EMR 경로 중 환자 개인정보가 들어 있는 것 (개인정보 권한이 없으면 마스킹)
+fn emr_is_phi(path: &str) -> bool {
+    matches!(path.split('/').next().unwrap_or(""), "patients" | "admissions" | "patches" | "trips" | "schedules" | "devices")
+}
+
+async fn emr_proxy(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(path): Path<String>, axum::extract::RawQuery(q): axum::extract::RawQuery) -> impl IntoResponse {
+    if emr_is_phi(&path) && !p.phi() {
+        if path.ends_with(".svg") {
+            return (StatusCode::FORBIDDEN, "개인정보 권한이 필요합니다").into_response();
+        }
+        let full = match &q { Some(q) => format!("/api/v1/emr/{path}?{q}"), None => format!("/api/v1/emr/{path}") };
+        let resp = emr_get(&state, &full, 10_000).await;
+        if !resp.status().is_success() {
+            return resp;
+        }
+        let bytes = axum::body::to_bytes(resp.into_body(), 64 << 20).await.unwrap_or_default();
+        let Ok(mut v) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            return (StatusCode::FORBIDDEN, "개인정보 권한이 필요합니다").into_response();
+        };
+        mask_json(&mut v, false, p.bio());
+        return Json(v).into_response();
+    }
     let ttl = match path.split('/').next().unwrap_or("") {
         "layout" | "hospital" | "floors" | "wards" | "rooms" | "beds" | "staff" => 300_000,
         _ if path.ends_with(".svg") => 3_600_000,
@@ -237,9 +285,9 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<Health> {
 
 /// The console polls /api/channels and /api/gateways from several pages (2,000 rows ≈ 1.6 MB JSON each):
 /// one serialisation per second serves every client.
-static SNAP_CACHE: std::sync::LazyLock<std::sync::Mutex<[(std::time::Instant, axum::body::Bytes); 2]>> = std::sync::LazyLock::new(|| {
+static SNAP_CACHE: std::sync::LazyLock<std::sync::Mutex<[(std::time::Instant, axum::body::Bytes); 5]>> = std::sync::LazyLock::new(|| {
     let t = std::time::Instant::now() - std::time::Duration::from_secs(10);
-    std::sync::Mutex::new([(t, axum::body::Bytes::new()), (t, axum::body::Bytes::new())])
+    std::sync::Mutex::new(std::array::from_fn(|_| (t, axum::body::Bytes::new())))
 });
 
 fn cached_json(slot: usize, build: impl FnOnce() -> String) -> axum::response::Response {
@@ -259,11 +307,22 @@ fn cached_json(slot: usize, build: impl FnOnce() -> String) -> axum::response::R
 /// params the viewer URL uses are passed: ward, room, gw, ids, doctor, nurse, dept, dx, group, region, paced.
 async fn list_channels(
     State(state): State<Arc<AppState>>,
+    Extension(p): Extension<Principal>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     const KEYS: [&str; 11] = ["ward", "room", "gw", "ids", "doctor", "nurse", "dept", "dx", "group", "region", "paced"];
+    let (phi, bio) = (p.phi(), p.bio());
     if !KEYS.iter().any(|k| q.contains_key(*k)) {
-        return cached_json(0, || serde_json::to_string(&state.registry.snapshot()).unwrap_or_else(|_| "[]".into()));
+        if phi && bio {
+            return cached_json(0, || serde_json::to_string(&state.registry.snapshot()).unwrap_or_else(|_| "[]".into()));
+        }
+        // 마스킹본은 권한 조합별로 따로 1초 캐시 (2 = 개인정보만 가림, 3 = 생체신호만, 4 = 둘 다)
+        let slot = match (phi, bio) { (false, true) => 2, (true, false) => 3, _ => 4 };
+        return cached_json(slot, || {
+            let mut v = serde_json::to_value(state.registry.snapshot()).unwrap_or_default();
+            mask_json(&mut v, phi, bio);
+            serde_json::to_string(&v).unwrap_or_else(|_| "[]".into())
+        });
     }
     let get = |k: &str| q.get(k).map(|s| s.as_str()).filter(|s| !s.is_empty());
     let ids: Option<std::collections::HashSet<&str>> = get("ids").map(|v| v.split(',').collect());
@@ -308,10 +367,14 @@ async fn list_channels(
         }
         true
     });
-    body_with_type(
-        axum::body::Bytes::from(serde_json::to_string(&rows).unwrap_or_else(|_| "[]".into())),
-        "application/json; charset=utf-8",
-    )
+    let body = if phi && bio {
+        serde_json::to_string(&rows).unwrap_or_else(|_| "[]".into())
+    } else {
+        let mut v = serde_json::to_value(&rows).unwrap_or_default();
+        mask_json(&mut v, phi, bio);
+        serde_json::to_string(&v).unwrap_or_else(|_| "[]".into())
+    };
+    body_with_type(axum::body::Bytes::from(body), "application/json; charset=utf-8")
 }
 
 #[derive(Serialize)]
@@ -513,8 +576,28 @@ async fn stats(State(state): State<Arc<AppState>>) -> Json<Stats> {
     })
 }
 
-async fn events(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    Json(state.recent_events(100))
+async fn events(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> impl IntoResponse {
+    let mut v = serde_json::to_value(state.recent_events(100)).unwrap_or_default();
+    if !p.phi() || !p.bio() {
+        // 알람 이벤트 문구에 들어 있는 환자 이름(현재 레지스트리 이름)과 수치를 가린다
+        if let Some(a) = v.as_array_mut() {
+            for e in a {
+                let Some(ch) = e.get("channel_id").and_then(|c| c.as_str()).map(String::from) else { continue };
+                let Some(msg) = e.get("message").and_then(|m| m.as_str()).map(String::from) else { continue };
+                let mut m = msg;
+                if !p.phi() {
+                    if let Some(name) = state.registry.patient_of(&ch).map(|pt| pt.name.clone()).filter(|n| !n.is_empty()) {
+                        m = m.replace(&name, &mask_name(&name));
+                    }
+                }
+                if !p.bio() {
+                    m = crate::auth::mask_numbers(&m);
+                }
+                e["message"] = serde_json::json!(m);
+            }
+        }
+    }
+    Json(v)
 }
 
 async fn list_displays(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -535,7 +618,8 @@ fn patch_id_of(channel_id: &str) -> Option<u32> {
 }
 
 /// 패치 저장소 인덱스 (첫/마지막 시각, 레코드·바이트·유실)
-async fn patch_index(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
+async fn patch_index(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(id): Path<String>) -> impl IntoResponse {
+    let phi = p.phi();
     let Some(pid) = patch_id_of(&id) else { return (StatusCode::BAD_REQUEST, "bad patch id").into_response() };
     let root = std::path::PathBuf::from(&state.cfg.store_dir);
     let r = tokio::task::spawn_blocking(move || {
@@ -548,7 +632,12 @@ async fn patch_index(State(state): State<Arc<AppState>>, Path(id): Path<String>)
     .ok()
     .flatten();
     match r {
-        Some(v) => Json(v).into_response(),
+        Some(mut v) => {
+            if !phi {
+                mask_json(&mut v, false, true);
+            }
+            Json(v).into_response()
+        }
         None => (StatusCode::NOT_FOUND, "no stored records").into_response(),
     }
 }

@@ -52,6 +52,24 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 | `ROUTER_EMULATOR_ADDR` | (없음) | 에뮬레이터 HTTP. 설정 시 5 s 상태 보고(`POST /api/v1/router/status`) + 30 s EMR 동기화 + `/api/emr/*` 프록시 |
 | `ROUTER_WEB_DIR` | `../web/console/dist` | 웹 콘솔(vite build) 정적 디렉터리. `/` 로 서빙, 없으면 API 만 |
 | `ROUTER_ANALYSIS_ADDR` / `ROUTER_DB_ADDR` | `127.0.0.1:7100` / `:7601` | 레거시 분석·DB 링크 (없으면 재시도만) |
+| `ROUTER_TENANT_ID` | `H001` | 이 라우터가 데이터를 받는 병원(테넌트) ID. 처음 실행 때 `router.db` 에 기록되고 이후엔 DB 값 |
+| `ROUTER_DEV_MODE` | `1` | 개발 모드 초기값(수퍼 어드민 전체 권한, 로그인 화면에 시험용 계정 표시). 이후엔 관리 › 권한 설정의 스위치 |
+| `ROUTER_SERVICE_TOKEN` | (없음) | 스크립트용 Bearer 토큰. 없으면 `router.db` 옆 `service_token`(0600)을 처음 실행 때 만든다 |
+
+### 로그인 · 권한 · 병원(테넌트) (2026-09-24)
+
+모든 `/api/*`·`/ws` 는 로그인 세션(쿠키 `bm_session`, 12시간·사용 시 연장) 또는 `Authorization: Bearer <서비스 토큰>` 이 필요하다
+(`/api/health`·`/api/auth/login`·`/api/auth/test-accounts` 제외). `scripts/router_token.py` 가 서비스 토큰을 읽어 붙인다.
+
+* **역할**: 플랫폼 — 수퍼 어드민·시스템 관리자·리셀러·CRM 영업, 병원 — 병원 IT 매니저·의사·간호사·스태프.
+* **권한 매트릭스**: 역할 × 메뉴·동작·데이터 → 없음/보기/편집. 전역 표(수퍼 어드민) 위에 병원별 간호사·스태프 덮어쓰기(의사, 자기 권한 이하).
+  저장할 때마다 판이 남는다(이전 설정 불러오기), 초기값 = `auth.rs` 의 `RESOURCES` 기본 열.
+* **마스킹**: `data.phi` 없으면 이름·MRN·환자번호·연락처·주소·생년월일을 **서버가** 가리고, `data.biosignal` 없으면 수치·파형(`/api/wave`, `/api/patches`, `/ws`)을 내보내지 않는다.
+* **병원 격리**: 요청마다 `site.tenant_id` 접근 여부를 먼저 확인 — 다른 병원 계정은 이 라우터의 환자·파형·알람·설정에 403.
+* **시험용 계정**(개발 모드, 임시 비밀번호): `superadmin`/`Super!2026`, `sysadmin`/`Sys!2026`, `reseller1`/`Resell!2026`, `sales1`/`Sales!2026`,
+  `it.h001`/`It!2026`, `dr.kim`/`Doctor!2026`, `nurse.lee`/`Nurse!2026`, `staff.park`/`Staff!2026`, `dr.h002`/`Doctor!2026`(다른 병원).
+* API: `POST /api/auth/login|logout|password`, `GET /api/auth/me|test-accounts`, `/api/admin/users[/{id}[/reset_password]]`,
+  `/api/admin/tenants[/{id}]`, `GET|PUT /api/admin/permissions`, `GET /api/admin/permissions/versions`, `PUT /api/admin/dev_mode`, `GET /api/admin/audit`.
 
 ### API (P1 추가분)
 

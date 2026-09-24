@@ -10,10 +10,12 @@ Checks (current router pid only):
   registry rows drifting from connected patches · router restart (pid change) · 15-min silence in the CSV.
 """
 import argparse, csv, json, os, re, sys, time, urllib.request
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import router_token  # noqa: E402  (bearer token for /api/*)
 
 def api(path):
     try:
-        return json.load(urllib.request.urlopen(f"http://127.0.0.1:7300{path}", timeout=5))
+        return json.load(urllib.request.urlopen(router_token.request(f"http://127.0.0.1:7300{path}"), timeout=5))
     except Exception:
         return None
 

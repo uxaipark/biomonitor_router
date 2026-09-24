@@ -3,10 +3,10 @@
 # received in the window, PSS. Usage: scripts/cpu_baseline.sh [seconds]
 N=${1:-60}; P=$(pgrep -x router-server) || { echo "router not running"; exit 1; }
 read -r u0 s0 < <(awk '{print $14, $15}' /proc/$P/stat)
-f0=$(curl -s localhost:7300/api/stats | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["gateways"]["frames"], d["total_packets"], d["ingest_connections"])')
+f0=$(curl -s -H "Authorization: Bearer $(cat "$(dirname "$0")/../data/service_token" 2>/dev/null)" localhost:7300/api/stats | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["gateways"]["frames"], d["total_packets"], d["ingest_connections"])')
 sleep "$N"
 read -r u1 s1 < <(awk '{print $14, $15}' /proc/$P/stat)
-f1=$(curl -s localhost:7300/api/stats | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["gateways"]["frames"], d["total_packets"], d["ingest_connections"])')
+f1=$(curl -s -H "Authorization: Bearer $(cat "$(dirname "$0")/../data/service_token" 2>/dev/null)" localhost:7300/api/stats | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["gateways"]["frames"], d["total_packets"], d["ingest_connections"])')
 set -- $f0; fa=$1; ra=$2; set -- $f1; fb=$1; rb=$2; conn=$3
 hz=$(getconf CLK_TCK); cpu=$(python3 -c "print(round((($u1-$u0)+($s1-$s0))/$hz, 2))")
 pss=$(awk '/^Pss:/{print int($2/1024)}' /proc/$P/smaps_rollup)

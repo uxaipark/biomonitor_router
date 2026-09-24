@@ -5,6 +5,8 @@ its duration, peak depth and how much was written during it, then a summary (MB/
   scripts/stallwatch.py [seconds]      # default 180
 """
 import json, os, time, urllib.request, sys
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import router_token  # noqa: E402  (bearer token for /api/*)
 # SD Pi: mmcblk0, SSD Pi: nvme0n1 (override with STALL_DEV=sda etc.)
 DEV=os.environ.get('STALL_DEV') or next((d for d in ('mmcblk0','nvme0n1','sda') if os.path.exists('/sys/block/'+d)), 'mmcblk0')
 def disk():
@@ -15,7 +17,7 @@ def disk():
             return dict(wr_sect=int(f[9]), wr_ms=int(f[10]), io_ms=int(f[12]), wr_ios=int(f[7]))
 def q():
     try:
-        s=json.load(urllib.request.urlopen('http://127.0.0.1:7300/api/stats', timeout=2))
+        s=json.load(urllib.request.urlopen(router_token.request('http://127.0.0.1:7300/api/stats'), timeout=2))
         return s['store_queue'], s['total_packets']
     except Exception:
         return None, None

@@ -82,6 +82,8 @@ pub struct AppState {
     pub backup: Arc<crate::backup::Backup>,
     /// 네트워크 설정(에뮬레이터·분석·DB 주소) — 콘솔에서 바꾸면 재시작 없이 반영
     pub net: crate::netcfg::NetCfg,
+    /// 계정·권한·병원(테넌트) — 로그인 세션과 권한 매트릭스
+    pub auth: crate::auth::Auth,
     /// 출력 WS 세션 (id → 세션); 발행 시 구독이 맞는 세션의 큐에만 넣는다
     pub sessions: dashmap::DashMap<u64, Arc<Session>>,
     pub next_session: AtomicU64,
@@ -173,6 +175,7 @@ impl AppState {
             metrics: crate::metrics::Metrics::open(&cfg.db_path),
             backup: crate::backup::Backup::open(&cfg.db_path, &cfg.store_dir),
             net: crate::netcfg::NetCfg::open(&cfg.db_path, &cfg),
+            auth: crate::auth::Auth::open(&cfg.db_path),
             cfg,
             sessions: dashmap::DashMap::new(),
             next_session: AtomicU64::new(1),

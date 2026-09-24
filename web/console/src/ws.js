@@ -80,7 +80,16 @@ function handleItems(items) {
   emit('stream', items)
 }
 
+// The router only accepts the stream for accounts with 생체신호 + 개인정보 rights; others never connect.
+let allowed = false
+export function setWsAllowed(on) {
+  allowed = on
+  if (!on && ws) { try { ws.close() } catch { /* ignore */ } ws = null; setStatus('off') }
+  else if (on) open()
+}
+
 function open() {
+  if (!allowed) return
   if (ws && (ws.readyState === 0 || ws.readyState === 1)) return
   setStatus('connecting')
   try { ws = new WebSocket(WS_URL) } catch { scheduleRetry(); return }
@@ -113,6 +122,7 @@ function open() {
 }
 
 function scheduleRetry() {
+  if (!allowed) return
   const wait = Math.min(1000 * 2 ** retry, 15000)
   retry++
   setTimeout(open, wait)

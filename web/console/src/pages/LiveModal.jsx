@@ -6,6 +6,7 @@ import { AccelPlot, accelNow, ACCEL_COLORS } from '../AccelPlot.jsx'
 import { alarmIndex, flagNames, SEV_LABEL, FLAG_LABEL, FLAG_WARN } from '../model.js'
 import HistoryPanel from '../viewer/History.jsx'
 import '../viewer/ds.css'
+import { useMe, canBio, canPhi } from '../auth.js'
 
 const RHYTHM = {
   sinus: '정상 동리듬', sinus_tachy: '동빈맥', sinus_brady: '동서맥', sinus_pause: '동정지', brady: '서맥', afib: '심방세동',
@@ -44,13 +45,15 @@ export function LiveModal({ channelId, alarms, onClose }) {
   // only this patch's row (the full list is ~1.7 MB for 2,100 patches)
   const [rows] = usePoll(() => api.channelsScoped(`ids=${encodeURIComponent(channelId)}`), 3000, [channelId])
   const row = useMemo(() => (rows || []).find((r) => r.channel_id === channelId), [rows, channelId])
-  const [idx] = usePoll(() => api.patch(channelId), 10000, [channelId])
+  const me = useMe()
+  const bio = canBio(me), phi = canPhi(me)
+  const [idx] = usePoll(() => (bio ? api.patch(channelId) : Promise.resolve(null)), 10000, [channelId, bio])
   const [emr, setEmr] = useState(null)
   const [history, setHistory] = useState(false)
   const [, tick] = useState(0)
   const aidx = useMemo(() => alarmIndex(alarms?.alarms), [alarms])
   const mine = (alarms?.alarms || []).filter((a) => a.channel_id === channelId)
-  useEffect(() => { claimLive('modal', [channelId]); return () => releaseLive('modal') }, [channelId])
+  useEffect(() => { if (!bio || !phi) return; claimLive('modal', [channelId]); return () => releaseLive('modal') }, [channelId, bio, phi])
   // live numbers re-read from the WS map twice a second — not in history mode (the history list would re-render)
   useEffect(() => { if (history) return; const t = setInterval(() => tick((x) => x + 1), 500); return () => clearInterval(t) }, [history])
   useEffect(() => {
@@ -85,7 +88,7 @@ export function LiveModal({ channelId, alarms, onClose }) {
     <div className="modal-bg" onClick={onClose}>
       <div className={'modal lm' + (alarm ? ` lm-sev-${alarm.severity}` : '')} onClick={(e) => e.stopPropagation()}>
         <header className="lm-head">
-          {pid ? <img className="lm-avatar" src={`/api/emr/patients/${pid}/avatar.svg`} alt="" /> : <div className="lm-avatar" />}
+          {pid && phi ? <img className="lm-avatar" src={`/api/emr/patients/${pid}/avatar.svg`} alt="" /> : <div className="lm-avatar" />}
           <div className="lm-who">
             <div className="lm-name">
               <h2>{p.name || row.mrn}</h2>
@@ -106,7 +109,7 @@ export function LiveModal({ channelId, alarms, onClose }) {
           <div className="lm-actions">
             <div className="seg">
               <button className={!history ? 'active' : ''} onClick={() => setHistory(false)}>실시간</button>
-              <button className={history ? 'active' : ''} onClick={() => setHistory(true)} title="저장된 파형 이력">이력</button>
+              {bio && <button className={history ? 'active' : ''} onClick={() => setHistory(true)} title="저장된 파형 이력">이력</button>}
             </div>
             <button className="icon lm-close" onClick={onClose} title="닫기 (Esc)">✕</button>
           </div>
@@ -114,7 +117,9 @@ export function LiveModal({ channelId, alarms, onClose }) {
 
         <div className="lm-body">
           <main className="lm-main">
-            {history ? (
+            {!bio ? (
+              <div className="panel no-access"><h3>생체신호 보기 권한 없음</h3><p>이 계정은 파형과 생체 수치를 볼 수 없습니다{!phi ? ' — 환자 개인정보도 가려서(마스킹) 보여 줍니다' : ''}. 필요하면 권한 설정에서 요청하세요.</p></div>
+            ) : history ? (
               <div className="ds hx-host lm-hx"><HistoryPanel id={channelId} compact onClose={() => setHistory(false)} /></div>
             ) : (
               <>
@@ -197,8 +202,8 @@ export function LiveModal({ channelId, alarms, onClose }) {
                   <Row k="레코드">{(ix.records ?? 0).toLocaleString()}{ix.lost ? <span className="lm-warn"> · 유실 {ix.lost}</span> : ''}</Row>
                   <Row k="용량">{fmtBytes(ix.bytes)} · 시간 파일 {(idx.files || []).length}개</Row>
                 </dl>
-              ) : <p className="muted">저장된 파형이 없습니다.</p>}
-              {!history && ix && <button className="lm-hxbtn" onClick={() => setHistory(true)}>저장된 파형 보기 →</button>}
+              ) : <p className="muted">{bio ? '저장된 파형이 없습니다.' : '생체신호 권한이 없어 표시하지 않습니다.'}</p>}
+              {bio && !history && ix && <button className="lm-hxbtn" onClick={() => setHistory(true)}>저장된 파형 보기 →</button>}
             </section>
           </aside>
         </div>

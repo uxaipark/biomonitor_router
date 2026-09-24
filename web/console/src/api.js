@@ -3,22 +3,32 @@
 const BASE = import.meta.env.VITE_ROUTER || ''
 export const WS_URL = (BASE ? BASE.replace(/^http/, 'ws') : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`) + '/ws'
 
+// 401 = not logged in / session expired → the app shows the login screen (auth.js listens)
+const authLost = (r) => { if (r.status === 401) window.dispatchEvent(new CustomEvent('auth-lost')) }
+
 export async function get(path) {
-  const r = await fetch(BASE + path)
-  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`)
+  const r = await fetch(BASE + path, { credentials: 'same-origin' })
+  if (!r.ok) {
+    authLost(r)
+    let msg = `${path}: HTTP ${r.status}`
+    try { const j = await r.json(); if (j?.error) msg = j.error } catch { /* not JSON */ }
+    const e = new Error(msg); e.status = r.status; throw e
+  }
   return r.json()
 }
 
 export async function send(method, path, body) {
   const r = await fetch(BASE + path, {
+    credentials: 'same-origin',
     method,
     headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
   if (!r.ok) {
+    if (!path.startsWith('/api/auth/login')) authLost(r)
     let msg = `${path}: HTTP ${r.status}`
     try { const j = await r.json(); if (j?.error) msg = j.error } catch { /* not JSON */ }
-    throw new Error(msg)
+    const e = new Error(msg); e.status = r.status; throw e
   }
   const t = await r.text()
   return t ? JSON.parse(t) : null
@@ -63,6 +73,27 @@ export const api = {
     order: (ids) => send('PUT', '/api/backup/order', { ids }),
     test: (t) => send('POST', '/api/backup/test', t),
     scan: () => send('POST', '/api/backup/scan'),
+  },
+  auth: {
+    me: () => get('/api/auth/me'),
+    login: (username, password) => send('POST', '/api/auth/login', { username, password }),
+    logout: () => send('POST', '/api/auth/logout'),
+    password: (old, nw) => send('POST', '/api/auth/password', { old, new: nw }),
+    testAccounts: () => get('/api/auth/test-accounts'),
+  },
+  admin: {
+    users: () => get('/api/admin/users'),
+    createUser: (u) => send('POST', '/api/admin/users', u),
+    updateUser: (id, u) => send('PUT', `/api/admin/users/${id}`, u),
+    resetPassword: (id) => send('POST', `/api/admin/users/${id}/reset_password`),
+    tenants: () => get('/api/admin/tenants'),
+    createTenant: (t) => send('POST', '/api/admin/tenants', t),
+    updateTenant: (id, t) => send('PUT', `/api/admin/tenants/${id}`, t),
+    perms: (tenant) => get('/api/admin/permissions' + (tenant ? `?tenant=${encodeURIComponent(tenant)}` : '')),
+    savePerms: (b) => send('PUT', '/api/admin/permissions', b),
+    permVersions: (scope, tenant) => get(`/api/admin/permissions/versions?scope=${scope}${tenant ? `&tenant=${encodeURIComponent(tenant)}` : ''}`),
+    devMode: (on) => send('PUT', '/api/admin/dev_mode', { on }),
+    audit: (limit = 300) => get(`/api/admin/audit?limit=${limit}`),
   },
   emu: {
     status: () => get('/api/emu/status'),

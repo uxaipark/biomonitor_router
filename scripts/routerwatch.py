@@ -11,6 +11,8 @@ Cumulative: least-squares slope of the per-round PSS floors (MB/h), reset when t
 """
 import json, os, sys, time, itertools, subprocess, urllib.request
 from collections import Counter
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import router_token  # noqa: E402  (bearer token for /api/*)
 
 API = os.environ.get('ROUTER_API', 'http://127.0.0.1:7300')
 DUR = int(os.environ.get('ROUND_S', 600))
@@ -22,7 +24,7 @@ DELTA = ('queue_dropped_wave', 'queue_dropped_db', 'ws_lagged', 'ws_ctrl_dropped
 
 def get(path):
     try:
-        return json.load(urllib.request.urlopen(API + path, timeout=2))
+        return json.load(urllib.request.urlopen(router_token.request(API + path), timeout=2))
     except Exception:
         return None
 

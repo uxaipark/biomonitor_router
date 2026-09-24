@@ -13,11 +13,13 @@ STORE = os.path.join(S, "store"); shutil.rmtree(STORE, ignore_errors=True)
 BIN = os.environ.get("ROUTER_BIN", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "router-server", "target", "release", "router-server"))
 env = dict(os.environ, ROUTER_INGEST_ADDR="127.0.0.1:19100", ROUTER_HTTP_ADDR="127.0.0.1:17300", ROUTER_STORE_DIR=STORE,
            ROUTER_GROUPS_PATH=os.path.join(S, "groups.json"), ROUTER_DISPLAYS_PATH=os.path.join(S, "displays.json"),
-           ROUTER_ANALYSIS_ADDR="127.0.0.1:1", ROUTER_DB_ADDR="127.0.0.1:1", RUST_LOG="info")
+           ROUTER_ANALYSIS_ADDR="127.0.0.1:1", ROUTER_DB_ADDR="127.0.0.1:1", RUST_LOG="info",
+           ROUTER_DB_PATH=os.path.join(S, "router.db"), ROUTER_SERVICE_TOKEN="e2e-service-token-0123456789")
 log = open(os.path.join(S, "router.log"), "w")
 proc = subprocess.Popen([BIN], env=env, stdout=log, stderr=subprocess.STDOUT)
 def api(path):
-    return json.load(urllib.request.urlopen(f"http://127.0.0.1:17300{path}", timeout=5))
+    req = urllib.request.Request(f"http://127.0.0.1:17300{path}", headers={"Authorization": "Bearer e2e-service-token-0123456789"})
+    return json.load(urllib.request.urlopen(req, timeout=5))
 for _ in range(50):
     try: api("/api/health"); break
     except Exception: time.sleep(0.1)
