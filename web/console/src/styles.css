@@ -526,7 +526,8 @@ button.danger:hover { background: var(--err); color: #fff; }
 .ms-item:hover { background: var(--panel2); }
 .ms-item small { color: var(--muted); margin-left: 4px; }
 .ms-empty { padding: 8px; color: var(--muted); font-size: 13px; }
-.hl-ring { fill: none; stroke: #ff3b3b; stroke-width: .22; }
+.hl-ring { fill: none; stroke: #ff3b3b; stroke-width: .28; }
+.hl-room { fill: #ff3b3b; fill-opacity: .35; stroke: #ff3b3b; stroke-width: .35; }
 
 /* 표시 모드 — 게이트웨이 상태: 같은 게이트웨이 아이콘 + 바깥 호(연결 패치/최대, 12시부터 시계 방향) + 번호 */
 .map-mode { display: inline-flex; align-items: center; gap: 6px; }

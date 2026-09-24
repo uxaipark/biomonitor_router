@@ -111,10 +111,10 @@ export default function MapPage({ alarms, hash }) {
       const r = it.row
       const b = bIdxByName.get(r.patient?.building), f = parseInt(r.patient?.floor, 10)
       if (b == null || !f || !floors.some((x) => x.building_idx === b && x.floor === f)) { setHl(null); window.alert('현재 도면에 없음 (원외·이동 중)'); return }
-      setSel({ b, f }); setHl({ type: 'patient', id: String(r.channel_id) })
+      setSel({ b, f }); setHl({ type: 'patient', id: String(r.channel_id), at: Date.now() })
     } else {
       const g = it.g
-      setSel({ b: g.building_idx, f: g.floor }); setHl({ type: 'gw', no: String(g.gw_no) })
+      setSel({ b: g.building_idx, f: g.floor }); setHl({ type: 'gw', no: String(g.gw_no), at: Date.now() })
     }
   }
   const clearSearch = (v) => { setQ(v); if (!v.trim() && hl) { setHl(null); setFocus(null) } }
@@ -130,7 +130,7 @@ export default function MapPage({ alarms, hash }) {
     const f = room && floors.find((x) => (x.rooms || []).some((r) => r.id === room))
     const g = gwq && (layout.gateways || []).find((x) => String(x.gw_no) === gwq && x.mount !== 'mobile')
     if (pat) { const r = rows.find((x) => x.channel_id === pat); if (r) pickResult({ kind: 'patient', row: r }) }
-    else if (f) { setSel({ b: f.building_idx, f: f.floor }); setPick({ room }); setHl({ type: 'room', id: room }) }
+    else if (f) { setSel({ b: f.building_idx, f: f.floor }); setPick({ room }); setHl({ type: 'room', id: room, at: Date.now() }) }
     else if (g) { pickResult({ kind: 'gw', g }); setPick({ gw: gwq }) }
     else if (qs.has('b') || qs.has('f')) setSel({ b: Number(qs.get('b') || 0), f: Number(qs.get('f') || 1) })
   }, [hash, layout, rows]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -231,10 +231,12 @@ export default function MapPage({ alarms, hash }) {
     const g = floorGws.find((x) => String(x.gw_no) === hl.no)
     return g ? { x: g.x, y: g.y } : null
   }, [hl, cur, nameLayout, floorGws])
-  const hlKey = hl && hlPoint ? `${hl.type}:${hl.id || hl.no}:${cur?.building_idx}:${cur?.floor}` : null
+  const hlKey = hl && hlPoint ? `${hl.type}:${hl.id || hl.no}:${cur?.building_idx}:${cur?.floor}:${hl.at || 0}` : null
   useEffect(() => { if (hlKey) setFocus({ x: hlPoint.x, y: hlPoint.y, seq: hlKey + Date.now() }) }, [hlKey]) // eslint-disable-line react-hooks/exhaustive-deps
-  // 빨간 링은 5초만 — 확대와 검색어는 그대로 두고 링만 사라진다
+  // 강조 효과(빨간 링 + 병실이면 병실 깜박임)는 5초 — 들어올 때마다(hl.at) 다시 시작, 확대·선택은 그대로
   const [ringOn, setRingOn] = useState(false)
+  const hlRoom = hl?.type === 'room' ? (cur?.rooms || []).find((r) => r.id === hl.id && r.poly?.length) : null
+  const hlR = hlRoom ? Math.max(1.6, Math.hypot(Math.max(...hlRoom.poly.map((q) => q[0])) - Math.min(...hlRoom.poly.map((q) => q[0])), Math.max(...hlRoom.poly.map((q) => q[1])) - Math.min(...hlRoom.poly.map((q) => q[1]))) * 0.55) : 1.6
   useEffect(() => {
     if (!hlKey) { setRingOn(false); return }
     setRingOn(true)
@@ -336,8 +338,9 @@ export default function MapPage({ alarms, hash }) {
                 )}
                 {hlPoint && ringOn && (
                   <g className="hl" pointerEvents="none">
-                    <circle cx={hlPoint.x} cy={hlPoint.y} r="1.6" className="hl-ring">
-                      <animate attributeName="r" values="1.2;2.16;1.2" dur="1.4s" repeatCount="indefinite" />
+                    {hlRoom && <polygon points={hlRoom.poly.map((q) => q.join(',')).join(' ')} className="hl-room"><animate attributeName="fill-opacity" values="0.45;0.1;0.45" dur="1.0s" repeatCount="indefinite" /></polygon>}
+                    <circle cx={hlPoint.x} cy={hlPoint.y} r={hlR} className="hl-ring">
+                      <animate attributeName="r" values={`${hlR * 0.75};${hlR * 1.35};${hlR * 0.75}`} dur="1.4s" repeatCount="indefinite" />
                       <animate attributeName="stroke-opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite" />
                     </circle>
                   </g>
