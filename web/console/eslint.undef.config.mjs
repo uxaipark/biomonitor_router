@@ -1,5 +1,5 @@
 // 정의되지 않은 이름(import 누락 등) 검사 — 빌드·SSR 점검은 마우스 이벤트 안에서만 쓰는 함수의 누락을 못 잡는다.
-// 실행: npm run check:undef  (eslint 는 전역/npx)
+// 실행: npm run check:undef  (npx eslint@10 — 시스템 eslint 6 은 flat config 를 모름)
 export default [{
   files: ['**/*.js', '**/*.jsx'],
   languageOptions: {
