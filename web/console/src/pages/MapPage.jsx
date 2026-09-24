@@ -380,8 +380,8 @@ export default function MapPage({ alarms, hash }) {
                   const live = gwById.get(String(g.gw_no))
                   const al = gidx.get(String(g.gw_no))
                   const cls = al ? 'gwbad' : !live || !live.connected ? 'gwoff' : live.silent || live.status?.status === 2 ? 'gwbad' : live.status?.status === 1 ? 'gwwarn' : 'gw'
-                  // 정상 게이트웨이는 확대했을 때만 — 멀리서는 이상 있는 것만 보인다
-                  if (cls === 'gw' && k < LOD.gateway && mode === 'patients' && pick?.gw !== String(g.gw_no)) return null
+                  // 아이콘은 배율과 상관없이 항상. 멀리서(환자 표시 모드)는 번호 글자만 숨겨 환자 이름과 겹치지 않게
+                  const showNo = !(k < LOD.gateway && mode === 'patients' && cls === 'gw' && pick?.gw !== String(g.gw_no))
                   const detail = mode === 'gw' || mode === 'coverage' // 상태 모드: 연결 부하 파이 + 번호
                   const load = detail && live && g.capacity ? Math.min(0.9999, (live.patches || 0) / g.capacity) : 0
                   // 게이트웨이는 에뮬레이터가 준 천장 설치 좌표 그대로 그린다 — 물리적 위치이므로 어떤 표기 때문에도 옮기지 않는다.
@@ -402,7 +402,7 @@ export default function MapPage({ alarms, hash }) {
                       {[0.13, 0.24].map((r) => { const cy = gy + 0.13, k = Math.SQRT1_2
                         return <path key={r} d={`M${(gx - r * k).toFixed(3)},${(cy - r * k).toFixed(3)} A${r},${r} 0 0 1 ${(gx + r * k).toFixed(3)},${(cy - r * k).toFixed(3)}`} className="gw-wave" /> })}
                       {/* 게이트웨이 번호는 고유번호 — 숫자만 아이콘 아래에 작게 */}
-                      <text x={gx} y={gy + (detail ? 0.95 : 0.78)} className="gw-no">{g.gw_no}</text>
+                      {showNo && <text x={gx} y={gy + (detail ? 0.95 : 0.78)} className="gw-no">{g.gw_no}</text>}
                     </g>
                   )
                 })}
