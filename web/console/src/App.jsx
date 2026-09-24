@@ -127,6 +127,8 @@ export function useAlarms(enabled = true, live = true) {
 }
 
 /** 로그인 확인 → 로그인 화면 또는 콘솔. 어느 API 든 401 이면(세션 만료) 로그인 화면으로 돌아간다. */
+export const appTitle = (u) => (u?.tenant_id ? 'Patient Monitor' : 'Biomonitor Router')
+
 export default function App() {
   const [me, setMe] = useState(undefined) // undefined = 확인 중, null = 로그인 필요
   useEffect(() => {
@@ -137,6 +139,8 @@ export default function App() {
   }, [])
   useEffect(() => { setWsAllowed(!!me && canBio(me) && canPhi(me)) }, [me])
   useTheme()
+  // 병원 계정(소속 병원이 있는 계정)으로 들어오면 제품 이름을 Patient Monitor 로, 플랫폼 계정은 Biomonitor Router 그대로
+  useEffect(() => { document.title = appTitle(me?.user) }, [me])
   if (me === undefined) return <div className="boot muted">확인 중…</div>
   if (!me) return <Login onLogin={setMe} />
   return <MeContext.Provider value={me}><Console me={me} setMe={setMe} /></MeContext.Provider>
@@ -198,7 +202,7 @@ function Console({ me, setMe }) {
   return (
     <div className="app">
       <header className="top">
-        <a className="brand" href="#/"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)" /><path d="M4 13h4l2-5 3 9 2-6 1.5 2H20" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>Biomonitor Router</a>
+        <a className="brand" href="#/"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)" /><path d="M4 13h4l2-5 3 9 2-6 1.5 2H20" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>{appTitle(me.user)}</a>
         <nav>
           {allowed.filter((p) => !p[3]).map(([h, label]) => (
             <a key={h} href={h} className={base === h ? 'active' : ''}>{label}{h === '#/alarms' && s.unacked > 0 && <span className="badge">{s.unacked}</span>}</a>

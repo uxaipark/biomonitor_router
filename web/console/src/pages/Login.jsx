@@ -44,6 +44,9 @@ export default function Login({ onLogin }) {
   const hosp = accounts.filter((a) => a.tenant_id)
   const plat = accounts.filter((a) => !a.tenant_id)
   const tname = tenants.find((t) => t.id === T)?.name
+  // 병원 계정을 고르면 제품 이름이 Patient Monitor 로 바뀐다 (로그인 뒤 머리글·탭 제목도 같음)
+  const brand = hosp.some((a) => a.username === username) ? 'Patient Monitor' : 'Biomonitor Router'
+  useEffect(() => { document.title = brand }, [brand])
   const Acc = ({ a }) => (
     <button className={'login-acc' + (username === a.username ? ' on' : '')} onClick={() => { setUsername(a.username); setPassword(a.password); setErr('') }} onDoubleClick={() => submit(tenant, a.username, a.password)} title="두 번 누르면 바로 로그인">
       <span className="la-role">{a.role_label}</span>
@@ -57,7 +60,7 @@ export default function Login({ onLogin }) {
       <div className="login-card">
         <div className="login-brand">
           <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)" /><path d="M4 13h4l2-5 3 9 2-6 1.5 2H20" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          <div><b>Biomonitor Router</b><small>병원 생체신호 모니터링 콘솔</small></div>
+          <div><b>{brand}</b><small>병원 생체신호 모니터링 콘솔</small></div>
         </div>
 
         <div className="login-tenant">
