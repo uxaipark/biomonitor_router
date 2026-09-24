@@ -33,6 +33,9 @@ pub static ACTIVE: AtomicBool = AtomicBool::new(false);
 pub static SAFE: LazyLock<dashmap::DashMap<String, u64>> = LazyLock::new(dashmap::DashMap::new);
 pub static EMERGENCY_FREE_PCT: AtomicU64 = AtomicU64::new(5);
 /// 저장소가 지운 파일(상대 경로) — 백업 스레드가 장부에서 지우고 묘비를 남긴다.
+/// FTP/FTPS/SFTP: 설정된 원격 디렉터리에 들어가 본 시각 (대상 id + 경로 → ms). 10분 동안은 다시 확인하지 않는다.
+static BASE_OK: LazyLock<Mutex<HashMap<String, u64>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
 pub static FORGET_Q: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 /// 상한을 넘었지만 백업이 안 돼 지우지 못한 바이트 (마지막 prune 기준)
 pub static BLOCKED_BYTES: AtomicU64 = AtomicU64::new(0);
@@ -415,6 +418,15 @@ fn stderr_msg_raw(o: &std::process::Output) -> String {
 }
 
 impl Target {
+    /// FTP·FTPS·SFTP 는 원격 루트(로그인 폴더·'/'·'~')에 쓰지 않는다 — 설정된 디렉터리가 꼭 있어야 한다.
+    fn remote_base(&self) -> Result<String, String> {
+        let b = self.path.trim().trim_start_matches("~/").trim_matches('/').trim();
+        if b.is_empty() || b == "~" || b == "." {
+            return Err("원격 경로(디렉터리)를 지정하세요 — 루트에는 쓰지 않습니다".into());
+        }
+        Ok(b.to_string())
+    }
+
     fn scheme(&self) -> &str {
         match self.kind.as_str() {
             "ftps" => "ftp", // 명시적 TLS (AUTH TLS) — --ssl-reqd
@@ -703,6 +715,9 @@ impl Backup {
         } else if t.host.trim().is_empty() {
             return Err("호스트가 필요합니다".into());
         }
+        if matches!(t.kind.as_str(), "ftp" | "ftps" | "sftp") {
+            t.remote_base()?;
+        }
         if t.kind == "smb" && t.share.trim().is_empty() {
             return Err("SMB 공유 이름이 필요합니다".into());
         }
@@ -933,6 +948,19 @@ impl Backup {
                 res
             }
             _ => {
+                // 먼저 설정된 디렉터리로 들어가 본다(없으면 만들지 않고 실패). 그 안에서만 하위 폴더를 만들고 쓴다.
+                t.remote_base()?;
+                let key = format!("{}|{}", t.id, t.path.trim());
+                let fresh = BASE_OK.lock().unwrap().get(&key).is_some_and(|&ms| now_ms().saturating_sub(ms) < 600_000);
+                if !fresh {
+                    let mut cmd = t.curl(p);
+                    cmd.args(["--list-only", "-o", "/dev/null"]).arg(format!("{}/", t.url("").trim_end_matches('/')));
+                    let o = run_with_stdin(cmd, &t.curl_cfg())?;
+                    if !o.status.success() {
+                        return Err(format!("설정된 디렉터리 '{}' 에 들어갈 수 없습니다 (없거나 권한 없음 — 서버에 먼저 만들어 두세요): {}", t.path.trim(), stderr_msg(&o)));
+                    }
+                    BASE_OK.lock().unwrap().insert(key, now_ms());
+                }
                 let url = t.url(remote);
                 let mut cmd = t.curl(p);
                 cmd.arg("--ftp-create-dirs").arg("-T").arg(local).arg(&url);

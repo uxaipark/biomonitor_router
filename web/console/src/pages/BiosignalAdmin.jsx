@@ -232,8 +232,9 @@ function TargetModal({ target, onClose, onSaved }) {
             <label>호스트</label>{inp('host', '192.168.0.50 또는 nas.local')}
             <label>포트</label>{inp('port', `기본 ${KIND_PORT[k]}`, 'number')}
             {k === 'smb' && <><label>공유 이름</label>{inp('share', 'backup')}</>}
-            <label>{k === 'smb' ? '공유 안 폴더' : '원격 경로'}</label>
+            <label>{k === 'smb' ? '공유 안 폴더' : '원격 경로 (필수)'}</label>
             {inp('path', k === 'sftp' ? '/data/biomonitor (절대) 또는 ~/biomonitor (홈 기준)' : k === 'smb' ? 'biomonitor/rp5' : 'biomonitor (로그인 폴더 기준)')}
+            {k !== 'smb' && <><label /><div className="muted">루트(로그인 폴더)에는 쓰지 않습니다. 이 디렉터리는 서버에 미리 만들어 두세요 — 들어가서 그 안에만 폴더를 만들고 기록합니다.</div></>}
             <label>사용자</label>{inp('username', k === 'ftp' || k === 'ftps' ? 'anonymous 이면 비워 두기' : '')}
             <label>비밀번호</label>
             <div className="bk-pw">{inp('password', t.has_password ? '저장됨 — 바꿀 때만 입력' : '', 'password')}
