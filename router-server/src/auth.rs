@@ -41,8 +41,6 @@ pub const ROLES: [(&str, &str, bool); 8] = [
     ("staff", "스태프", false),
 ];
 
-/// 의사가 권한을 정하는 역할
-pub const CLINICAL_DELEGATED: [&str; 2] = ["nurse", "staff"];
 
 pub fn role_label(code: &str) -> &'static str {
     ROLES.iter().find(|r| r.0 == code).map(|r| r.1).unwrap_or("알 수 없음")
@@ -77,7 +75,7 @@ pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 25] = [
     ("page.settings_network", "설정 › 네트워크 설정", "메뉴", [2, 2, 0, 0, 2, 0, 0, 0]),
     ("page.integration", "설정 › EMR 연동", "메뉴", [2, 2, 0, 0, 2, 1, 0, 0]),
     ("page.admin_users", "관리 › 계정", "메뉴", [2, 1, 1, 0, 2, 1, 0, 0]),
-    ("page.admin_permissions", "관리 › 권한 설정", "메뉴", [2, 1, 0, 0, 1, 2, 0, 0]),
+    ("page.admin_permissions", "관리 › 권한 설정", "메뉴", [2, 2, 0, 0, 2, 2, 0, 0]),
     ("page.admin_tenants", "관리 › 병원(테넌트)", "메뉴", [2, 1, 2, 1, 1, 0, 0, 0]),
     // 병원에서는 IT 매니저만
     ("page.admin_audit", "관리 › 감사 기록", "메뉴", [2, 2, 0, 0, 1, 0, 0, 0]),
@@ -481,7 +479,7 @@ impl Auth {
                 lv = *g;
             }
             if let Some(t) = tenant {
-                if CLINICAL_DELEGATED.contains(&role) {
+                if !is_platform(role) {
                     if let Some(o) = m.get(t).and_then(|g| g.get(role)).and_then(|row| row.get(res)) {
                         lv = *o;
                     }
@@ -948,8 +946,11 @@ impl Auth {
     /// {"global": [roles…], "tenant": [roles…]} — 요청자가 고칠 수 있는 열
     pub fn editable(&self, p: &Principal) -> serde_json::Value {
         let edit = p.level("page.admin_permissions") >= 2;
-        let g: Vec<&str> = if edit && p.role == "super_admin" { ROLES.iter().map(|r| r.0).filter(|r| *r != "super_admin").collect() } else { vec![] };
-        let t: Vec<&str> = if edit && (p.role == "doctor" || p.role == "super_admin") { CLINICAL_DELEGATED.to_vec() } else { vec![] };
+        // 편집 권한이 있으면 자기보다 아래 역할만 고친다 (자기 역할·상위 역할은 못 고침).
+        // 전역 표는 플랫폼 역할만, 병원 표(병원별 덮어쓰기)는 병원 역할 열만.
+        let below = |r: &str| role_rank(r) > role_rank(&p.role);
+        let g: Vec<&str> = if edit && is_platform(&p.role) { ROLES.iter().map(|r| r.0).filter(|r| below(r)).collect() } else { vec![] };
+        let t: Vec<&str> = if edit { ROLES.iter().map(|r| r.0).filter(|r| below(r) && !is_platform(r)).collect() } else { vec![] };
         serde_json::json!({ "global": g, "tenant": t })
     }
 
@@ -982,7 +983,9 @@ impl Auth {
                     continue;
                 }
                 let lv = (*lv).min(2);
-                if lv > cap(res) {
+                // 자기 권한보다 높게는 못 준다 — 이미 그 값이던 칸(예: IT 매니저가 의사 행을 고칠 때 개인정보 원문 2)은 그대로 둘 수 있다
+                let cur = self.effective(role, if key == GLOBAL { None } else { Some(key.as_str()) }).get(res.as_str()).copied().unwrap_or(0);
+                if lv > cap(res) && lv != cur {
                     return Err(format!("{} · {}: 자기 권한({})보다 높게 줄 수 없습니다", role_label(role), res, cap(res)));
                 }
                 rows.push((role.clone(), res.clone(), lv));

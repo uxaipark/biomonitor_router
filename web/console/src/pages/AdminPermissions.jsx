@@ -5,8 +5,10 @@ import Dropdown from '../Dropdown.jsx'
 
 /**
  * 관리 › 권한 설정 — 역할 × 메뉴·동작·데이터 매트릭스.
- *  - 전역 표: 수퍼 어드민이 모든 역할(수퍼 어드민 자신 제외)을 정한다.
- *  - 병원별 표: 의사가 자기 병원의 간호사·스태프 칸만, 자기 권한 이하로 정한다(전역 값을 덮어씀).
+ *  - 권한 설정이 '편집'이면 자기보다 아래 역할만 고친다(자기·상위 역할 열은 보이지도 않거나 보기만).
+ *  - 전역 표: 플랫폼 역할(수퍼 어드민 → 시스템 관리자 → 리셀러 → 영업)이 아래 역할을 정한다.
+ *  - 병원별 표: 병원 역할(IT 매니저·의사·간호사·스태프)을 병원마다 덮어쓴다 — IT 매니저는 의사·간호사·스태프, 의사는 간호사·스태프.
+ *  - 자기 권한보다 높게는 줄 수 없다(이미 그 값인 칸은 유지 가능).
  *  - 초기값 불러오기 = 코드의 기본 표, 이전 설정 불러오기 = 저장할 때마다 남는 판. 불러온 뒤 저장해야 적용된다.
  */
 const LV_CLS = ['lv0', 'lv1', 'lv2']
@@ -77,7 +79,7 @@ export default function AdminPermissions() {
         <h2 className="h">권한 설정</h2>
         <span className="seg">
           {view.editable.global.length > 0 && <button className={scope === 'global' ? 'active' : ''} onClick={() => setScope('global')}>전역 권한 (역할 기본)</button>}
-          <button className={scope === 'tenant' ? 'active' : ''} onClick={() => setScope('tenant')}>병원별 간호사·스태프</button>
+          <button className={scope === 'tenant' ? 'active' : ''} onClick={() => setScope('tenant')}>병원별 권한</button>
         </span>
         {scope === 'tenant' && tenantOpts.length > 1 && <Dropdown value={view.tenant} options={tenantOpts} onChange={setTenant} searchable={false} width={300} />}
         <span className="spacer" />
@@ -85,8 +87,8 @@ export default function AdminPermissions() {
       </div>
       <p className="muted adm-desc">
         {scope === 'global'
-          ? '모든 병원에 공통으로 적용되는 역할별 권한입니다. 수퍼 어드민 열은 개발 모드 동안 모든 권한이 고정됩니다. 간호사·스태프는 병원마다 의사가 따로 정할 수 있고, 그 값이 이 표보다 우선합니다.'
-          : `이 병원(${view.tenant})의 간호사·스태프 권한입니다. 의사는 자기 권한보다 높게 줄 수 없습니다. 다른 역할은 전역 표를 따르며 여기서는 보기만 합니다.`}
+          ? '모든 병원에 공통으로 적용되는 역할별 권한입니다. 수퍼 어드민 열은 개발 모드 동안 모든 권한이 고정됩니다. 병원 역할(IT 매니저·의사·간호사·스태프)은 병원마다 따로 정할 수 있고, 그 값이 이 표보다 우선합니다.'
+          : `이 병원(${view.tenant})의 병원 역할 권한입니다. 편집 권한이 있으면 자기보다 아래 역할(${editRoles.map((c) => view.roles.find((r) => r.code === c)?.label || c).join('·') || '없음'})만 고칠 수 있고, 자기 권한보다 높게 줄 수는 없습니다. 나머지 열은 보기만 합니다.`}
         {' '}<b>없음</b> = 메뉴·기능 숨김, <b>보기</b> = 읽기, <b>편집</b> = 바꾸기까지. 데이터 항목이 <b>없음</b>이면 개인정보는 가려지고(마스킹) 생체신호는 나오지 않습니다.
       </p>
       <div className="adm-bar">
