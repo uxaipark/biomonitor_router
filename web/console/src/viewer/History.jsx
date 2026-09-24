@@ -347,7 +347,8 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   const spanMs = span * 1000
   useEffect(() => {
     let alive = true
-    api.patch(id).then((d) => { if (!alive) return; setInfo(d) }).catch((e) => setErr(e.message))
+    // 404 = 이 패치로 아직 저장된 레코드가 없다(방금 부착·게이트웨이 연결 전) — 오류가 아니라 빈 이력
+    api.patch(id).then((d) => { if (!alive) return; setInfo(d) }).catch((e) => { if (!alive) return; if (/HTTP 404/.test(e.message)) setInfo({}); else setErr(e.message) })
     return () => { alive = false }
   }, [id])
   // a live window completed: 6 s later (writer flush) re-read the index and drop the cached chunk so the new
@@ -423,7 +424,7 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   const more = () => setCount((c) => Math.min(c + 30, 600))
   const onListScroll = (e) => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 800) more() }
   if (err) return <div className="hx"><div className="hx-bar"><span className="ds-dim">이력을 불러오지 못했습니다: {err}</span><span className="spacer" /><button className="btn btn-secondary" onClick={onClose}>실시간으로</button></div></div>
-  if (!ix) return <div className="hx"><div className="hx-bar"><span className="ds-dim">{info && !ix ? '저장된 파형이 없습니다.' : '저장 색인 읽는 중…'}</span><span className="spacer" /><button className="btn btn-secondary" onClick={onClose}>실시간으로</button></div></div>
+  if (!ix) return <div className="hx"><div className="hx-bar"><span className="ds-dim">{info && !ix ? '이 패치로 저장된 파형이 아직 없습니다 (수신 전이거나 방금 부착됨).' : '저장 색인 읽는 중…'}</span><span className="spacer" /><button className="btn btn-secondary" onClick={onClose}>실시간으로</button></div></div>
   return (
     <div className={'hx' + (compact ? ' compact' : '')}>
       <div className="hx-bar">

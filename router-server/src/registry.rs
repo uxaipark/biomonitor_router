@@ -147,6 +147,16 @@ impl Registry {
         ch.connected = true;
     }
 
+    /// EMR(입원 목록·환자 정보)에서 온 환자 정보만 갱신 — 연결 상태는 건드리지 않는다.
+    /// 입원했지만 게이트웨이에 아직 안 붙은 패치(레코드 없음)를 '연결됨'으로 보이지 않게.
+    pub fn upsert_patient(&self, channel_id: &str, patient: Patient) {
+        let mut ch = self
+            .channels
+            .entry(channel_id.to_string())
+            .or_insert_with(ChannelState::new);
+        ch.patient = Some(patient);
+    }
+
     /// ECG 패킷 수신: 상태 갱신 + 서큘러 버퍼에 보관.
     /// 버퍼가 가득 차면 가장 오래된 패킷부터 폐기한다.
     /// 반환값: seq 갭으로 감지한 유실 패킷 수 (에뮬레이터가 미전송 구간의 seq 를 스킵)

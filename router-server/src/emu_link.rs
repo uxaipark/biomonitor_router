@@ -85,7 +85,7 @@ pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
                     let n = apply_admissions(&state, &v);
                     debug!("emr sync: {} admissions applied", n);
                     // Patches the EMR no longer lists (discharged, replaced, or a rebuilt patient set) whose records
-                    // stopped ≥ 60 s ago: drop the row now instead of waiting for the 15-min prune, otherwise they
+                    // stopped ≥ 60 s ago, or that never sent any: drop the row now instead of waiting for the 15-min prune, otherwise they
                     // linger as connected-but-silent cards in the viewers.
                     let listed: std::collections::HashSet<String> = v
                         .get("admissions")
@@ -96,7 +96,9 @@ pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
                         let now = crate::protocol::now_ms();
                         let mut gone = Vec::new();
                         state.registry.for_each(|ch, st| {
-                            if !listed.contains(ch) && st.last_ts_ms > 0 && now.saturating_sub(st.last_ts_ms) > 60_000 {
+                            // 레코드를 한 번도 못 받은 행(게이트웨이에 안 붙은 채 재구성·퇴원된 패치)도 바로 지운다 —
+                            // 남겨 두면 옛 침대에 유령 환자가 겹쳐 보인다
+                            if !listed.contains(ch) && (st.last_ts_ms == 0 || now.saturating_sub(st.last_ts_ms) > 60_000) {
                                 gone.push(ch.to_string());
                             }
                         });
@@ -216,7 +218,7 @@ pub fn apply_patients(state: &Arc<AppState>, v: &serde_json::Value) -> usize {
         }
         apply_home(&mut p, a);
         if prev != p {
-            state.registry.upsert_meta(&channel_id, p);
+            state.registry.upsert_patient(&channel_id, p);
             state.recompute_channel_groups(&channel_id);
             n += 1;
         }
@@ -308,7 +310,7 @@ async fn sync_home_addresses(state: &Arc<AppState>, addr: &str, cache: &mut std:
                     if !full.is_empty() {
                         p.home_address = full.clone();
                     }
-                    state.registry.upsert_meta(&channel, p);
+                    state.registry.upsert_patient(&channel, p);
                     state.recompute_channel_groups(&channel);
                 }
             }
@@ -361,7 +363,7 @@ pub fn apply_admissions(state: &Arc<AppState>, v: &serde_json::Value) -> usize {
         // 연동 EMR 조인 키 (에뮬레이터에서 연동 병원을 골랐을 때만 온다)
         p.emr = a.get("emr").filter(|e| e.is_object()).and_then(|e| serde_json::from_value(e.clone()).ok()).filter(|k: &crate::protocol::EmrKey| !k.site.is_empty());
         if prev.as_ref() != Some(&p) {
-            state.registry.upsert_meta(&channel_id, p);
+            state.registry.upsert_patient(&channel_id, p);
             state.recompute_channel_groups(&channel_id);
             n += 1;
         }
