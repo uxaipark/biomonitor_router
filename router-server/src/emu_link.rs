@@ -92,13 +92,16 @@ pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
                         .and_then(|a| a.as_array())
                         .map(|a| a.iter().filter_map(|x| x.get("patch_id").and_then(|p| p.as_u64())).map(|p| p.to_string()).collect())
                         .unwrap_or_default();
+                    // 10건 미만은 목록이 비었거나 재구성 중인 것으로 보고 건드리지 않는다
+                    state.registry.set_admitted(if listed.len() >= 10 { Some(listed.clone()) } else { None });
                     if listed.len() >= 10 {
                         let now = crate::protocol::now_ms();
                         let mut gone = Vec::new();
                         state.registry.for_each(|ch, st| {
-                            // 레코드를 한 번도 못 받은 행(게이트웨이에 안 붙은 채 재구성·퇴원된 패치)도 바로 지운다 —
-                            // 남겨 두면 옛 침대에 유령 환자가 겹쳐 보인다
-                            if !listed.contains(ch) && (st.last_ts_ms == 0 || now.saturating_sub(st.last_ts_ms) > 60_000) {
+                            // 목록에 없는 행은 조건 없이 지운다(유령 금지 — 옛 침대에 다른 환자가 겹쳐 보인다).
+                            // 그 뒤에 레코드가 와서 행이 다시 생겨도 화면·알람에서는 빠진다(set_admitted); 파형 저장은 그대로
+                            let _ = (st, now);
+                            if !listed.contains(ch) {
                                 gone.push(ch.to_string());
                             }
                         });

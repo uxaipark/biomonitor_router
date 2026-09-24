@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
-import { alarmIndex, gatewayAlarmIndex, GW_STATUS } from '../model.js'
+import { alarmIndex, gatewayAlarmIndex, GW_STATUS, SEV_LABEL, wardText, wardRoom, patchLife, fmtDays } from '../model.js'
 import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
 import FloorPlan, { LEGEND, LOD, bedBox, wallSegments, coveragePolygon, polyPoints, COV_OPEN_M } from './FloorPlan.jsx'
@@ -48,6 +48,7 @@ export default function MapPage({ alarms, hash }) {
   })
   const covMode = mode === 'coverage'
   const [hoverGw, setHoverGw] = useState(null) // 마우스를 올린 게이트웨이 번호 → 반투명 커버리지
+  const [tip, setTip] = useState(null) // 호버 팁: { kind: 'pat'|'gw', id, x, y } (화면 좌표)
   // 검색·하이라이트 (에뮬레이터 평면도와 같은 동작): 고르면 그 층으로 가서 빨간 링 + 확대, 검색어를 지우면 원래대로
   const [q, setQ] = useState('')
   const [qOpen, setQOpen] = useState(false)
@@ -339,7 +340,8 @@ export default function MapPage({ alarms, hash }) {
                   const leadOff = (p.flags & 0x01) !== 0
                   const urgent = a && (a.severity === 'critical' || a.severity === 'high')
                   return (
-                    <g key={p.channel_id} className={'pat q-' + q + (a ? ` sev-${a.severity}` : '') + (urgent ? ' urgent' : '') + (a?.acked ? ' acked' : '')} transform={dx ? `translate(${dx.toFixed(2)} 0)` : undefined} onClick={(e) => { e.stopPropagation(); openLive(p.channel_id) }}>
+                    <g key={p.channel_id} className={'pat q-' + q + (a ? ` sev-${a.severity}` : '') + (urgent ? ' urgent' : '') + (a?.acked ? ' acked' : '')} transform={dx ? `translate(${dx.toFixed(2)} 0)` : undefined} onClick={(e) => { e.stopPropagation(); setTip(null); openLive(p.channel_id) }}
+                      onMouseEnter={(e) => setTip({ kind: 'pat', id: p.channel_id, x: e.clientX, y: e.clientY })} onMouseMove={(e) => setTip({ kind: 'pat', id: p.channel_id, x: e.clientX, y: e.clientY })} onMouseLeave={() => setTip(null)}>
                       {/* 위험·높음: 알람색 아이콘 + 알람색 이름표 (깜박이는 원판은 아래 층) */}
                       {a && !urgent && <circle cx={px} cy={py} r="0.72" className="pat-halo" />}
                       <circle cx={px} cy={py} r="0.45" className="pat-body" />
@@ -348,7 +350,6 @@ export default function MapPage({ alarms, hash }) {
                       {leadOff && !urgent && <circle cx={px + 0.36} cy={py - 0.36} r="0.14" className="pat-lead" />}
                       {urgent && (() => { const w = textWidth(name, fs) + 0.3; return <rect x={toLeft ? tx - w + 0.15 : tx - 0.15} y={py + 0.2 - fs} width={w} height={fs * 1.3} rx={fs * 0.3} className="plbl-bg" /> })()}
                       <text x={tx} y={py + 0.2} className={'plbl' + (toLeft ? ' left' : '')} style={fs !== 0.52 ? { fontSize: `${fs}px` } : undefined}>{name}</text>
-                      <title>{name} · {p.channel_id} · RSSI {p.rssi ?? '—'} dBm{leadOff ? ' · 리드오프' : ''}{p.battery != null ? ` · 배터리 ${p.battery}%` : ''}{a ? ` · ${a.message}` : ''}</title>
                     </g>
                   )
                 }))}
@@ -365,7 +366,9 @@ export default function MapPage({ alarms, hash }) {
                   const gx = g.x, gy = g.y
                   return (
                     <g key={g.gw_no} className={'gwm ' + cls + (pick?.gw === String(g.gw_no) ? ' picked' : '')} onClick={(e) => { e.stopPropagation(); setPick({ gw: String(g.gw_no) }) }}
-                      onMouseEnter={() => setHoverGw(String(g.gw_no))} onMouseLeave={() => setHoverGw(null)}>
+                      onMouseEnter={(e) => { setHoverGw(String(g.gw_no)); setTip({ kind: 'gw', id: String(g.gw_no), x: e.clientX, y: e.clientY }) }}
+                      onMouseMove={(e) => setTip({ kind: 'gw', id: String(g.gw_no), x: e.clientX, y: e.clientY })}
+                      onMouseLeave={() => { setHoverGw(null); setTip(null) }}>
                       {/* 게이트웨이 아이콘은 모든 모드에서 같은 것(파란 원 + 와이파이). 상태 모드에서는 바깥 호로 연결 부하, 아래에 번호 */}
                       {detail && <circle cx={gx} cy={gy} r="0.58" className="gw-load-track" />}
                       {detail && load > 0 && (() => { const R = 0.58, a = load * 2 * Math.PI, ex = gx + R * Math.sin(a), ey = gy - R * Math.cos(a)
@@ -377,7 +380,6 @@ export default function MapPage({ alarms, hash }) {
                         return <path key={r} d={`M${(gx - r * k).toFixed(3)},${(cy - r * k).toFixed(3)} A${r},${r} 0 0 1 ${(gx + r * k).toFixed(3)},${(cy - r * k).toFixed(3)}`} className="gw-wave" /> })}
                       {/* 게이트웨이 번호는 고유번호 — 숫자만 아이콘 아래에 작게 */}
                       <text x={gx} y={gy + (detail ? 0.95 : 0.78)} className="gw-no">{g.gw_no}</text>
-                      <title>{g.id} #{g.gw_no} · {g.type} · {g.room}{live ? ` · ${live.connected ? '연결' : '끊김'} · 패치 ${live.patches}/${g.capacity || '—'} · ${GW_STATUS[live.status?.status] || ''}` : ' · 미접속'}{al ? ` · ${al.message}` : ''}</title>
                     </g>
                   )
                 })}
@@ -385,6 +387,9 @@ export default function MapPage({ alarms, hash }) {
             ),
           }}
         />
+        {tip && <MapTip tip={tip} row={tip.kind === 'pat' ? (rows || []).find((r) => r.channel_id === tip.id) : null}
+          gw={tip.kind === 'gw' ? floorGws.find((x) => String(x.gw_no) === tip.id) : null} live={tip.kind === 'gw' ? gwById.get(tip.id) : null}
+          alarm={tip.kind === 'pat' ? aidx.get(tip.id) : gidx.get(tip.id)} />}
         <aside className="map-side">
           {pickRoom && <><h4>{pickRoom.id} <small>{pickRoom.kind} · {pickRoom.ward}</small></h4><small className="muted">게이트웨이 {pickRoom.gateway ? '있음' : '없음'} · 침대 {pickRoom.beds?.length || 0}</small></>}
           {pickGw && <><h4>{pickGw.id} <small>{pickGw.type}</small></h4><GwInfo g={gwById.get(String(pickGw.gw_no))} />
@@ -423,4 +428,61 @@ function GwInfo({ g }) {
       <div><small>seq 갭/역전/재시작</small>{g.seq_gap} / {g.seq_reorder} / {g.seq_restart}</div>
     </div>
   )
+}
+
+const SEX = { M: '남', F: '여' }
+const ageOf = (birth) => { const y = +(String(birth || '').slice(0, 4)); return y > 1900 ? new Date().getFullYear() - y : null }
+const fmtUp = (s) => (s == null ? '—' : s >= 86400 ? `${Math.floor(s / 86400)}일 ${Math.floor((s % 86400) / 3600)}시간` : s >= 3600 ? `${Math.floor(s / 3600)}시간 ${Math.floor((s % 3600) / 60)}분` : `${Math.floor(s / 60)}분`)
+
+/** 지도 호버 팁: 환자·게이트웨이 기본 정보 (마우스 옆, 화면 가장자리에서는 반대쪽으로) */
+function MapTip({ tip, row, gw, live, alarm }) {
+  const W = 300, H = 260
+  const left = tip.x + 16 + W > window.innerWidth ? tip.x - 16 - W : tip.x + 16
+  const top = Math.max(8, Math.min(tip.y + 12, window.innerHeight - H - 8))
+  let body = null
+  if (row) {
+    const p = row.patient || {}
+    const v = row.vitals || {}
+    const life = patchLife(row, row.battery)
+    const age = ageOf(p.birth)
+    const place = wardRoom(p.room || row.space)
+    const lost = !row.connected || row.stale
+    body = (
+      <>
+        <div className="mt-head"><b>{p.name || row.mrn || row.channel_id}</b><span>{[SEX[p.sex] || p.sex, age != null ? `${age}세` : null].filter(Boolean).join(' · ')}</span></div>
+        {alarm && <div className={`mt-alarm sev-${alarm.severity}`}>{SEV_LABEL[alarm.severity]} · {alarm.message}</div>}
+        <dl>
+          <dt>위치</dt><dd>{[wardText(p.ward), place?.room || p.room, p.bed ? `${p.bed.slice(-1)} 침대` : null].filter(Boolean).join(' · ') || row.space || '—'}</dd>
+          {(p.department || p.diagnosis) && <><dt>진료</dt><dd>{[p.department, p.diagnosis].filter(Boolean).join(' · ')}</dd></>}
+          {(p.doctor || p.nurse) && <><dt>담당</dt><dd>{[p.doctor && `의사 ${p.doctor}`, p.nurse && `간호사 ${p.nurse}`].filter(Boolean).join(' · ')}</dd></>}
+          <dt>MRN · 패치</dt><dd className="mono">{row.mrn || '—'} · {row.channel_id}</dd>
+          <dt>바이탈</dt><dd>{lost ? <span className="muted">수신 없음</span> : <>HR <b>{v.hr ?? '—'}</b> · SpO₂ <b>{v.spo2 ?? '—'}</b> · RR <b>{v.resp ?? '—'}</b>{v.temp != null ? <> · <b>{v.temp.toFixed(1)}</b>°C</> : null}</>}</dd>
+          <dt>패치</dt><dd>배터리 {row.battery ?? '—'}%{life?.batLeft != null ? ` (약 ${fmtDays(life.batLeft)})` : ''} · RSSI {row.rssi ?? '—'} dBm</dd>
+          {life && <><dt>착용</dt><dd className={life.level ? `mt-${life.level}` : ''}>{fmtDays(life.worn)}째 · 교체 {life.left <= 0 ? '지금' : `${fmtDays(life.left)} 뒤`} ({life.reason})</dd></>}
+          <dt>게이트웨이</dt><dd className="mono">{row.gateway_id || '—'}</dd>
+        </dl>
+        <div className="mt-foot">누르면 실시간 파형</div>
+      </>
+    )
+  } else if (gw) {
+    const st = live?.status || {}
+    body = (
+      <>
+        <div className="mt-head"><b>{gw.id}</b><span>#{gw.gw_no} · {gw.type}</span></div>
+        {alarm && <div className={`mt-alarm sev-${alarm.severity}`}>{SEV_LABEL[alarm.severity]} · {alarm.message}</div>}
+        <dl>
+          <dt>설치 위치</dt><dd>{gw.room || '—'}</dd>
+          <dt>상태</dt><dd>{!live ? '미접속' : !live.connected ? '끊김' : live.silent ? '무응답' : '연결'}{live && st.status != null ? ` · ${GW_STATUS[st.status] || ''}` : ''}</dd>
+          <dt>패치</dt><dd>{live?.patches ?? 0} / {gw.capacity || '—'}</dd>
+          {live && <><dt>CPU · MEM · NET</dt><dd>{st.cpu ?? '—'}% · {st.mem ?? '—'}% · {st.net ?? '—'}%</dd>
+            <dt>WAN · 온도</dt><dd>{st.wan_rssi ?? '—'} dBm · {st.temp ?? '—'}°C</dd>
+            <dt>가동</dt><dd>{fmtUp(st.uptime ?? st.uptime_s)}</dd>
+            <dt>수신</dt><dd>프레임 {live.frames?.toLocaleString?.() ?? '—'} · NACK {live.nack_tx ?? 0} · 복구 {live.recovered ?? 0}</dd></>}
+        </dl>
+        <div className="mt-foot">누르면 상세 · 올려 두면 커버리지</div>
+      </>
+    )
+  }
+  if (!body) return null
+  return <div className="map-tip" style={{ left, top, width: W }}>{body}</div>
 }

@@ -128,6 +128,8 @@ pub enum PatchSeq {
 pub struct Registry {
     channels: DashMap<String, ChannelState>,
     ring_capacity: usize,
+    /// EMR 입원 목록의 패치 번호 (에뮬레이터 연동 시). 있으면 목록에 없는 행은 화면·알람에서 뺀다(유령 금지).
+    admitted: std::sync::RwLock<Option<std::collections::HashSet<String>>>,
 }
 
 impl Registry {
@@ -135,7 +137,18 @@ impl Registry {
         Self {
             channels: DashMap::new(),
             ring_capacity,
+            admitted: std::sync::RwLock::new(None),
         }
+    }
+
+    /// 입원 목록 갱신 (None = 목록 모름 → 모든 행 표시)
+    pub fn set_admitted(&self, set: Option<std::collections::HashSet<String>>) {
+        *self.admitted.write().unwrap() = set;
+    }
+
+    /// 입원 목록에 있는 행인가 (목록을 모르면 true)
+    pub fn is_listed(&self, channel_id: &str) -> bool {
+        self.admitted.read().unwrap().as_ref().map(|s| s.contains(channel_id)).unwrap_or(true)
     }
 
     pub fn upsert_meta(&self, channel_id: &str, patient: Patient) {
@@ -548,10 +561,12 @@ impl Registry {
     /// (the full list is 1.2 MB of JSON, and every tab parsing that on its main thread stalls the waveforms).
     pub fn snapshot_where(&self, keep: impl Fn(&str, &ChannelState) -> bool) -> Vec<ChannelInfo> {
         let now = crate::protocol::now_ms();
+        let admitted = self.admitted.read().unwrap().clone();
         let mut v: Vec<ChannelInfo> = self
             .channels
             .iter()
             .filter(|e| keep(e.key(), e.value()))
+            .filter(|e| admitted.as_ref().map(|s| s.contains(e.key())).unwrap_or(true))
             .map(|e| ChannelInfo {
                 channel_id: e.key().clone(),
                 connected: e.connected,

@@ -205,7 +205,7 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
     let mut seen: Vec<Observed> = Vec::new();
 
     state.registry.for_each(|channel_id, ch| {
-        if !ch.connected {
+        if !ch.connected || !state.registry.is_listed(channel_id) {
             return;
         }
         let pname = ch.patient.as_ref().map(|p| p.name.as_str()).unwrap_or("");
