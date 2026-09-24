@@ -1,15 +1,15 @@
 import React, { useMemo, useState } from 'react'
 import { api, usePoll, fmtAgo } from '../api.js'
-import { alarmIndex, flagNames, sortBy, SEV_LABEL, FLAG_LABEL, FLAG_WARN, wardText, wardRoom } from '../model.js'
+import { alarmIndex, flagNames, sortBy, SEV_LABEL, FLAG_LABEL, FLAG_WARN, wardText, wardRoom, patchLife, fmtDays } from '../model.js'
 import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
 
 const COLS = [
   ['channel_id', '패치'], ['name', '환자'], ['mrn', 'MRN'], ['ward', '병동'], ['room', '병실'], ['gateway_id', 'GW'],
-  ['hr', 'HR'], ['spo2', 'SpO₂'], ['resp', 'RR'], ['temp', '체온'], ['battery', '배터리'], ['rssi', 'RSSI'], ['flags', '상태'], ['alarm', '알람'], ['last', '수신'],
+  ['hr', 'HR'], ['spo2', 'SpO₂'], ['resp', 'RR'], ['temp', '체온'], ['battery', '배터리'], ['replace', '패치 교체'], ['rssi', 'RSSI'], ['flags', '상태'], ['alarm', '알람'], ['last', '수신'],
 ]
 const PAGE = 100
-const NUM = new Set(['hr', 'spo2', 'resp', 'temp', 'battery', 'rssi'])
+const NUM = new Set(['hr', 'spo2', 'resp', 'temp', 'battery', 'replace', 'rssi'])
 
 export default function Patients({ alarms }) {
   const [rows] = usePoll(api.channels, 3000)
@@ -25,6 +25,7 @@ export default function Patients({ alarms }) {
     const al = aidx.get(r.channel_id)
     return {
       ...r, name: p.name || '', ward: p.ward || '', room: p.room || r.space || '', doctor: p.doctor, nurse: p.nurse,
+      life: patchLife(r, r.battery), replace: patchLife(r, r.battery)?.left ?? null,
       hr: r.vitals?.hr ?? null, spo2: r.vitals?.spo2 ?? null, resp: r.vitals?.resp ?? null, temp: r.vitals?.temp ?? null,
       alarm: al ? ({ critical: 3, high: 2, medium: 1, low: 0 })[al.severity] + 1 : 0, alarmObj: al, last: r.last_ts_ms,
     }
@@ -42,6 +43,7 @@ export default function Patients({ alarms }) {
       { value: 'leadoff', label: '전극 탈락', count: inWard.filter((r) => r.flags & 0x01).length },
       { value: 'stale', label: '수신 없음/해제', count: inWard.filter((r) => r.stale || !r.connected).length },
       { value: 'lowbat', label: '배터리 부족', count: inWard.filter((r) => r.flags & 0x04 || r.battery <= 15).length },
+      { value: 'replace', label: '패치 교체 1일 이내', count: inWard.filter((r) => r.replace != null && r.replace <= 1).length },
     ]
   }, [flat, ward])
   const shown = useMemo(() => {
@@ -51,6 +53,7 @@ export default function Patients({ alarms }) {
     else if (filter === 'leadoff') v = v.filter((r) => r.flags & 0x01)
     else if (filter === 'stale') v = v.filter((r) => r.stale || !r.connected)
     else if (filter === 'lowbat') v = v.filter((r) => r.flags & 0x04 || r.battery <= 15)
+    else if (filter === 'replace') v = v.filter((r) => r.replace != null && r.replace <= 1)
     const key = sort[0] === 'channel_id' ? (r) => Number(r.channel_id) : sort[0]
     return sortBy(v, key, sort[1])
   }, [flat, q, ward, filter, sort])
@@ -76,7 +79,9 @@ export default function Patients({ alarms }) {
             <tr key={r.channel_id} className={'clickable ' + (r.alarmObj ? `sev-${r.alarmObj.severity}` : '') + (r.stale || !r.connected ? ' stale' : '')} onClick={() => openLive(r.channel_id)}>
               <td className="mono">{r.channel_id}</td><td><b>{r.name || r.mrn}</b></td><td className="mono muted">{r.mrn}</td><td title={r.ward}>{r.patient?.building && <span className="muted">{r.patient.building} </span>}{wardText(r.ward)}</td><td title={r.room}>{wardRoom(r.room)?.room || r.room}</td><td className="mono">{r.gateway_id}</td>
               <td className="num">{r.hr ?? '—'}</td><td className="num">{r.spo2 ?? '—'}</td><td className="num">{r.resp ?? '—'}</td><td className="num">{r.temp != null ? r.temp.toFixed(1) : '—'}</td>
-              <td className="num">{r.battery}%</td><td className="num">{r.rssi}</td>
+              <td className="num">{r.battery}%</td>
+              <td className={'num' + (r.life?.level ? ` ${r.life.level === 'err' ? 'err' : 'warn'}` : '')} title={r.life ? `착용 ${fmtDays(r.life.worn)}째${r.life.estimated ? ' (첫 수신 기준 추정)' : ''} · 배터리 약 ${fmtDays(r.life.batLeft)} · ${r.life.reason} 기준` : '착용 시작 모름'}>{r.life ? (r.life.left <= 0 ? '지금' : `D-${fmtDays(r.life.left)}`) : '—'}</td>
+              <td className="num">{r.rssi}</td>
               <td>{flagNames(r.flags).map((n) => <span key={n} className={'tag small' + (FLAG_WARN.has(n) ? ' warn' : '')}>{FLAG_LABEL[n] || n}</span>)}{!r.connected && <span className="tag err small">해제</span>}{r.stale && r.connected && <span className="tag warn small">수신 없음</span>}</td>
               <td>{r.alarmObj && <span className={`tag small sev-${r.alarmObj.severity}`}>{SEV_LABEL[r.alarmObj.severity]} · {r.alarmObj.message}</span>}</td>
               <td className="muted">{fmtAgo(r.last)}</td>

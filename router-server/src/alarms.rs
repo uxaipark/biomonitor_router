@@ -35,6 +35,18 @@ pub struct Rules {
     pub patch_silent_s: u64,
     /// The condition must be gone this long before the alarm clears.
     pub clear_s: u64,
+    /// ECG 패치 최대 착용 일수 (넘으면 교체 필요). 배터리는 약 15.5일이라 1.5일 여유.
+    #[serde(default = "d_wear_days")]
+    pub patch_wear_days: f32,
+    /// 교체 예정 알림을 이만큼(시간) 먼저
+    #[serde(default = "d_wear_warn_h")]
+    pub patch_wear_warn_h: u32,
+}
+fn d_wear_days() -> f32 {
+    14.0
+}
+fn d_wear_warn_h() -> u32 {
+    24
 }
 
 impl Default for Rules {
@@ -55,6 +67,8 @@ impl Default for Rules {
             lead_off_s: 30,
             patch_silent_s: 15,
             clear_s: 5,
+            patch_wear_days: d_wear_days(),
+            patch_wear_warn_h: d_wear_warn_h(),
         }
     }
 }
@@ -220,6 +234,19 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
         }
         if ch.flags & crate::wire::R_SPO2_OFF != 0 {
             seen.push(base("spo2_sensor_off", Severity::Low, "SPO2_OFF".into(), "SpO2 센서 이탈".into(), rules.lead_off_s));
+        }
+        // 착용 기간: 최대 일수를 넘으면 교체 필요, 그 전 warn_h 시간부터 교체 예정
+        let ws = ch.wear_start_ms();
+        if ws > 0 && rules.patch_wear_days > 0.0 {
+            let worn_h = now.saturating_sub(ws) as f64 / 3_600_000.0;
+            let max_h = rules.patch_wear_days as f64 * 24.0;
+            let d = worn_h / 24.0;
+            if worn_h >= max_h {
+                seen.push(base("patch_expired", Severity::Medium, format!("{d:.1}일"), format!("패치 교체 필요 — 착용 {d:.1}일 (최대 {}일)", rules.patch_wear_days), 0));
+            } else if worn_h >= max_h - rules.patch_wear_warn_h as f64 {
+                let left = max_h - worn_h;
+                seen.push(base("patch_expiring", Severity::Low, format!("{d:.1}일"), format!("패치 교체 예정 — 착용 {d:.1}일, {left:.0}시간 남음"), 0));
+            }
         }
         if ch.battery > 0 && ch.battery <= rules.battery_low_pct && ch.flags & crate::wire::R_CHARGING == 0 {
             seen.push(base("battery_low", Severity::Low, format!("{}%", ch.battery), format!("배터리 {}%", ch.battery), 0));

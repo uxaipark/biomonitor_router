@@ -48,7 +48,7 @@ export function gatewayAlarmIndex(alarms) {
 export const ALARM_KIND = {
   hr_critical: '심박수 위험', hr_high: '빈맥', hr_low: '서맥', spo2_critical: 'SpO₂ 위험', spo2_low: '저산소',
   spo2_sensor_off: 'SpO₂ 센서 분리', resp_high: '빈호흡', resp_low: '서호흡', temp_high: '고열', temp_low: '저체온',
-  lead_off: '전극 탈락', battery_low: '배터리 부족', patch_silent: '패치 무응답', gateway_down: 'GW 끊김',
+  lead_off: '전극 탈락', battery_low: '배터리 부족', patch_silent: '패치 무응답', patch_expiring: '패치 교체 예정', patch_expired: '패치 교체 필요', gateway_down: 'GW 끊김',
   gateway_status_down: 'GW 다운 보고', gateway_silent: 'GW 무응답', gateway_degraded: 'GW 저하', store_backpressure: '저장 지연',
 }
 
@@ -76,3 +76,29 @@ export const FLAG_LABEL = {
   LEAD_OFF: '전극 탈락', MOTION: '움직임', LOW_BATTERY: '배터리 부족', SPO2_OFF: 'SpO₂ 분리', PACEMAKER: '페이스메이커', CHARGING: '충전 중', NEW_PATCH: '새 패치',
 }
 export const FLAG_WARN = new Set(['LEAD_OFF', 'LOW_BATTERY', 'SPO2_OFF'])
+
+/** ECG 패치 수명: 최대 착용 14일(그 뒤 교체), 배터리 약 15.5일 — 알람 규칙(patch_wear_days)과 같은 기본값 */
+export const PATCH_WEAR_DAYS = 14
+export const PATCH_BATTERY_DAYS = 15.5
+const DAY = 86400000
+/**
+ * 패치 수명 요약: 착용 일수, 배터리로 남은 일수(잔량 % × 15.5일), 교체 예정 시각 = min(착용 시작 + 14일, 지금 + 배터리 남은 일수)
+ * 반환 null = 착용 시작을 모름
+ */
+export function patchLife(row, battery, now = Date.now(), wearDays = PATCH_WEAR_DAYS) {
+  const ws = row?.wear_start_ms
+  if (!ws) return null
+  const worn = (now - ws) / DAY
+  const batLeft = battery > 0 ? (battery / 100) * PATCH_BATTERY_DAYS : null
+  const byWear = ws + wearDays * DAY
+  const byBat = batLeft != null ? now + batLeft * DAY : Infinity
+  const due = Math.min(byWear, byBat)
+  const left = (due - now) / DAY
+  return {
+    worn, batLeft, due, left,
+    reason: byBat < byWear ? '배터리' : '착용 기간',
+    level: left <= 0 ? 'err' : left <= 1 ? 'warn' : '',
+    estimated: !row.patch_issued_ms, // 발급 시각을 몰라 첫 수신 시각으로 셈
+  }
+}
+export const fmtDays = (d) => (d == null ? '—' : d >= 1 ? `${d.toFixed(1)}일` : `${Math.max(0, d * 24).toFixed(0)}시간`)

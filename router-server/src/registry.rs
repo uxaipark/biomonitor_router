@@ -36,12 +36,21 @@ pub struct ChannelState {
     pub vitals_ts_ms: u64,
     /// 패치 seq 역전 판정 횟수 (진단용)
     pub pseq_reorder: u64,
+    /// 패치 발급(부착) 시각 — 에뮬레이터 패치 레지스트리 `issued_at`, 모르면 0
+    pub patch_issued_ms: u64,
+    /// 이 패치의 첫 레코드 시각 (발급 시각을 모를 때 착용 시작으로 씀)
+    pub first_seen_ms: u64,
     /// (수신 시각, 패킷) — 분석 응답 대기 서큘러 버퍼.
     /// 수신 시각은 분석 지연 시 타임아웃 방출(무분석 통과)에 사용된다.
     pub pending: VecDeque<(Instant, EcgPacket)>,
 }
 
 impl ChannelState {
+    /// 착용 시작: 발급 시각이 있으면 그것, 없으면 첫 수신
+    pub fn wear_start_ms(&self) -> u64 {
+        if self.patch_issued_ms > 0 { self.patch_issued_ms } else { self.first_seen_ms }
+    }
+
     fn new() -> Self {
         Self {
             patient: None,
@@ -66,6 +75,8 @@ impl ChannelState {
             vitals: Vitals::default(),
             vitals_ts_ms: 0,
             pseq_reorder: 0,
+            patch_issued_ms: 0,
+            first_seen_ms: 0,
             pending: VecDeque::new(),
         }
     }
@@ -97,6 +108,9 @@ pub struct ChannelInfo {
     pub vitals: Vitals,
     pub vitals_ts_ms: u64,
     pub pseq_reorder: u64,
+    /// 패치 착용 시작 (발급 시각, 모르면 첫 수신 시각; 0 = 모름)
+    pub wear_start_ms: u64,
+    pub patch_issued_ms: u64,
 }
 
 /// 패치 시퀀스 판정 (v3 record.seq)
@@ -157,6 +171,9 @@ impl Registry {
         }
         ch.last_seq = pkt.seq;
         ch.last_ts_ms = pkt.ts_ms;
+        if ch.first_seen_ms == 0 {
+            ch.first_seen_ms = pkt.ts_ms;
+        }
         if !pkt.vitals.is_empty() {
             let v = &pkt.vitals;
             if v.hr.is_some() { ch.vitals.hr = v.hr; }
@@ -193,6 +210,9 @@ impl Registry {
         }
         ch.last_seq = seq;
         ch.last_ts_ms = ts_ms;
+        if ch.first_seen_ms == 0 {
+            ch.first_seen_ms = ts_ms;
+        }
         if !vitals.is_empty() {
             if vitals.hr.is_some() { ch.vitals.hr = vitals.hr; }
             if vitals.temp.is_some() { ch.vitals.temp = vitals.temp; }
@@ -244,6 +264,9 @@ impl Registry {
         }
         ch.last_seq = seq as u64;
         ch.last_ts_ms = ts_ms;
+        if ch.first_seen_ms == 0 {
+            ch.first_seen_ms = ts_ms;
+        }
         if !vitals.is_empty() {
             if vitals.hr.is_some() { ch.vitals.hr = vitals.hr; }
             if vitals.temp.is_some() { ch.vitals.temp = vitals.temp; }
@@ -451,6 +474,17 @@ impl Registry {
     }
 
     /// 레코드 헤더의 패치 상태 (환자번호·플래그·배터리·RSSI)
+    /// 패치 레지스트리의 발급 시각 (있는 행만)
+    pub fn set_patch_issued(&self, channel_id: &str, ms: u64) -> bool {
+        match self.channels.get_mut(channel_id) {
+            Some(mut ch) if ch.patch_issued_ms != ms => {
+                ch.patch_issued_ms = ms;
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub fn note_patch(&self, channel_id: &str, patient_id: u32, flags: u8, battery: u8, rssi: i8) {
         if let Some(mut ch) = self.channels.get_mut(channel_id) {
             ch.patient_id = patient_id;
@@ -531,6 +565,8 @@ impl Registry {
                 vitals: e.vitals.clone(),
                 vitals_ts_ms: e.vitals_ts_ms,
                 pseq_reorder: e.pseq_reorder,
+                wear_start_ms: e.wear_start_ms(),
+                patch_issued_ms: e.patch_issued_ms,
             })
             .collect();
         v.sort_by(|a, b| a.channel_id.cmp(&b.channel_id));

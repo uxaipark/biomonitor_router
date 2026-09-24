@@ -151,8 +151,44 @@ pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
         if applied > 0 {
             info!("emr sync: {} patient records updated (specialty/diagnosis)", applied);
         }
+        // patch registry: issue (attach) time per active patch → wear days / replacement due
+        // (the emulator caps limit at 1,000: page by offset)
+        let (mut offset, mut n) = (0usize, 0usize);
+        while let Ok((200, body)) = request(&addr, "GET", &format!("/api/v1/emr/patches?status=active&limit=1000&offset={offset}"), None).await {
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) else { break };
+            let got = v.get("patches").and_then(|a| a.as_array()).map(|a| a.len()).unwrap_or(0);
+            let total = v.get("active").or_else(|| v.get("total")).and_then(|t| t.as_u64()).unwrap_or(0) as usize;
+            n += apply_patch_registry(&state, &v);
+            offset += got;
+            if got == 0 || offset >= total || offset >= 20_000 {
+                break;
+            }
+        }
+        if n > 0 {
+            info!("emr sync: {} patch issue times updated", n);
+        }
         sync_home_addresses(&state, &addr, &mut home_cache).await;
     }
+}
+
+/// 에뮬레이터 로컬 시각(`2026-09-24T21:17:29`, 병원 시간대 = KST) → UTC ms
+fn local_ts_ms(s: &str) -> Option<u64> {
+    use chrono::TimeZone;
+    let nd = chrono::NaiveDateTime::parse_from_str(s.trim(), "%Y-%m-%dT%H:%M:%S%.f").ok()?;
+    chrono_tz::Asia::Seoul.from_local_datetime(&nd).earliest().map(|t| t.timestamp_millis().max(0) as u64)
+}
+
+/// `/api/v1/emr/patches?status=active` → 행별 패치 발급 시각
+pub fn apply_patch_registry(state: &Arc<AppState>, v: &serde_json::Value) -> usize {
+    let Some(list) = v.get("patches").and_then(|a| a.as_array()) else { return 0 };
+    let mut n = 0;
+    for p in list {
+        let (Some(pid), Some(ms)) = (p.get("patch_id").and_then(|x| x.as_u64()), p.get("issued_at").and_then(|x| x.as_str()).and_then(local_ts_ms)) else { continue };
+        if state.registry.set_patch_issued(&pid.to_string(), ms) {
+            n += 1;
+        }
+    }
+    n
 }
 
 /// `/api/v1/emr/patients` → department (specialty) / diagnosis (disease) on the registry rows.
@@ -331,4 +367,13 @@ pub fn apply_admissions(state: &Arc<AppState>, v: &serde_json::Value) -> usize {
         }
     }
     n
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn patch_issue_time_is_kst() {
+        // 2026-09-24T21:17:29 KST = 12:17:29 UTC
+        assert_eq!(super::local_ts_ms("2026-09-24T21:17:29"), Some(1_790_252_249_000));
+    }
 }

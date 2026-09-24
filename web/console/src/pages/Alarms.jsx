@@ -6,7 +6,7 @@ import { openLive } from '../App.jsx'
 const RULE_FIELDS = [
   ['hr_low', '서맥 HR <', 'bpm'], ['hr_high', '빈맥 HR >', 'bpm'], ['hr_crit_low', '위험 HR ≤', 'bpm'], ['hr_crit_high', '위험 HR ≥', 'bpm'],
   ['spo2_low', 'SpO₂ <', '%'], ['spo2_crit_low', '위험 SpO₂ <', '%'], ['temp_low', '저체온 ≤', '°C'], ['temp_high', '고열 ≥', '°C'],
-  ['resp_low', '서호흡 <', '/min'], ['resp_high', '빈호흡 >', '/min'], ['battery_low_pct', '배터리 ≤', '%'],
+  ['resp_low', '서호흡 <', '/min'], ['resp_high', '빈호흡 >', '/min'], ['battery_low_pct', '배터리 ≤', '%'], ['patch_wear_days', '패치 최대 착용', '일'], ['patch_wear_warn_h', '교체 예정 알림', '시간 전'],
   ['sustain_s', '수치 지속', 's'], ['lead_off_s', '전극 탈락 지속', 's'], ['patch_silent_s', '패치 무응답', 's'], ['clear_s', '해제 유예', 's'],
 ]
 

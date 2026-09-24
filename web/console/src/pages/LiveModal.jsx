@@ -3,7 +3,7 @@ import { api, usePoll, fmtTime, fmtBytes } from '../api.js'
 import { claimLive, releaseLive, latest } from '../ws.js'
 import { WaveCanvas } from '../WaveCard.jsx'
 import { AccelPlot, accelNow, ACCEL_COLORS } from '../AccelPlot.jsx'
-import { alarmIndex, flagNames, SEV_LABEL, FLAG_LABEL, FLAG_WARN } from '../model.js'
+import { alarmIndex, flagNames, SEV_LABEL, FLAG_LABEL, FLAG_WARN, patchLife, fmtDays, PATCH_WEAR_DAYS, PATCH_BATTERY_DAYS } from '../model.js'
 import HistoryPanel from '../viewer/History.jsx'
 import '../viewer/ds.css'
 import { useMe, canBio, canPhi } from '../auth.js'
@@ -78,6 +78,7 @@ export function LiveModal({ channelId, alarms, onClose }) {
   const stale = live ? Date.now() - live.rx > 5000 : row.stale
   const alarm = aidx.get(channelId)
   const bat = live?.battery ?? row.battery
+  const life = patchLife(row, bat)
   const rssi = live?.rssi ?? row.rssi
   const acc = accelNow(channelId)
   const ix = idx?.index
@@ -150,7 +151,9 @@ export function LiveModal({ channelId, alarms, onClose }) {
                   </section>
                 )}
                 <div className="lm-dev">
-                  <span><small>배터리</small><b className={bat != null && bat <= 15 ? 'low' : ''}>{bat ?? '—'}%</b></span>
+                  <span><small>배터리</small><b className={bat != null && bat <= 15 ? 'low' : ''}>{bat ?? '—'}%{life?.batLeft != null ? ` · 약 ${fmtDays(life.batLeft)}` : ''}</b></span>
+                  {life && <span title={`착용 시작 ${new Date(row.wear_start_ms).toLocaleString('ko-KR', { hour12: false })}${life.estimated ? ' (첫 수신 기준 추정)' : ''} · 최대 ${PATCH_WEAR_DAYS}일, 배터리 약 ${PATCH_BATTERY_DAYS}일`}><small>패치 착용</small><b>{fmtDays(life.worn)}째{life.estimated ? '*' : ''}</b></span>}
+                  {life && <span><small>교체 예정</small><b className={life.level === 'err' ? 'low' : ''}>{life.left <= 0 ? `지금 교체 (${life.reason})` : `${fmtDays(life.left)} 뒤 · ${life.reason}`}</b></span>}
                   <span><small>신호</small><b>{rssi ?? '—'} dBm</b></span>
                   <span><small>수신 품질</small><b>{row.quality || '—'}</b></span>
                   <span><small>마지막 수신</small><b>{fmtTime(live?.ts_ms ?? row.last_ts_ms)}</b></span>
