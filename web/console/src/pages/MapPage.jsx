@@ -54,7 +54,7 @@ export default function MapPage({ alarms, hash }) {
   // 검색·하이라이트 (에뮬레이터 평면도와 같은 동작): 고르면 그 층으로 가서 빨간 링 + 확대, 검색어를 지우면 원래대로
   const [q, setQ] = useState('')
   const [qOpen, setQOpen] = useState(false)
-  const [hl, setHl] = useState(null) // { type: 'patient', id } | { type: 'gw', no }
+  const [hl, setHl] = useState(null) // { type: 'patient', id } | { type: 'gw', no } | { type: 'room', id }
   const [focus, setFocus] = useState(undefined) // FloorPlan 확대 요청 { x, y, seq } / null = 원래 배율
   useEffect(() => { try { localStorage.setItem('map.mode', mode) } catch { /* ignore */ } }, [mode])
   useEffect(() => { api.emu.layout().then(setLayout).catch((e) => setErr(String(e))) }, [])
@@ -115,6 +115,21 @@ export default function MapPage({ alarms, hash }) {
     }
   }
   const clearSearch = (v) => { setQ(v); if (!v.trim() && hl) { setHl(null); setFocus(null) } }
+  // 다른 목록에서 넘어온 링크: #/map?pat=<패치> | ?gw=<번호> | ?room=<병실 id> — 그 층으로 가서 강조 (주소가 바뀔 때마다 한 번)
+  const [linked, setLinked] = useState('')
+  useEffect(() => {
+    const qs = new URLSearchParams((hash || '').split('?')[1] || '')
+    const key = ['pat', 'gw', 'room'].map((k) => qs.get(k) || '').join('|')
+    if (key === '||' || key === linked || !layout || !rows) return
+    setLinked(key)
+    const pat = qs.get('pat'), gwq = qs.get('gw'), room = qs.get('room')
+    if (pat) { const r = rows.find((x) => x.channel_id === pat); if (r) pickResult({ kind: 'patient', row: r }) }
+    else if (gwq) { const g = (layout.gateways || []).find((x) => String(x.gw_no) === gwq && x.mount !== 'mobile'); if (g) { pickResult({ kind: 'gw', g }); setPick({ gw: gwq }) } }
+    else if (room) {
+      const f = floors.find((x) => (x.rooms || []).some((r) => r.id === room))
+      if (f) { setSel({ b: f.building_idx, f: f.floor }); setPick({ room }); setHl({ type: 'room', id: room }) }
+    }
+  }, [hash, layout, rows]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // RF 커버리지: 벽 선분과 게이트웨이별 다각형은 층이 바뀔 때만 다시 계산한다 (광선 240개 × 벽 수 × 게이트웨이 수)
   const covPolys = useMemo(() => {
@@ -203,6 +218,12 @@ export default function MapPage({ alarms, hash }) {
   const hlPoint = useMemo(() => {
     if (!hl || !cur) return null
     if (hl.type === 'patient') { const L = nameLayout.get(hl.id); return L ? { x: L.px + L.dx, y: L.py } : null }
+    if (hl.type === 'room') {
+      const r = (cur.rooms || []).find((x) => x.id === hl.id)
+      if (!r?.poly?.length) return null
+      const xs = r.poly.map((p) => p[0]), ys = r.poly.map((p) => p[1])
+      return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 }
+    }
     const g = floorGws.find((x) => String(x.gw_no) === hl.no)
     return g ? { x: g.x, y: g.y } : null
   }, [hl, cur, nameLayout, floorGws])
