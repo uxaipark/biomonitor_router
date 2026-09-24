@@ -845,3 +845,6 @@ button.danger { color: var(--err); border-color: color-mix(in srgb, var(--err) 5
 .proto.p-kr-json, .proto.p-kr-xml { color: #1f8f72; border-color: color-mix(in srgb, #1f8f72 50%, var(--line)); }
 .proto.p-cda { color: #7a4fd0; border-color: color-mix(in srgb, #7a4fd0 50%, var(--line)); }
 .proto.p-athena { color: #c8672a; border-color: color-mix(in srgb, #c8672a 50%, var(--line)); }
+.tag.adt-A01 { border-color: var(--ok); color: var(--ok); } .tag.adt-A03, .tag.adt-A11 { border-color: var(--warn); color: var(--warn); }
+.tag.adt-A02 { border-color: var(--accent); color: var(--accent); }
+td.ok { color: var(--ok); }

@@ -52,6 +52,8 @@ fn summary(state: &AppState, c: &ConnCfg) -> Value {
         "last_error": s.map(|s| s.last_error.clone()).unwrap_or_default(),
         "backoff_until_ms": s.map(|s| s.backoff_until_ms).unwrap_or(0),
         "token_exp_ms": s.map(|s| s.token_exp_ms).unwrap_or(0),
+        "adt_ms": s.map(|s| s.adt_ms).unwrap_or(0),
+        "adt_count": s.map(|s| s.adt_count).unwrap_or(0),
     })
 }
 
@@ -157,7 +159,7 @@ async fn detail(State(state): State<Arc<AppState>>, Extension(p): Extension<Prin
     };
     let mut st = {
         let s = state.emr.state.lock().unwrap();
-        s.get(&id).map(|x| json!({"links": x.links, "log": x.log})).unwrap_or(json!({"links": [], "log": []}))
+        s.get(&id).map(|x| json!({"links": x.links, "log": x.log, "adt": x.adt})).unwrap_or(json!({"links": [], "log": [], "adt": []}))
     };
     if !p.phi() {
         // 매칭 표의 환자 이름·등록번호 (우리 쪽·기관 쪽 모두 개인정보)
@@ -169,8 +171,13 @@ async fn detail(State(state): State<Arc<AppState>>, Extension(p): Extension<Prin
                 l["remote"]["ident"] = json!(crate::auth::mask_tail(l["remote"]["ident"].as_str().unwrap_or("")));
             }
         }
+        if let Some(a) = st["adt"].as_array_mut() {
+            for e in a {
+                e["name"] = json!(crate::auth::mask_name(e["name"].as_str().unwrap_or("")));
+            }
+        }
     }
-    Json(json!({"config": public_cfg(&c), "state": summary(&state, &c), "links": st["links"], "log": st["log"]})).into_response()
+    Json(json!({"config": public_cfg(&c), "state": summary(&state, &c), "links": st["links"], "log": st["log"], "adt": st["adt"]})).into_response()
 }
 
 #[derive(Deserialize)]
@@ -246,7 +253,8 @@ async fn run(State(state): State<Arc<AppState>>, Extension(p): Extension<Princip
             state.emr.kick(&id, "census");
             state.emr.kick(&id, "send")
         }
-        _ => return err(StatusCode::BAD_REQUEST, "what = census | send"),
+        "adt_rewind" => state.emr.kick(&id, "adt_rewind"),
+        _ => return err(StatusCode::BAD_REQUEST, "what = census | send | adt_rewind"),
     }
     Json(json!({"ok": true})).into_response()
 }

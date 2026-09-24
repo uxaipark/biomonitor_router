@@ -151,6 +151,36 @@ pub struct ConnState {
     pub backoff_s: u64,
     pub running: bool,
     pub log: VecDeque<LogEntry>,
+    /// 현재 재원 명단 (전체 명단 + 입퇴원 변경분으로 갱신)
+    #[serde(skip)]
+    pub remotes: Vec<Remote>,
+    /// 입퇴원 피드 위치 (HL7 seq · 국내 EVT_SEQ · FHIR _lastUpdated 시각 …); None = 아직 맞추지 않음
+    #[serde(skip)]
+    pub adt_cursor: Option<String>,
+    pub adt_ms: u64,
+    pub adt_count: u64,
+    pub adt: VecDeque<AdtEvent>,
+}
+
+/// 입퇴원 변경 한 건 (화면 표시용)
+#[derive(Clone, Debug, Serialize)]
+pub struct AdtEvent {
+    pub ts_ms: u64,
+    /// A01 입원 · A02 전동 · A03 퇴원 · A08 정보 변경 · A11 입원 취소
+    pub code: String,
+    pub remote_id: String,
+    pub name: String,
+    pub location: String,
+    /// 이 변경이 짝에 준 영향 (예: "짝 해제 · 97382", "새 짝 · 97400")
+    pub effect: String,
+}
+
+/// 입퇴원 피드에서 읽은 변경
+enum Change {
+    /// 입원·정보 변경·전동 — 명단에 넣거나 고친다
+    Upsert(String, Remote),
+    /// 퇴원·입원 취소 — 명단에서 뺀다
+    Remove(String, String, String),
 }
 
 pub struct EmrLink {
@@ -274,6 +304,7 @@ async fn run_conn(state: Arc<AppState>, id: String, stop: Arc<AtomicBool>) {
     state.emr.state.lock().unwrap().entry(id.clone()).or_default().running = true;
     let mut last_census = 0u64;
     let mut last_send = 0u64;
+    let mut last_adt = 0u64;
     while !stop.load(Ordering::Relaxed) {
         let Some(cfg) = state.emr.get(&id) else { break };
         let now = now_ms();
@@ -292,6 +323,26 @@ async fn run_conn(state: Arc<AppState>, id: String, stop: Arc<AtomicBool>) {
                     last_census = last_census.saturating_sub(270_000);
                     last_send = 0;
                 }
+            }
+            // 운영: 입퇴원 피드를 조금 되감아 최근 변경을 다시 적용 (장애 뒤 재동기화·시험) — 같은 변경을 다시 적용해도 결과는 같다
+            if kicks.contains(&"adt_rewind") {
+                let mut st = state.emr.state.lock().unwrap();
+                if let Some(s) = st.get_mut(&id) {
+                    s.adt_cursor = match s.adt_cursor.as_deref().map(|c| c.parse::<u64>()) {
+                        Some(Ok(n)) => Some(n.saturating_sub(10).to_string()),
+                        _ if cfg.protocol == "fhir" => Some((chrono::Utc::now() - chrono::Duration::hours(6)).format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+                        _ => s.adt_cursor.clone(),
+                    };
+                }
+                drop(st);
+                last_adt = 0;
+            }
+            // 입퇴원 변경분: 15초마다 (피드가 없는 Epic·Oracle·CDA 는 명단 다시 받기라 60초)
+            let slow = matches!(cfg.protocol.as_str(), "cda") || (cfg.protocol == "fhir" && matches!(cfg.flavor.as_str(), "epic" | "oracle"));
+            let census_done = state.emr.state.lock().unwrap().get(&id).map(|s| s.census_ms > 0).unwrap_or(false);
+            if census_done && (last_adt == 0 || now.saturating_sub(last_adt) >= if slow { 60_000 } else { 15_000 }) {
+                last_adt = now_ms();
+                adt_poll(&state, &cfg).await?;
             }
             // 매칭된 환자가 생길 때까지는 '보냈음'으로 치지 않는다 — 명단이 차면 바로 첫 전송
             let has_links = state.emr.state.lock().unwrap().get(&id).map(|s| !s.links.is_empty()).unwrap_or(false);
@@ -323,10 +374,10 @@ async fn run_conn(state: Arc<AppState>, id: String, stop: Arc<AtomicBool>) {
             }
         }
         if let Err(e) = &res {
+            // 실패한 단계는 시각이 갱신되지 않았으므로 백오프가 풀리면 그 단계만 다시 한다
+            // (전송 시각까지 되돌리면 입퇴원 조회 오류 때마다 바이탈이 다시 나갔다)
             let b = state.emr.state.lock().unwrap().get(&id).map(|s| s.backoff_s).unwrap_or(0);
             state.emr.log(&id, "error", false, "재시도 대기", format!("{e} — {b} s 뒤 다시"));
-            last_census = 0;
-            last_send = 0;
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
@@ -484,33 +535,29 @@ async fn census(state: &AppState, cfg: &ConnCfg) -> Result<(), String> {
         p => return Err(format!("지원하지 않는 형식: {p}")),
     };
     let n = remotes.len();
-    let links = match_patients(state, cfg, remotes);
-    let paired = links.len();
+    let paired = apply_remotes(state, cfg, remotes);
     {
         let mut st = state.emr.state.lock().unwrap();
         let s = st.entry(cfg.id.clone()).or_default();
-        // 기존 전송 이력은 같은 (패치, 원격 환자) 짝에 이어 붙인다
-        let old: HashMap<(String, String), Link> = s.links.drain(..).map(|l| ((l.channel_id.clone(), l.remote.id.clone()), l)).collect();
-        s.links = links
-            .into_iter()
-            .map(|mut l| {
-                if let Some(o) = old.get(&(l.channel_id.clone(), l.remote.id.clone())) {
-                    l.ok = o.ok;
-                    l.fail = o.fail;
-                    l.last_sent_ms = o.last_sent_ms;
-                    l.last_result = o.last_result.clone();
-                    if l.remote.encounter.is_none() {
-                        l.remote.encounter = o.remote.encounter.clone();
-                    }
-                }
-                l
-            })
-            .collect();
         s.census = n;
         s.census_ms = now_ms();
     }
     state.emr.log(&cfg.id, "census", true, "OK", format!("재원 {n}명 · 매칭 {paired}명 ({})", if cfg.match_mode == "mrn" { "MRN 일치" } else { "시험용 짝짓기" }));
     Ok(())
+}
+
+/// 새 재원 명단을 받아 짝을 다시 맞춘다 — 이미 있던 짝은 그대로 두고(전송 이력 유지), 빠진 환자의 짝만 풀고,
+/// 남는 우리 환자와 새 환자를 짝짓는다. 반환: 짝 수
+fn apply_remotes(state: &AppState, cfg: &ConnCfg, remotes: Vec<Remote>) -> usize {
+    let prev: Vec<Link> = state.emr.state.lock().unwrap().get(&cfg.id).map(|s| s.links.clone()).unwrap_or_default();
+    let links = match_patients(state, cfg, &remotes, &prev);
+    let n = links.len();
+    let mut st = state.emr.state.lock().unwrap();
+    let s = st.entry(cfg.id.clone()).or_default();
+    s.links = links;
+    s.census = remotes.len();
+    s.remotes = remotes;
+    n
 }
 
 async fn fhir_census(state: &AppState, cfg: &ConnCfg) -> Result<Vec<Remote>, String> {
@@ -589,6 +636,25 @@ async fn fhir_census(state: &AppState, cfg: &ConnCfg) -> Result<Vec<Remote>, Str
     Ok(out)
 }
 
+/// ADT 메시지 한 건 → 환자 (PID·PV1 세그먼트는 그대로 보관해 ORU 에 쓴다)
+fn hl7_remote(er7: &str) -> Option<Remote> {
+    let segs: Vec<&str> = er7.split(['\r', '\n']).filter(|s| !s.is_empty()).collect();
+    let pid = segs.iter().find(|s| s.starts_with("PID|")).map(|s| s.to_string())?;
+    let pv1 = segs.iter().find(|s| s.starts_with("PV1|")).map(|s| s.to_string());
+    let f: Vec<&str> = pid.split('|').collect();
+    let id3 = f.get(3).copied().unwrap_or("");
+    let first_id = id3.split('~').next().unwrap_or("").split('^').next().unwrap_or("").to_string();
+    let name = f.get(5).copied().unwrap_or("").split('~').next().unwrap_or("").split('^').take(2).collect::<Vec<_>>().join(" ");
+    let (loc, visit) = pv1
+        .as_ref()
+        .map(|p| {
+            let g: Vec<&str> = p.split('|').collect();
+            (g.get(3).copied().unwrap_or("").split('^').take(3).collect::<Vec<_>>().join("-"), g.get(19).copied().unwrap_or("").split('^').next().unwrap_or("").to_string())
+        })
+        .unwrap_or_default();
+    Some(Remote { id: first_id.clone(), ident: first_id, name, location: loc, encounter: if visit.is_empty() { None } else { Some(visit) }, pid_seg: Some(pid), pv1_seg: pv1 })
+}
+
 async fn hl7_census(state: &AppState, cfg: &ConnCfg) -> Result<Vec<Remote>, String> {
     let auth = hc::basic(auth_s(cfg, "username"), auth_s(cfg, "password"));
     let r = hc::request("GET", &cfg.census_url, &[("Authorization", auth)], None, Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
@@ -601,30 +667,285 @@ async fn hl7_census(state: &AppState, cfg: &ConnCfg) -> Result<Vec<Remote>, Stri
     let mut out = Vec::new();
     for m in j["messages"].as_array().cloned().unwrap_or_default() {
         let er7 = m.as_str().map(String::from).or_else(|| m["er7"].as_str().map(String::from)).unwrap_or_default();
-        let segs: Vec<&str> = er7.split(['\r', '\n']).filter(|s| !s.is_empty()).collect();
-        let pid = segs.iter().find(|s| s.starts_with("PID|")).map(|s| s.to_string());
-        let pv1 = segs.iter().find(|s| s.starts_with("PV1|")).map(|s| s.to_string());
-        let Some(pid_s) = pid.clone() else { continue };
-        let f: Vec<&str> = pid_s.split('|').collect();
-        let id3 = f.get(3).copied().unwrap_or("");
-        let first_id = id3.split('~').next().unwrap_or("").split('^').next().unwrap_or("").to_string();
-        let name = f.get(5).copied().unwrap_or("").split('~').next().unwrap_or("").split('^').take(2).collect::<Vec<_>>().join(" ");
-        let (loc, visit) = pv1
-            .as_ref()
-            .map(|p| {
-                let g: Vec<&str> = p.split('|').collect();
-                (g.get(3).copied().unwrap_or("").split('^').take(3).collect::<Vec<_>>().join("-"), g.get(19).copied().unwrap_or("").split('^').next().unwrap_or("").to_string())
-            })
-            .unwrap_or_default();
-        out.push(Remote { id: first_id.clone(), ident: first_id, name, location: loc, encounter: if visit.is_empty() { None } else { Some(visit) }, pid_seg: pid, pv1_seg: pv1 });
+        if let Some(r) = hl7_remote(&er7) {
+            out.push(r);
+        }
     }
     out.sort_by(|a, b| a.location.cmp(&b.location).then(a.id.cmp(&b.id)));
     Ok(out)
 }
 
+
+// ───────────────────────────── 입퇴원 (ADT) ─────────────────────────────
+
+const ADT_LABEL: [(&str, &str); 5] = [("A01", "입원"), ("A02", "전동"), ("A03", "퇴원"), ("A08", "정보 변경"), ("A11", "입원 취소")];
+
+pub fn adt_label(code: &str) -> &'static str {
+    ADT_LABEL.iter().find(|x| x.0 == code).map(|x| x.1).unwrap_or("변경")
+}
+
+fn hl7_basic(cfg: &ConnCfg) -> (&'static str, String) {
+    ("Authorization", hc::basic(auth_s(cfg, "username"), auth_s(cfg, "password")))
+}
+
+/// 입퇴원 변경분을 읽는다. 반환: (변경들, 새 커서, 전체 명단을 다시 받아야 하는지)
+/// 커서가 없으면(처음) 지금 위치로 맞추기만 한다 — 그 이전 이벤트는 방금 받은 전체 명단에 이미 들어 있다.
+async fn adt_fetch(state: &AppState, cfg: &ConnCfg, cursor: Option<String>) -> Result<(Vec<Change>, Option<String>, bool), String> {
+    let first = cursor.is_none();
+    match cfg.protocol.as_str() {
+        "hl7v2" => {
+            let since: u64 = cursor.as_deref().and_then(|c| c.parse().ok()).unwrap_or(0);
+            let url = format!("{}/hl7/adt?since={}&limit={}", site_base(cfg), since, if first { 100_000 } else { 500 });
+            let r = hc::request("GET", &url, &[hl7_basic(cfg)], None, Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
+            let j = r.json().ok_or_else(|| format!("ADT HTTP {}", r.status))?;
+            let next = j["next_since"].as_u64().map(|n| n.to_string()).or(cursor.clone());
+            if first {
+                return Ok((vec![], next, false));
+            }
+            let mut ch = Vec::new();
+            for m in j["messages"].as_array().cloned().unwrap_or_default() {
+                let code = m["event"].as_str().unwrap_or("").to_string();
+                let Some(rm) = hl7_remote(m["er7"].as_str().unwrap_or("")) else { continue };
+                match code.as_str() {
+                    "A03" | "A11" => ch.push(Change::Remove(code, rm.id.clone(), rm.name.clone())),
+                    _ => ch.push(Change::Upsert(code, rm)),
+                }
+            }
+            Ok((ch, next, false))
+        }
+        "kr-json" => {
+            let since: u64 = cursor.as_deref().and_then(|c| c.parse().ok()).unwrap_or(0);
+            let url = format!("{}/api/v1/adm/events?FROM_SEQ={}", site_base(cfg), since);
+            let r = hc::request("GET", &url, &krjson_headers(cfg), None, Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
+            let j = r.json().unwrap_or_default();
+            if j["RESULT_CD"] != "0000" {
+                return Err(format!("ADT {} {}", j["RESULT_CD"].as_str().unwrap_or("?"), j["RESULT_MSG"].as_str().unwrap_or("")));
+            }
+            let rows = j["DATA"].as_array().cloned().unwrap_or_default();
+            let max = rows.iter().filter_map(|d| d["EVT_SEQ"].as_u64()).max().unwrap_or(since).max(since);
+            if first {
+                return Ok((vec![], Some(max.to_string()), false));
+            }
+            let mut ch = Vec::new();
+            for d in rows.iter().filter(|d| d["EVT_SEQ"].as_u64().unwrap_or(0) > since) {
+                let code = match d["EVT_TP_CD"].as_str().unwrap_or("") {
+                    "ADM" => "A01",
+                    "TRF" => "A02",
+                    "DSC" => "A03",
+                    "CNL" => "A11",
+                    _ => "A08",
+                };
+                let rm = Remote {
+                    id: d["PT_NO"].as_str().unwrap_or("").into(),
+                    ident: d["PT_NO"].as_str().unwrap_or("").into(),
+                    name: d["PT_NM"].as_str().unwrap_or("").into(),
+                    location: format!("{} {}-{}", d["WARD_CD"].as_str().unwrap_or(""), d["ROOM_NO"].as_str().unwrap_or(""), d["BED_NO"].as_str().unwrap_or("")),
+                    encounter: d["ADM_NO"].as_str().map(String::from),
+                    pid_seg: None,
+                    pv1_seg: None,
+                };
+                ch.push(if code == "A03" || code == "A11" { Change::Remove(code.into(), rm.id, rm.name) } else { Change::Upsert(code.into(), rm) });
+            }
+            Ok((ch, Some(max.to_string()), false))
+        }
+        "kr-xml" => {
+            let since: u64 = cursor.as_deref().and_then(|c| c.parse().ok()).unwrap_or(0);
+            let ts = local_time(cfg, now_ms()).format("%Y%m%d%H%M%S").to_string();
+            let text = krxml_post(cfg, &krxml_msg("EMR_ADT_0002", &format!("<REQ><FROM_SEQ>{since}</FROM_SEQ></REQ>"), &ts)).await?;
+            if tag(&text, "RSLT_CD") != "S" {
+                return Err(format!("ADT {} {}", tag(&text, "RSLT_CD"), tag(&text, "RSLT_MSG")));
+            }
+            let rows = blocks(&text, "DATA");
+            let seq = |d: &str| tag(d, "SEQ").parse::<u64>().unwrap_or(0);
+            let max = rows.iter().map(|d| seq(d)).max().unwrap_or(since).max(since);
+            if first {
+                return Ok((vec![], Some(max.to_string()), false));
+            }
+            let mut ch = Vec::new();
+            for d in rows.iter().filter(|d| seq(d) > since) {
+                let code = match tag(d, "EVT_GB").as_str() {
+                    "I" => "A01",
+                    "T" => "A02",
+                    "O" => "A03",
+                    "C" => "A11",
+                    _ => "A08",
+                };
+                let rm = Remote {
+                    id: tag(d, "PTNT_NO"),
+                    ident: tag(d, "PTNT_NO"),
+                    name: tag(d, "PTNT_NM"),
+                    location: format!("{} {}-{}", tag(d, "WD_CD"), tag(d, "RM_NO"), tag(d, "BD_NO")),
+                    encounter: Some(tag(d, "INPT_NO")).filter(|x| !x.is_empty()),
+                    pid_seg: None,
+                    pv1_seg: None,
+                };
+                ch.push(if code == "A03" || code == "A11" { Change::Remove(code.into(), rm.id, rm.name) } else { Change::Upsert(code.into(), rm) });
+            }
+            Ok((ch, Some(max.to_string()), false))
+        }
+        "athena" => {
+            let tok = token(state, cfg, false).await?.unwrap_or_default();
+            let auth = ("Authorization", format!("Bearer {tok}"));
+            if first {
+                let url = format!("{}/patients/changed/subscription", athena_prefix(cfg));
+                let r = hc::request("POST", &url, std::slice::from_ref(&auth), None, Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
+                if r.status != 200 {
+                    return Err(format!("변경 구독 HTTP {}", r.status));
+                }
+                return Ok((vec![], Some("subscribed".into()), false));
+            }
+            let url = format!("{}/patients/changed", athena_prefix(cfg));
+            let r = hc::request("GET", &url, &[auth], None, Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
+            let j = r.json().unwrap_or_default();
+            if r.status == 400 {
+                return Ok((vec![], None, false)); // 구독이 풀렸다(에뮬레이터 재시작) — 다시 구독
+            }
+            // 바뀐 환자가 있으면 모니터링 명단을 다시 받는다(퇴원도 UPDATE 로만 온다)
+            let n = j["patients"].as_array().map(|a| a.len()).unwrap_or(0);
+            Ok((vec![], cursor, n > 0))
+        }
+        "fhir" if !matches!(cfg.flavor.as_str(), "epic" | "oracle") => {
+            let now_iso = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+            if first {
+                return Ok((vec![], Some(now_iso), false));
+            }
+            // 5초 겹쳐 읽는다 (시계 차이) — 같은 변경을 두 번 적용해도 결과가 같다
+            let from = cursor
+                .as_deref()
+                .and_then(|c| chrono::DateTime::parse_from_rfc3339(c).ok())
+                .map(|t| (t - chrono::Duration::seconds(5)).with_timezone(&chrono::Utc).format("%Y-%m-%dT%H:%M:%SZ").to_string())
+                .unwrap_or(now_iso.clone());
+            let url = format!("{}/Encounter?_lastUpdated=gt{}&_include=Encounter:patient&_count=100", cfg.fhir_base, hc::enc(&from));
+            let r = fhir_req(state, cfg, "GET", &url, None).await?;
+            if r.status != 200 {
+                return Err(format!("ADT HTTP {}: {}", r.status, r.text().chars().take(120).collect::<String>()));
+            }
+            let j = r.json().unwrap_or_default();
+            let mut names: HashMap<String, String> = HashMap::new();
+            for e in j["entry"].as_array().cloned().unwrap_or_default() {
+                let res = &e["resource"];
+                if res["resourceType"] == "Patient" {
+                    let n = res["name"][0]["text"].as_str().map(String::from).unwrap_or_default();
+                    names.insert(res["id"].as_str().unwrap_or("").into(), n);
+                }
+            }
+            let mut ch = Vec::new();
+            for e in j["entry"].as_array().cloned().unwrap_or_default() {
+                let res = &e["resource"];
+                if res["resourceType"] != "Encounter" {
+                    continue;
+                }
+                let pid = res["subject"]["reference"].as_str().or(res["patient"]["reference"].as_str()).unwrap_or("").trim_start_matches("Patient/").to_string();
+                let name = res["subject"]["display"].as_str().map(String::from).or_else(|| names.get(&pid).cloned()).unwrap_or_default();
+                match res["status"].as_str().unwrap_or("") {
+                    "in-progress" | "arrived" => {
+                        let loc = res["location"].as_array().map(|a| a.iter().filter_map(|l| l["location"]["display"].as_str()).collect::<Vec<_>>().join(" · ")).unwrap_or_default();
+                        ch.push(Change::Upsert("A08".into(), Remote { id: pid, ident: String::new(), name, location: loc, encounter: res["id"].as_str().map(String::from), pid_seg: None, pv1_seg: None }));
+                    }
+                    "finished" | "cancelled" | "entered-in-error" => ch.push(Change::Remove(if res["status"] == "finished" { "A03".into() } else { "A11".into() }, pid, name)),
+                    _ => {}
+                }
+            }
+            Ok((ch, Some(now_iso), false))
+        }
+        // Epic·Oracle(Group 명단)·CDA: 변경분 피드가 없어 명단을 1분마다 다시 받는다
+        _ => Ok((vec![], Some(cursor.unwrap_or_default()), true)),
+    }
+}
+
+/// 변경분을 명단에 적용하고 짝을 다시 맞춘다. 입원·퇴원은 기록에 남긴다.
+async fn adt_poll(state: &AppState, cfg: &ConnCfg) -> Result<(), String> {
+    let cursor = state.emr.state.lock().unwrap().get(&cfg.id).and_then(|s| s.adt_cursor.clone());
+    let (changes, next, resync) = adt_fetch(state, cfg, cursor).await?;
+    if resync {
+        census(state, cfg).await?;
+    }
+    let (mut remotes, before): (Vec<Remote>, Vec<Link>) = {
+        let st = state.emr.state.lock().unwrap();
+        st.get(&cfg.id).map(|s| (s.remotes.clone(), s.links.clone())).unwrap_or_default()
+    };
+    let mut events: Vec<AdtEvent> = Vec::new();
+    let mut real = 0;
+    for c in changes {
+        match c {
+            Change::Upsert(code, r) => {
+                let known = remotes.iter().position(|x| x.id == r.id);
+                // FHIR 에서 이미 명단에 있는 in-progress 내원은 변경 없음으로 본다 (겹쳐 읽기)
+                // 바뀐 것이 없는 변경(되감기·겹쳐 읽기로 다시 온 이벤트)은 건너뛴다
+                let unchanged = known
+                    .map(|i| remotes[i].location == r.location && remotes[i].encounter == r.encounter && (r.name.is_empty() || remotes[i].name == r.name))
+                    .unwrap_or(false);
+                if unchanged {
+                    continue;
+                }
+                let code = if known.is_none() && code == "A08" && cfg.protocol == "fhir" { "A01".to_string() } else { code };
+                events.push(AdtEvent { ts_ms: now_ms(), code: code.clone(), remote_id: r.id.clone(), name: r.name.clone(), location: r.location.clone(), effect: String::new() });
+                match known {
+                    Some(i) => {
+                        let mut r = r;
+                        if r.name.is_empty() {
+                            r.name = remotes[i].name.clone();
+                        }
+                        if r.ident.is_empty() {
+                            r.ident = remotes[i].ident.clone();
+                        }
+                        remotes[i] = r;
+                    }
+                    None => remotes.push(r),
+                }
+                real += 1;
+            }
+            Change::Remove(code, id, name) => {
+                let loc = remotes.iter().find(|x| x.id == id).map(|x| x.location.clone()).unwrap_or_default();
+                let had = remotes.len();
+                remotes.retain(|x| x.id != id);
+                if remotes.len() == had {
+                    continue; // 명단에 없던 환자의 퇴원(이미 반영됨) — 무시
+                }
+                events.push(AdtEvent { ts_ms: now_ms(), code, remote_id: id, name, location: loc, effect: String::new() });
+                real += 1;
+            }
+        }
+    }
+    if real > 0 {
+        remotes.sort_by(|a, b| a.location.cmp(&b.location).then(a.id.cmp(&b.id)));
+        apply_remotes(state, cfg, remotes);
+    }
+    let after: Vec<Link> = state.emr.state.lock().unwrap().get(&cfg.id).map(|s| s.links.clone()).unwrap_or_default();
+    // 짝에 준 영향: 이 환자와 짝이던 우리 환자, 새로 짝지어진 우리 환자
+    for e in events.iter_mut() {
+        let was = before.iter().find(|l| l.remote.id == e.remote_id).map(|l| l.channel_id.clone());
+        let now = after.iter().find(|l| l.remote.id == e.remote_id).map(|l| l.channel_id.clone());
+        e.effect = match (was, now) {
+            (Some(a), None) => format!("짝 해제 · 패치 {a}"),
+            (None, Some(b)) => format!("새 짝 · 패치 {b}"),
+            (Some(a), Some(b)) if a != b => format!("짝 변경 · 패치 {a} → {b}"),
+            (Some(_), Some(_)) => "짝 유지".into(),
+            _ => String::new(),
+        };
+    }
+    let n = events.len();
+    {
+        let mut st = state.emr.state.lock().unwrap();
+        let s = st.entry(cfg.id.clone()).or_default();
+        s.adt_cursor = next;
+        s.adt_ms = now_ms();
+        s.adt_count += n as u64;
+        for e in events.iter() {
+            s.adt.push_front(e.clone());
+        }
+        s.adt.truncate(200);
+    }
+    if n > 0 {
+        let summary = events.iter().take(6).map(|e| format!("{} {}", adt_label(&e.code), e.remote_id)).collect::<Vec<_>>().join(", ");
+        state.emr.log(&cfg.id, "adt", true, format!("{n}건"), format!("입퇴원 반영: {summary}{}", if n > 6 { " …" } else { "" }));
+    }
+    Ok(())
+}
+
 // ───────────────────────────── 매칭 ─────────────────────────────
 
-fn match_patients(state: &AppState, cfg: &ConnCfg, remotes: Vec<Remote>) -> Vec<Link> {
+fn match_patients(state: &AppState, cfg: &ConnCfg, remotes: &[Remote], prev: &[Link]) -> Vec<Link> {
     let mut locals: Vec<(String, String, String, String)> = state
         .registry
         .snapshot()
@@ -639,30 +960,55 @@ fn match_patients(state: &AppState, cfg: &ConnCfg, remotes: Vec<Remote>) -> Vec<
         })
         .collect();
     locals.sort_by(|a, b| a.3.cmp(&b.3).then(a.0.cmp(&b.0)));
-    let mk = |l: &(String, String, String, String), r: Remote| Link {
-        channel_id: l.0.clone(),
-        local_name: l.1.clone(),
-        local_mrn: l.2.clone(),
-        local_room: l.3.clone(),
-        remote: r,
-        last_sent_ms: 0,
-        last_result: String::new(),
-        ok: 0,
-        fail: 0,
+    let mk = |l: &(String, String, String, String), r: &Remote| {
+        // 같은 (패치, 기관 환자) 짝이면 전송 이력을 이어 붙인다
+        let old = prev.iter().find(|o| o.channel_id == l.0 && o.remote.id == r.id);
+        let mut remote = r.clone();
+        if remote.encounter.is_none() {
+            remote.encounter = old.and_then(|o| o.remote.encounter.clone());
+        }
+        Link {
+            channel_id: l.0.clone(),
+            local_name: l.1.clone(),
+            local_mrn: l.2.clone(),
+            local_room: l.3.clone(),
+            remote,
+            last_sent_ms: old.map(|o| o.last_sent_ms).unwrap_or(0),
+            last_result: old.map(|o| o.last_result.clone()).unwrap_or_default(),
+            ok: old.map(|o| o.ok).unwrap_or(0),
+            fail: old.map(|o| o.fail).unwrap_or(0),
+        }
     };
+    let cap = cfg.max_patients.max(1);
     let mut out = Vec::new();
     if cfg.match_mode == "mrn" {
         for l in &locals {
             if let Some(r) = remotes.iter().find(|r| !r.ident.is_empty() && (r.ident == l.2 || r.ident == l.2.trim_start_matches("MRN-"))) {
-                out.push(mk(l, r.clone()));
+                out.push(mk(l, r));
             }
         }
     } else {
-        for (l, r) in locals.iter().zip(remotes) {
+        // 시험용 짝짓기도 '끈끈하게': 두 쪽 다 남아 있는 짝은 유지, 빈자리만 순서대로 채운다
+        let mut used_l = std::collections::HashSet::new();
+        let mut used_r = std::collections::HashSet::new();
+        for o in prev {
+            if out.len() >= cap {
+                break;
+            }
+            let (Some(l), Some(r)) = (locals.iter().find(|l| l.0 == o.channel_id), remotes.iter().find(|r| r.id == o.remote.id)) else { continue };
+            used_l.insert(l.0.clone());
+            used_r.insert(r.id.clone());
+            out.push(mk(l, r));
+        }
+        let free_r: Vec<&Remote> = remotes.iter().filter(|r| !used_r.contains(&r.id)).collect();
+        for (l, r) in locals.iter().filter(|l| !used_l.contains(&l.0)).zip(free_r) {
+            if out.len() >= cap {
+                break;
+            }
             out.push(mk(l, r));
         }
     }
-    out.truncate(cfg.max_patients.max(1));
+    out.truncate(cap);
     out
 }
 
@@ -1030,6 +1376,20 @@ pub fn from_catalog(site: &Value, emu_host: &str) -> Option<ConnCfg> {
 }
 
 
+/// 기관 루트 URL — 예전에 만든 연결(base_url 없음)은 재원 명단 주소에서 `/emrsim/{site}` 까지 잘라 쓴다
+fn site_base(cfg: &ConnCfg) -> String {
+    if !cfg.base_url.is_empty() {
+        return cfg.base_url.trim_end_matches('/').to_string();
+    }
+    let u = &cfg.census_url;
+    if let Some(i) = u.find("/emrsim/") {
+        let rest = &u[i + 8..];
+        let end = rest.find('/').map(|j| i + 8 + j).unwrap_or(u.len());
+        return u[..end].to_string();
+    }
+    u.split("/hl7/").next().unwrap_or(u).to_string()
+}
+
 // ───────────────────────────── 국내·벤더 형식 ─────────────────────────────
 
 fn xml_esc(s: &str) -> String {
@@ -1105,7 +1465,7 @@ async fn send_krjson(cfg: &ConnCfg, l: &Link, v: &Vit) -> Result<String, String>
         "HOSP_CD": auth_s(cfg, "hosp_cd"), "PT_NO": l.remote.id, "ADM_NO": l.remote.encounter.clone().unwrap_or_default(),
         "MSR_DTM": local_time(cfg, v.ts_ms).format("%Y%m%d%H%M%S").to_string(), "DEVICE_ID": format!("BIOMON-{}", l.channel_id), "VS_LIST": list,
     });
-    let url = format!("{}/api/v1/vs", cfg.base_url);
+    let url = format!("{}/api/v1/vs", site_base(cfg));
     let mut h = krjson_headers(cfg);
     h.push(("Content-Type", "application/json; charset=UTF-8".into()));
     let r = hc::request("POST", &url, &h, Some(body.to_string().as_bytes()), Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
@@ -1243,7 +1603,7 @@ async fn send_cda(cfg: &ConnCfg, l: &Link, v: &Vit) -> Result<String, String> {
         xml_esc(&l.remote.name),
         xml_esc(&l.channel_id)
     );
-    let url = format!("{}/cda/documents", cfg.base_url);
+    let url = format!("{}/cda/documents", site_base(cfg));
     let h = [("Authorization", format!("Bearer {}", auth_s(cfg, "token"))), ("Content-Type", "application/xml; charset=utf-8".into())];
     let r = hc::request("POST", &url, &h, Some(doc.as_bytes()), Duration::from_secs(30)).await.map_err(|e| e.to_string())?;
     match r.status {
@@ -1288,7 +1648,7 @@ async fn athena_census(state: &AppState, cfg: &ConnCfg) -> Result<Vec<Remote>, S
             Some(n) if n.starts_with("http") => url = n.to_string(),
             Some(n) => {
                 // athena 의 next 는 API 루트(= 기관 base_url) 기준 경로 — departmentid 가 빠져 있으면 붙인다
-                url = format!("{}/{}", cfg.base_url.trim_end_matches('/'), n.trim_start_matches('/'));
+                url = format!("{}/{}", site_base(cfg), n.trim_start_matches('/'));
                 if !url.contains("departmentid=") {
                     url.push_str(if url.contains('?') { "&departmentid=1" } else { "?departmentid=1" });
                 }
@@ -1392,6 +1752,19 @@ mod tests {
         let m = build_oru(&c, &link(), &v, "C3");
         assert!(m.contains("[degF]"), "US sends °F");
         assert!(m.split('\r').next().unwrap().ends_with("|2.5.1"), "{m}");
+    }
+
+    #[test]
+    fn hl7_adt_parse() {
+        let er7 = "MSH|^~\\&|MEDITECH|PRCH|BIOMON|BIOMON|20260920210938-0400||ADT^A02^ADT_A02|1|P|2.5.1\rPID|1||M000400755^^^PRCH^MR||BROWN^RICHARD^W\rPV1|1|I|2MS^209^A^PRCH||||||||||||||||V0012000026^^^PRCH^VN";
+        let r = hl7_remote(er7).unwrap();
+        assert_eq!(r.id, "M000400755");
+        assert_eq!(r.name, "BROWN RICHARD");
+        assert_eq!(r.location, "2MS-209-A");
+        assert_eq!(r.encounter.as_deref(), Some("V0012000026"));
+        assert_eq!(adt_label("A03"), "퇴원");
+        let c = ConnCfg { census_url: "http://h:5445/emrsim/us-pineridge/hl7/census".into(), ..Default::default() };
+        assert_eq!(site_base(&c), "http://h:5445/emrsim/us-pineridge");
     }
 
     #[test]

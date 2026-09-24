@@ -85,7 +85,10 @@ HL7 v2 ORU^R01 over MLLP — PID·PV1 은 기관 명단의 세그먼트 그대�
 인코딩, 미국 °F) → 응답(201/200·ACK AA, 5xx 3연속이면 회차 중단, 지수 백오프 4 s → 5 분).
 에뮬레이터 가상 EMR 카탈로그(`/api/v1/emrsim`)에서 기관을 골라 추가한다. 20곳 전부 지원: FHIR R4/STU3 10 · HL7 v2 6 · 국내 REST JSON(`RESULT_CD`) · EUC-KR XML 전문(`IF_ID` EMR_ADT_0001/EMR_VS_0002, `RSLT_CD`) · 진료정보교류 CDA R2(활력징후 문서 등록) · athena REST(Basic 토큰, 페이지, 열린 encounter, form-encoded vitals, °F).
 HTTPS 는 아직 없음(`http_client.rs` — 실제 병원은 TLS 종단 필요). JWT 서명은 시험 기관이 검증하지 않아 더미 서명 — 실제 기관용 키 관리 필요.
-API: `GET/POST /api/integration`, `GET /api/integration/catalog`, `GET/PUT/DELETE /api/integration/{id}`, `POST /api/integration/{id}/run {what: census|send}`, `GET /api/integration/{id}/received`.
+입퇴원(ADT) 실시간 반영: HL7 `hl7/adt?since=`(A01·A02·A03·A08·A11), 국내 JSON `adm/events?FROM_SEQ=`, XML `EMR_ADT_0002`, athena `patients/changed` 구독,
+FHIR `Encounter?_lastUpdated=gt…`(5초 겹쳐 읽기) — 15초마다. 변경분 피드가 없는 Epic·Oracle(Group)·CDA 는 60초마다 명단 다시 받기. 처음엔 피드 위치만 맞추고
+(그 전 변경은 전체 명단에 이미 있음), 5분마다 전체 명단으로 한 번 더 맞춘다. 짝은 끈끈하게 유지(퇴원한 쪽 짝만 풀고 빈자리만 새로 채움).
+API: `GET/POST /api/integration`, `GET /api/integration/catalog`, `GET/PUT/DELETE /api/integration/{id}`, `POST /api/integration/{id}/run {what: census|send|adt_rewind}`, `GET /api/integration/{id}/received`.
 
 ### API (P1 추가분)
 

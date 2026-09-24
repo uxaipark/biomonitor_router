@@ -10,6 +10,11 @@ import Dropdown from '../Dropdown.jsx'
  * 시험용: 에뮬레이터의 가상 EMR 20곳 카탈로그에서 골라 붙인다(환자가 서로 달라 '시험용 짝짓기'로 매칭).
  */
 const PROTO = { fhir: 'FHIR', hl7v2: 'HL7 v2', 'kr-json': 'REST JSON', 'kr-xml': 'XML 전문', cda: 'CDA R2', athena: 'athena REST' }
+const ADT_HOW = {
+  hl7v2: 'HL7 ADT 피드 15초', 'kr-json': '이벤트(EVT_SEQ) 15초', 'kr-xml': 'EMR_ADT_0002 15초', athena: '변경 구독 15초',
+  fhir: 'Encounter _lastUpdated 15초', group: '명단 다시 받기 60초', cda: '문서 목록 다시 받기 60초',
+}
+const ADT_CODE = { A01: '입원', A02: '전동', A03: '퇴원', A08: '정보 변경', A11: '입원 취소' }
 const ago = (ms) => (ms ? `${Math.max(0, Math.round((Date.now() - ms) / 1000))}초 전` : '—')
 
 export default function Integration() {
@@ -83,7 +88,7 @@ function Detail({ id, edit, onDeleted, onChanged }) {
         <span className={'proto p-' + g.protocol}>{PROTO[g.protocol] || g.protocol}{/^\d/.test(g.version) ? ` ${g.version}` : ''}</span>
         <span className="muted">{g.flavor} · {g.tz} · 인증 {authType}{g.charset && g.charset !== 'utf-8' ? ` · 문자셋 ${g.charset}` : ''}</span>
         <span className="spacer" />
-        {edit && <><button onClick={() => run('census')} disabled={!g.enabled}>재원 명단 다시 받기</button><button className="primary" onClick={() => run('send')} disabled={!g.enabled}>지금 보내기</button><button className="danger" onClick={del}>삭제</button></>}
+        {edit && <><button onClick={() => run('census')} disabled={!g.enabled}>재원 명단 다시 받기</button><button onClick={() => run('adt_rewind')} disabled={!g.enabled} title="입퇴원 피드를 조금 되감아 최근 변경을 다시 적용합니다 (장애 뒤 재동기화)">입퇴원 다시 읽기</button><button className="primary" onClick={() => run('send')} disabled={!g.enabled}>지금 보내기</button><button className="danger" onClick={del}>삭제</button></>}
       </div>
       <div className="id-grid">
         <div><small>주소</small><span className="mono">{g.protocol === 'fhir' ? g.fhir_base : g.protocol === 'hl7v2' ? `mllp://${g.mllp_host}:${g.mllp_port} · MSH-5/6 ${g.receiving_app}/${g.facility}` : g.base_url}</span></div>
@@ -100,10 +105,11 @@ function Detail({ id, edit, onDeleted, onChanged }) {
         <div><small>최대 환자 수</small><input type="number" min="1" max="500" defaultValue={g.max_patients} disabled={!edit} onBlur={(e) => put({ max_patients: Number(e.target.value) })} style={{ width: 90 }} /></div>
         <div><small>토큰</small>{s.token_exp_ms ? `만료 ${fmtTime(s.token_exp_ms)}` : authType.includes('basic') || authType === 'bearer-static' || authType === 'api-key' || authType === 'mllp-facility' || authType === 'ip-allow' ? '필요 없음' : '—'}</div>
         <div><small>재원 명단 받은 때</small>{ago(s.census_ms)} · {s.census}명</div>
+        <div><small>입퇴원 반영</small>{s.adt_ms ? `${ago(s.adt_ms)} 확인 · 누적 ${s.adt_count}건` : '—'} <span className="muted">{ADT_HOW[g.protocol === 'fhir' && ['epic', 'oracle'].includes(g.flavor) ? 'group' : g.protocol] || ''}</span></div>
       </div>
       {s.last_error && <p className="integ-err">마지막 오류: {s.last_error}</p>}
       <div className="seg id-tabs">
-        {[['links', `환자 매칭 ${d.links.length}`], ['log', `기록 ${d.log.length}`], ['recv', 'EMR이 받은 값']].map(([k, l]) => <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{l}</button>)}
+        {[['links', `환자 매칭 ${d.links.length}`], ['adt', `입퇴원 ${d.adt?.length || 0}`], ['log', `기록 ${d.log.length}`], ['recv', 'EMR이 받은 값']].map(([k, l]) => <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{l}</button>)}
       </div>
       {tab === 'links' && (
         <table className="tbl adm-tbl">
@@ -126,12 +132,29 @@ function Detail({ id, edit, onDeleted, onChanged }) {
           </tbody>
         </table>
       )}
+      {tab === 'adt' && (
+        <table className="tbl adm-tbl">
+          <thead><tr><th>반영 시각</th><th>종류</th><th>EMR 환자</th><th>위치</th><th>짝에 준 영향</th></tr></thead>
+          <tbody>
+            {(d.adt || []).map((e, i) => (
+              <tr key={i}>
+                <td className="muted">{fmtTime(e.ts_ms)}</td>
+                <td><span className={'tag small adt-' + e.code}>{ADT_CODE[e.code] || e.code}</span></td>
+                <td><b>{e.name}</b> <small className="mono muted">{e.remote_id}</small></td>
+                <td>{e.location || <span className="muted">—</span>}</td>
+                <td className={e.effect.startsWith('짝 해제') ? 'nz-bad' : e.effect.startsWith('새 짝') ? 'ok' : 'muted'}>{e.effect || '—'}</td>
+              </tr>
+            ))}
+            {!(d.adt || []).length && <tr><td colSpan="5" className="muted">아직 반영한 입퇴원이 없습니다. 연결을 켠 뒤 생긴 입원·전동·퇴원이 여기에 쌓입니다.</td></tr>}
+          </tbody>
+        </table>
+      )}
       {tab === 'log' && (
         <div className="evl">
           {d.log.map((e, i) => (
             <div key={i} className="evl-row">
               <span className="evl-ts">{fmtTime(e.ts_ms)}</span>
-              <span className="evl-kind" style={{ color: e.ok ? 'var(--accent)' : 'var(--err)' }}>{({ token: '토큰', census: '재원 명단', send: '전송', error: '오류' })[e.kind] || e.kind}</span>
+              <span className="evl-kind" style={{ color: e.ok ? 'var(--accent)' : 'var(--err)' }}>{({ token: '토큰', census: '재원 명단', send: '전송', error: '오류', adt: '입퇴원' })[e.kind] || e.kind}</span>
               <span className="evl-ch">{e.status}</span>
               <span className="evl-msg" title={e.summary}>{e.summary}</span>
             </div>
