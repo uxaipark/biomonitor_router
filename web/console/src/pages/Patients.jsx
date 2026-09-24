@@ -3,6 +3,7 @@ import { api, usePoll, fmtAgo, fmtTime } from '../api.js'
 import { alarmIndex, flagNames, sortBy, SEV_LABEL, FLAG_LABEL, FLAG_WARN, wardText, wardRoom, patchLife, fmtDays, nowPlace, spaceName, isAway } from '../model.js'
 import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
+import Trips from './Trips.jsx'
 import { useQuery, go, useRevealSelected, Cols, tableMin, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, GwLink, RoomLink, WardLink } from '../ListKit.jsx'
 
 const COLS = [
@@ -71,8 +72,20 @@ export default function Patients({ alarms }) {
   const th = (k, label) => (
     <th key={k} onClick={() => setSort([k, sort[0] === k && sort[1] === 'asc' ? 'desc' : 'asc'])} className={'sortable' + (NUM.has(k) ? ' num' : '')}>{label}{sort[0] === k ? (sort[1] === 'asc' ? ' ▲' : ' ▼') : ''}</th>
   )
+  const view = qs.get('view') || ''
+  const bedIndex = useMemo(() => new Map(flat.filter((r) => r.patient?.bed).map((r) => [r.patient.bed, r])), [flat])
+  const tabs = (
+    <div className="toolbar lk-tabs">
+      <span className="seg">
+        <button className={view !== 'trips' ? 'active' : ''} onClick={() => setQs({ view: '' })}>전체 환자 {flat.length.toLocaleString()}</button>
+        <button className={view === 'trips' ? 'active' : ''} onClick={() => setQs({ view: 'trips' })}>이동 중 환자 · 타임테이블</button>
+      </span>
+    </div>
+  )
+  if (view === 'trips') return <div className="page lk">{tabs}<Trips bedIndex={bedIndex} /></div>
   return (
     <div className="page lk">
+      {tabs}
       <SummaryChips items={chips} value={chip || 'all'} onChange={(k) => { setQs({ f: k === 'all' ? '' : k }); setPage(0) }} unit="명" />
       <FilterBar applied={applied} onReset={() => setQs({ q: '', ward: '', f: '' })}
         right={<><span className="muted">{shown.length.toLocaleString()} / {flat.length.toLocaleString()}명</span><Pager page={cur} pages={pages} onPage={setPage} /></>}>

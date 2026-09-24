@@ -945,3 +945,28 @@ td.ok { color: var(--ok); }
 .tbl.fixed td .tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 .tbl td, .tbl th { font-variant-numeric: tabular-nums; }
 .tbl .away-to { color: var(--accent); font-weight: 600; }
+
+/* 이동 중 환자 (타임테이블) */
+.trips-head { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; margin-bottom: 8px; }
+.trips-head > b { font-size: 15px; }
+.trips-head .warn b { color: var(--warn, #d97706); }
+.trips-kinds, .trips-rooms { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.trips-kinds button { padding: 3px 10px; border-radius: 999px; font-size: 12.5px; }
+.trips-kinds button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+.trips-kinds button.warn { color: var(--warn, #d97706); }
+.tr-room { padding: 2px 9px; border-radius: 999px; font-size: 12px; background: var(--panel); }
+.tr-room b { margin-left: 2px; }
+.tr-room em { font-style: normal; color: var(--warn, #d97706); font-size: 11.5px; }
+.tr-room.full { border-color: var(--warn, #d97706); background: color-mix(in srgb, var(--warn, #d97706) 12%, var(--panel)); }
+.tr-room.idle { opacity: .6; }
+.tr-room.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.trips-tbl td { vertical-align: top; white-space: normal; }
+.trips-tbl .small { font-size: 12px; }
+.tr-bar { height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; margin: 4px 0; }
+.tr-bar i { display: block; height: 100%; background: var(--accent); }
+.tr-bar.shadow i { background: var(--warn, #d97706); }
+.tr-step { font-size: 12px; padding: 1px 8px; margin: 1px 0; border-radius: 999px; border: 1px solid var(--line); width: fit-content; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-step.current { border-color: var(--accent); color: var(--text); font-weight: 600; }
+.tr-step.upcoming { color: var(--muted); }
+.tr-next { font-size: 12px; }
+.trips-tbl tr.tr-shadow td:first-child { box-shadow: inset 3px 0 var(--warn, #d97706); }
