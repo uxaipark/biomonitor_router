@@ -59,7 +59,9 @@ pub fn is_platform(code: &str) -> bool {
 }
 
 /// (코드, 이름, 묶음, 기본값 [SA, SYS, RES, CRM, IT, DOC, NUR, STF])
-pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 25] = [
+pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 26] = [
+    // 톱 메뉴 순서대로: 대시보드(첫 화면, 운영 통계) → 이벤트보드 → …
+    ("page.ops", "대시보드 (운영 통계 · 첫 화면)", "메뉴", [2, 2, 1, 0, 1, 0, 0, 0]),
     ("page.dashboard", "이벤트보드", "메뉴", [2, 1, 1, 0, 1, 1, 1, 1]),
     ("page.alarms", "알람", "메뉴", [2, 1, 0, 0, 1, 2, 2, 1]),
     ("page.events", "이벤트", "메뉴", [2, 1, 0, 0, 1, 1, 1, 0]),
@@ -68,7 +70,6 @@ pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 25] = [
     ("page.map", "병원 지도", "메뉴", [2, 1, 0, 0, 1, 1, 1, 1]),
     ("page.viewers", "뷰어", "메뉴", [2, 1, 0, 0, 1, 2, 2, 1]),
     ("page.test", "테스트 › 실시간·멀티 뷰어", "메뉴", [2, 2, 0, 0, 1, 0, 0, 0]),
-    ("page.ops", "대시보드 (운영 통계)", "메뉴", [2, 2, 1, 0, 1, 0, 0, 0]),
     ("page.data_admin", "테스트 › 데이터 관리", "메뉴", [2, 1, 0, 0, 0, 0, 0, 0]),
     ("page.settings_viewer", "설정 › 뷰어 설정", "메뉴", [2, 2, 0, 0, 2, 1, 1, 1]),
     ("page.settings_biosignal", "설정 › 생체 데이터 관리(저장·백업)", "메뉴", [2, 2, 0, 0, 2, 0, 0, 0]),
@@ -82,7 +83,9 @@ pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 25] = [
     ("action.alarm_ack", "알람 확인", "동작", [2, 0, 0, 0, 0, 2, 2, 0]),
     ("action.alarm_rules", "알람 규칙 변경", "동작", [2, 0, 0, 0, 0, 2, 1, 0]),
     ("action.groups_edit", "그룹 편집", "동작", [2, 1, 0, 0, 1, 2, 2, 0]),
-    ("action.wave_reset", "저장 파형 전체 삭제", "동작", [2, 0, 0, 0, 0, 0, 0, 0]),
+    ("action.wave_reset", "로컬 파형 저장소 전체 삭제", "동작", [2, 0, 0, 0, 0, 0, 0, 0]),
+    // 생체 데이터 관리 › 백업 저장소별 목록의 "백업 파일 전체 삭제" (원격 백업 영구 삭제)
+    ("action.backup_purge", "백업 파일 전체 삭제", "동작", [2, 0, 0, 0, 0, 0, 0, 0]),
     ("data.phi", "개인정보 원문 (없으면 마스킹)", "데이터", [2, 0, 0, 0, 0, 2, 2, 1]),
     ("data.biosignal", "생체신호 (파형·수치)", "데이터", [2, 0, 0, 0, 0, 2, 2, 1]),
     // 이벤트보드의 게이트웨이 연결·수신·송신·유실·CPU/메모리·저장소·가동 시간 카드와 수신 이상 카운터 — 임상 역할에는 필요 없음
@@ -1415,6 +1418,9 @@ fn requirement(path: &str, method: &axum::http::Method) -> Option<(Vec<&'static 
     }
     if p.starts_with("/api/emr/") {
         return r(&["page.map", "page.patients", "page.viewers", "page.dashboard", "page.test"], 1);
+    }
+    if p.starts_with("/api/backup/catalog/") && p.ends_with("/purge") {
+        return r(&["action.backup_purge"], 2);
     }
     if p.starts_with("/api/backup") {
         return r(&["page.settings_biosignal"], lv);

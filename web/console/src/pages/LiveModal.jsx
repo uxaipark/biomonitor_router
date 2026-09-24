@@ -8,11 +8,16 @@ import HistoryPanel from '../viewer/History.jsx'
 import '../viewer/ds.css'
 import { useMe, canBio, canPhi } from '../auth.js'
 
+/** 리듬 코드 → 이름 (에뮬레이터 rhythm_label 과 같게) */
 const RHYTHM = {
-  sinus: '정상 동리듬', sinus_tachy: '동빈맥', sinus_brady: '동서맥', sinus_pause: '동정지', brady: '서맥', afib: '심방세동',
-  aflutter: '심방조동', pac: '심방조기수축', pvc: '심실조기수축', pvc_bigeminy: '심실 이단맥', svt: '상심실성 빈맥', nsvt: '비지속성 심실빈맥',
-  vt: '심실빈맥', block: '방실차단', asystole: '무수축', paced: '페이스 리듬', paced_aai: '페이스 리듬 (AAI)', paced_vvi: '페이스 리듬 (VVI)',
-  paced_ddd: '페이스 리듬 (DDD)', paced_crt: '페이스 리듬 (CRT)', paced_malfunction: '페이스메이커 오작동',
+  nsr: '정상 동율동 (NSR)', sinus: '정상 동리듬', sinus_tachy: '동빈맥 (Sinus Tachycardia)', sinus_brady: '동서맥 (Sinus Bradycardia)',
+  sinus_pause: '동정지 / 동휴지 (Sinus Pause)', brady: '서맥', afib: '심방세동 (AFib)', afib_rvr: '심방세동 빠른 심실반응 (AFib RVR)',
+  aflutter: '심방조동 (Atrial Flutter)', pac: '심방조기수축 (PAC)', pvc: '심실조기수축 (PVC)', pvc_bigeminy: '심실 이단맥 (Bigeminy)',
+  svt: '상심실성 빈맥 (SVT episodes)', nsvt: '비지속성 심실빈맥 (NSVT)', vt: '심실빈맥 (VT)', vfib: '심실세동 (VFib)', asystole: '무수축',
+  avb1: '1도 방실차단', avb2_m1: '2도 방실차단 Mobitz I (Wenckebach)', avb2_m2: '2도 방실차단 Mobitz II', avb3: '3도 (완전) 방실차단', block: '방실차단',
+  lbbb: '좌각차단 (LBBB)', rbbb: '우각차단 (RBBB)', stemi: 'ST 상승 (STEMI)', ischemia: '허혈 (Ischemia)',
+  paced: '페이스 리듬', paced_aai: '단일심방 페이싱 (AAI/AAIR)', paced_vvi: '단일심실 페이싱 (VVI/VVIR)', paced_ddd: '이중방 페이싱 (DDD/DDDR)',
+  paced_crt: '양심실 페이싱 (CRT)', paced_malfunction: '페이스메이커 오작동 (캡처실패/언더센싱/오버센싱)',
 }
 const SEX = { M: '남', F: '여' }
 const MOBILITY = { ambulatory: '보행 가능', limited: '보행 제한', bedridden: '와상' }

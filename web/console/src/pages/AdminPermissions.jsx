@@ -12,6 +12,23 @@ import Dropdown from '../Dropdown.jsx'
  *  - 초기값 불러오기 = 코드의 기본 표, 이전 설정 불러오기 = 저장할 때마다 남는 판. 불러온 뒤 저장해야 적용된다.
  */
 const LV_CLS = ['lv0', 'lv1', 'lv2']
+/** 권한 표 구조: [섹션, [[메뉴 자원, [그 화면 안의 동작·데이터 자원…]], …]] — 톱 메뉴 순서와 같다 */
+const TREE = [
+  ['주요 메뉴', [
+    ['page.ops', []],
+    ['page.dashboard', ['data.system']],
+    ['page.alarms', ['action.alarm_ack', 'action.alarm_rules']],
+    ['page.events', []],
+    ['page.patients', []],
+    ['page.gateways', []],
+    ['page.map', []],
+    ['page.viewers', ['action.groups_edit']],
+  ]],
+  ['테스트', [['page.test', []], ['page.data_admin', ['action.wave_reset']]]],
+  ['설정', [['page.settings_viewer', []], ['page.settings_biosignal', ['action.backup_purge']], ['page.settings_network', []], ['page.integration', []]]],
+  ['관리', [['page.admin_users', []], ['page.admin_permissions', []], ['page.admin_tenants', []], ['page.admin_audit', []]]],
+  ['데이터 (모든 화면 공통)', [['data.phi', []], ['data.biosignal', []]]],
+]
 
 export default function AdminPermissions() {
   const me = useMe()
@@ -73,6 +90,39 @@ export default function AdminPermissions() {
   }
   const tenantOpts = (view.tenants || []).map((t) => ({ value: t.id, label: `${t.id} · ${t.name}${t.is_site ? ' (이 라우터)' : ''}` }))
 
+  // 메뉴 구조대로: 섹션 → 메뉴 → (하위) 그 화면의 동작·데이터 권한. 표에 없는 새 자원은 '기타'로.
+  const known = new Map(view.resources.map((r) => [r.code, r]))
+  const used = new Set()
+  const tree = TREE.map(([title, items]) => [title, items.flatMap(([code, kids]) => [[code, 0], ...kids.map((c) => [c, 1])]).filter(([c]) => known.has(c) && !used.has(c) && used.add(c))])
+    .concat([['기타', view.resources.filter((r) => !used.has(r.code)).map((r) => [r.code, 0])]])
+    .filter(([, items]) => items.length)
+  const resRow = (code, depth) => {
+    const res = known.get(code)
+    const label = depth ? res.label : res.label.replace(/^(테스트|설정|관리) › /, '')
+    return (
+      <tr key={code} className={depth ? 'perm-sub' : 'perm-top'}>
+        <td className="perm-res">{depth ? <span className="perm-branch">└</span> : null}<b>{label}</b><small className="mono">{res.code}</small></td>
+        {view.roles.map((role) => {
+          const editable = editRoles.includes(role.code)
+          const locked = role.code === 'super_admin'
+          const lv = locked ? view.effective.super_admin[res.code] : editable ? draft[role.code]?.[res.code] ?? 0 : scope === 'tenant' ? view.effective[role.code][res.code] : draft[role.code]?.[res.code] ?? 0
+          const was = base[role.code]?.[res.code] ?? 0
+          const dirty = editable && lv !== was
+          return (
+            <td key={role.code} className={'perm-cell' + (dirty ? ' dirty' : '') + (editable ? ' ed' : '')}>
+              {editable ? (
+                <span className="lvseg">{[0, 1, 2].map((n) => (
+                  <button key={n} className={(lv === n ? 'on ' : '') + LV_CLS[n]} disabled={n > cap(res.code)} onClick={() => set(role.code, res.code, n)} title={n > cap(res.code) ? '자기 권한보다 높게 줄 수 없습니다' : LEVEL_LABEL[n]}>{LEVEL_LABEL[n]}</button>
+                ))}</span>
+              ) : (
+                <span className={'lvtag ' + LV_CLS[lv]} title={locked ? '개발 모드 동안 모든 권한' : '이 화면에서는 바꿀 수 없음'}>{LEVEL_LABEL[lv]}</span>
+              )}
+            </td>
+          )
+        })}
+      </tr>
+    )
+  }
   return (
     <div className="page adm">
       <div className="adm-head">
@@ -111,32 +161,10 @@ export default function AdminPermissions() {
               ))}
             </tr>
           </thead>
-          {groups.map((g) => (
-            <tbody key={g}>
-              <tr className="perm-group"><td colSpan={view.roles.length + 1}>{g}</td></tr>
-              {view.resources.filter((r) => r.group === g).map((res) => (
-                <tr key={res.code}>
-                  <td className="perm-res"><b>{res.label}</b><small className="mono">{res.code}</small></td>
-                  {view.roles.map((role) => {
-                    const editable = editRoles.includes(role.code)
-                    const locked = role.code === 'super_admin'
-                    const lv = locked ? view.effective.super_admin[res.code] : editable ? draft[role.code]?.[res.code] ?? 0 : scope === 'tenant' ? view.effective[role.code][res.code] : draft[role.code]?.[res.code] ?? 0
-                    const was = base[role.code]?.[res.code] ?? 0
-                    const dirty = editable && lv !== was
-                    return (
-                      <td key={role.code} className={'perm-cell' + (dirty ? ' dirty' : '') + (editable ? ' ed' : '')}>
-                        {editable ? (
-                          <span className="lvseg">{[0, 1, 2].map((n) => (
-                            <button key={n} className={(lv === n ? 'on ' : '') + LV_CLS[n]} disabled={n > cap(res.code)} onClick={() => set(role.code, res.code, n)} title={n > cap(res.code) ? '자기 권한보다 높게 줄 수 없습니다' : LEVEL_LABEL[n]}>{LEVEL_LABEL[n]}</button>
-                          ))}</span>
-                        ) : (
-                          <span className={'lvtag ' + LV_CLS[lv]} title={locked ? '개발 모드 동안 모든 권한' : '이 화면에서는 바꿀 수 없음'}>{LEVEL_LABEL[lv]}</span>
-                        )}
-                      </td>
-                    )
-                  })}
-                </tr>
-              ))}
+          {tree.map(([title, items]) => (
+            <tbody key={title}>
+              <tr className="perm-group"><td colSpan={view.roles.length + 1}>{title}</td></tr>
+              {items.map(([code, depth]) => resRow(code, depth))}
             </tbody>
           ))}
         </table>
