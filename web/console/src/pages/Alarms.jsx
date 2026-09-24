@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll, fmtTime, fmtAgo } from '../api.js'
 import { SEV_LABEL, ALARM_KIND, roomText, wardText, sortBy } from '../model.js'
 import Dropdown from '../Dropdown.jsx'
-import { useQuery, go, useRevealSelected, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, PatientLink, GwLink, RoomLink, WardLink, wardOfRoom } from '../ListKit.jsx'
+import { useQuery, go, useRevealSelected, Cols, tableMin, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, PatientLink, GwLink, RoomLink, WardLink, wardOfRoom } from '../ListKit.jsx'
 import { openLive } from '../App.jsx'
 
 const RULE_FIELDS = [
@@ -15,6 +15,8 @@ const RULE_FIELDS = [
 const SEVS = ['critical', 'high', 'medium', 'low']
 const SEV_RANK = { critical: 4, high: 3, medium: 2, low: 1 }
 const PAGE = 100
+// 열 폭: 심각도 · 종류 · 대상 · 위치 · 내용(남는 폭) · 값 · 발생 · 경과/해제 · 버튼
+const W = [70, 116, 190, 118, null, 90, 84, 90, 84]
 
 /** 알람: 활성/이력/규칙 탭 · 심각도·미확인 칩 · 병동/종류/검색 필터(주소에 남음) · 표 · 오른쪽 상세 */
 export default function Alarms({ alarms }) {
@@ -78,7 +80,8 @@ export default function Alarms({ alarms }) {
           <Dropdown value={kind} options={kinds} onChange={(v) => { setQs({ kind: v }); setPage(0) }} placeholder="모든 종류" countUnit="건" width={180} />
         </FilterBar>
         <ListLayout detail={selA ? <AlarmDetail a={selA} onAck={ack} onClose={() => setQs({ sel: '' })} /> : null}>
-          <table className="tbl">
+          <table className="tbl fixed" style={{ minWidth: tableMin(W, 240) }}>
+            <Cols w={W} />
             <thead><tr><th>심각도</th><th>종류</th><th>대상</th><th>위치</th><th>내용</th><th className="num">값</th><th>발생</th><th>{tab === 'active' ? '경과' : '해제'}</th><th /></tr></thead>
             <tbody>
               {shown.slice(cur * PAGE, cur * PAGE + PAGE).map((a) => {
@@ -88,7 +91,7 @@ export default function Alarms({ alarms }) {
                     <td><span className={`tag sev-${a.severity}`}>{SEV_LABEL[a.severity]}</span></td>
                     <td title={a.kind}>{ALARM_KIND[a.kind] || a.kind}</td>
                     <td>{a.channel_id ? <PatientLink ch={a.channel_id}><b>{a.patient_name || a.channel_id}</b></PatientLink> : a.gateway_id ? <GwLink id={a.gateway_id} /> : <b>시스템</b>}{a.channel_id && <small className="mono muted"> {a.channel_id}</small>}</td>
-                    <td title={a.room}><RoomLink room={a.room} /></td><td>{a.message}</td><td className="num">{a.value}</td><td className="muted">{fmtTime(a.since_ms)}</td>
+                    <td title={a.room}><RoomLink room={a.room} /></td><td title={a.message}>{a.message}</td><td className="num">{a.value}</td><td className="muted">{fmtTime(a.since_ms)}</td>
                     <td>{tab === 'active' ? fmtAgo(a.since_ms) : a.cleared_ms ? fmtTime(a.cleared_ms) : <span className="muted">발생</span>}</td>
                     <td>{tab === 'active' && !a.acked && <button onClick={(e) => { e.stopPropagation(); ack(a.id) }}>확인</button>}{a.acked && <span className="muted">확인됨</span>}</td>
                   </tr>

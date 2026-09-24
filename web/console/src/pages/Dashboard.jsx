@@ -67,7 +67,8 @@ export default function Dashboard({ alarms }) {
       <div className={sys ? 'cols' : ''}>
         <section className="panel">
           <h3>활성 알람 <small>{a.length}건{a.length > 15 ? ' · 위 15건' : ''} · <a href="#/alarms">전체 보기 →</a></small></h3>
-          <table className="tbl">
+          <table className="tbl fixed">
+            <colgroup><col style={{ width: 70 }} /><col style={{ width: 110 }} /><col style={{ width: 120 }} /><col /><col style={{ width: 90 }} /><col style={{ width: 84 }} /></colgroup>
             <thead><tr><th>심각도</th><th>환자</th><th>위치</th><th>내용</th><th className="num">값</th><th>발생</th></tr></thead>
             <tbody>
               {a.slice(0, 15).map((x) => (
@@ -83,7 +84,8 @@ export default function Dashboard({ alarms }) {
         </section>
         {sys && <section className="panel">
           <h3>수신 이상 카운터 <small>누적</small></h3>
-          <table className="tbl">
+          <table className="tbl fixed">
+            <colgroup><col /><col style={{ width: 110 }} /></colgroup>
             <tbody>
               {Object.entries(an).map(([k, v]) => <tr key={k}><td>{ANOM_LABEL[k] || k}</td><td className="num">{fmtNum(v)}</td></tr>)}
               {!Object.keys(an).length && <tr><td colSpan="2" className="muted">프레임 이상 없음</td></tr>}

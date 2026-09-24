@@ -3,13 +3,15 @@ import { api, usePoll, fmtAgo, fmtTime } from '../api.js'
 import { alarmIndex, flagNames, sortBy, SEV_LABEL, FLAG_LABEL, FLAG_WARN, wardText, wardRoom, patchLife, fmtDays } from '../model.js'
 import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
-import { useQuery, go, useRevealSelected, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, GwLink, RoomLink, WardLink } from '../ListKit.jsx'
+import { useQuery, go, useRevealSelected, Cols, tableMin, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, GwLink, RoomLink, WardLink } from '../ListKit.jsx'
 
 const COLS = [
   ['channel_id', '패치'], ['name', '환자'], ['mrn', 'MRN'], ['ward', '병동'], ['room', '병실'], ['gateway_id', 'GW'],
   ['hr', 'HR'], ['spo2', 'SpO₂'], ['resp', 'RR'], ['temp', '체온'], ['battery', '배터리'], ['replace', '패치 교체'], ['rssi', 'RSSI'], ['flags', '상태'], ['alarm', '알람'], ['last', '수신'],
 ]
 const PAGE = 100
+// 열 폭(px, null = 남는 폭) — COLS 순서와 같다
+const W = [70, 96, 118, 118, 64, 116, 50, 54, 46, 54, 58, 80, 50, 150, null, 50]
 const NUM = new Set(['hr', 'spo2', 'resp', 'temp', 'battery', 'replace', 'rssi'])
 // 요약 칩 = 조치가 필요한 조건 (누르면 그 조건만)
 const CHIPS = [
@@ -77,7 +79,8 @@ export default function Patients({ alarms }) {
         <Dropdown value={ward} options={wards} onChange={(v) => { setQs({ ward: v }); setPage(0) }} placeholder="모든 병동" width={200} />
       </FilterBar>
       <ListLayout detail={selRow ? <PatientDetail r={selRow} alarms={alarms} onClose={() => setQs({ sel: '' })} /> : sel ? <DetailPanel title={`패치 ${sel}`} onClose={() => setQs({ sel: '' })}><p className="muted">목록에 없는 패치입니다 (퇴원·교체).</p></DetailPanel> : null}>
-        <table className="tbl dense">
+        <table className="tbl dense fixed" style={{ minWidth: tableMin(W, 220) }}>
+          <Cols w={W} />
           <thead><tr>{COLS.map(([k, l]) => th(k, l))}</tr></thead>
           <tbody>
             {shown.slice(cur * PAGE, cur * PAGE + PAGE).map((r) => (
@@ -91,7 +94,7 @@ export default function Patients({ alarms }) {
                 <td className={'num' + (r.life?.level ? ` ${r.life.level === 'err' ? 'err' : 'warn'}` : '')} title={r.life ? `착용 ${fmtDays(r.life.worn)}째 · 배터리 약 ${fmtDays(r.life.batLeft)} · ${r.life.reason} 기준` : '착용 시작 모름'}>{r.life ? (r.life.left <= 0 ? '지금' : `D-${fmtDays(r.life.left)}`) : '—'}</td>
                 <td className="num">{r.rssi}</td>
                 <td>{flagNames(r.flags).map((n) => <span key={n} className={'tag small' + (FLAG_WARN.has(n) ? ' warn' : '')}>{FLAG_LABEL[n] || n}</span>)}{!r.connected && <span className="tag err small">해제</span>}{r.stale && r.connected && <span className="tag warn small">수신 없음</span>}</td>
-                <td>{r.alarmObj && <span className={`tag small sev-${r.alarmObj.severity}`}>{SEV_LABEL[r.alarmObj.severity]} · {r.alarmObj.message}</span>}</td>
+                <td title={r.alarmObj?.message}>{r.alarmObj && <span className={`tag small sev-${r.alarmObj.severity}`}>{SEV_LABEL[r.alarmObj.severity]} · {r.alarmObj.message}</span>}</td>
                 <td className="muted">{fmtAgo(r.last)}</td>
               </tr>
             ))}

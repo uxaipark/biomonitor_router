@@ -3,7 +3,7 @@ import { api, usePoll, fmtTime, fmtAgo } from '../api.js'
 import Dropdown from '../Dropdown.jsx'
 import { EVENT_KIND, SEV_LABEL } from '../model.js'
 import { openLive } from '../App.jsx'
-import { useQuery, go, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, PatientLink, GwLink } from '../ListKit.jsx'
+import { useQuery, go, Cols, tableMin, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, PatientLink, GwLink } from '../ListKit.jsx'
 
 // 요약 칩 = 이벤트 묶음
 const GROUPS = [
@@ -16,6 +16,7 @@ const groupOf = (k) => GROUPS.find(([, , f]) => f(k))?.[0] || 'etc'
 const PERIODS = [['', '전체'], ['10', '최근 10분'], ['60', '최근 1시간']]
 const SEV_OF = { Critical: 'critical', High: 'high', Medium: 'medium', Low: 'low' }
 const PAGE = 100
+const W = [84, 120, 130, null] // 시각 · 종류 · 대상 · 내용(남는 폭)
 /** "[High] 이름 메시지" → { sev, text } */
 const parse = (e) => { const m = /^\[(Critical|High|Medium|Low)\]\s*(.*)$/.exec(e.message || ''); return { sev: m && SEV_OF[m[1]], text: m ? m[2] : e.message } }
 /** 메시지 속 게이트웨이 번호 ("gw 123", "GW 123", "GW-103-0088") */
@@ -63,7 +64,8 @@ export default function Events() {
         <span className="seg">{PERIODS.map(([k, l]) => <button key={k} className={period === k ? 'active' : ''} onClick={() => { setQs({ period: k }); setPage(0) }}>{l}</button>)}</span>
       </FilterBar>
       <ListLayout detail={selE ? <EventDetail e={selE} onClose={() => setQs({ sel: '' })} /> : null}>
-        <table className="tbl dense">
+        <table className="tbl dense fixed" style={{ minWidth: tableMin(W, 300) }}>
+          <Cols w={W} />
           <thead><tr><th>시각</th><th>종류</th><th>대상</th><th>내용</th></tr></thead>
           <tbody>
             {shown.slice(cur * PAGE, cur * PAGE + PAGE).map((e) => {
@@ -73,7 +75,7 @@ export default function Events() {
                   <td className="mono muted">{fmtTime(e.ts_ms)}</td>
                   <td>{EVENT_KIND[e.kind] || e.kind}</td>
                   <td>{e.channel_id ? <PatientLink ch={e.channel_id}><span className="mono">{e.channel_id}</span></PatientLink> : gw ? <GwLink id={gw} /> : <span className="muted">시스템</span>}</td>
-                  <td>{e.sev && <span className={`tag small sev-${e.sev}`}>{SEV_LABEL[e.sev]}</span>} {e.text}</td>
+                  <td title={e.message}>{e.sev && <span className={`tag small sev-${e.sev}`}>{SEV_LABEL[e.sev]}</span>} {e.text}</td>
                 </tr>
               )
             })}

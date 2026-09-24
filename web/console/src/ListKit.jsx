@@ -156,6 +156,15 @@ export function DetailPanel({ title, sub, onClose, actions, children }) {
 
 export const KV = ({ k, children }) => (children == null || children === '' ? null : <><dt>{k}</dt><dd>{children}</dd></>)
 
+/**
+ * 고정 컬럼 폭: 실시간으로 값이 바뀌어도 열이 흔들리지 않게 (표에 className "tbl fixed" + 이 colgroup).
+ * w = 열마다 px(숫자) 또는 null(남는 폭을 나눠 가짐). 표 최소 폭 = 고정 폭 합 + 가변 열 × minFlex.
+ */
+export function Cols({ w }) {
+  return <colgroup>{w.map((x, i) => <col key={i} style={x ? { width: x } : undefined} />)}</colgroup>
+}
+export const tableMin = (w, minFlex = 200) => w.reduce((s, x) => s + (x || minFlex), 0)
+
 /** 쪽 넘김 */
 export function Pager({ page, pages, onPage }) {
   if (pages <= 1) return null

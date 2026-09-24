@@ -938,3 +938,9 @@ td.ok { color: var(--ok); }
   .lk-body.with-detail { grid-template-columns: minmax(0, 1fr); }
   .lk-detail { position: fixed; right: 12px; top: 64px; bottom: 12px; width: min(400px, calc(100vw - 24px)); max-height: none; z-index: 40; }
 }
+
+/* 고정 컬럼 표: 값이 실시간으로 바뀌어도 열 위치가 흔들리지 않게 — 넘치는 글자는 말줄임(전체는 title) */
+.tbl.fixed { table-layout: fixed; width: 100%; }
+.tbl.fixed th, .tbl.fixed td { overflow: hidden; text-overflow: ellipsis; }
+.tbl.fixed td .tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+.tbl td, .tbl th { font-variant-numeric: tabular-nums; }

@@ -3,7 +3,7 @@ import { api, usePoll, fmtNum, fmtAgo } from '../api.js'
 import { gatewayAlarmIndex, GW_STATUS, SEV_LABEL, sortBy, gwLabel } from '../model.js'
 import Dropdown from '../Dropdown.jsx'
 import { openLive } from '../App.jsx'
-import { useQuery, go, useRevealSelected, GwName, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, PatientLink, RoomLink } from '../ListKit.jsx'
+import { useQuery, go, useRevealSelected, GwName, Cols, tableMin, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, PatientLink, RoomLink } from '../ListKit.jsx'
 
 const COLS = [
   ['gw_id', 'GW'], ['name', '이름'], ['type', '유형'], ['loc', '위치'], ['state', '상태'], ['patches', '패치'], ['frames', '프레임'],
@@ -11,6 +11,8 @@ const COLS = [
   ['cpu', 'CPU %'], ['mem', 'MEM %'], ['net', 'NET'], ['wan_rssi', 'RSSI'], ['temp', '온도 °C'], ['since_last_s', '마지막 프레임'],
 ]
 const PAGE = 100
+// 열 폭(px, null = 남는 폭) — COLS 순서와 같다
+const W = [52, 116, 84, null, 70, 48, 72, 52, 48, 72, 56, 48, 46, 50, 52, 46, 50, 56, 84]
 const NUM = new Set(['patches', 'frames', 'nack_tx', 'recovered', 'resend_lost', 'seq_gap', 'seq_reorder', 'bad_crc', 'cpu', 'mem', 'net', 'wan_rssi', 'temp'])
 const GW_TYPE = {
   room: '병실', corridor: '복도', support: '지원 시설', toilet: '화장실', mobile: '이동형(MCOT)', stairs: '계단', nurse_station: '간호사실',
@@ -82,7 +84,8 @@ export default function Gateways({ alarms }) {
         <Dropdown value={type} options={types} onChange={(v) => { setQs({ type: v }); setPage(0) }} searchable={false} placeholder="모든 유형" countUnit="대" width={170} />
       </FilterBar>
       <ListLayout detail={selRow ? <GatewayDetail g={selRow} onClose={() => setQs({ sel: '' })} /> : sel ? <DetailPanel title={`GW ${sel}`} onClose={() => setQs({ sel: '' })}><p className="muted">라우터에 접속한 적 없는 게이트웨이입니다.</p></DetailPanel> : null}>
-        <table className="tbl dense">
+        <table className="tbl dense fixed" style={{ minWidth: tableMin(W, 180) }}>
+          <Cols w={W} />
           <thead><tr>{COLS.map(([k, l]) => <th key={k} className={'sortable' + (NUM.has(k) ? ' num' : '')} onClick={() => setSort([k, sort[0] === k && sort[1] === 'asc' ? 'desc' : 'asc'])}>{l}{sort[0] === k ? (sort[1] === 'asc' ? ' ▲' : ' ▼') : ''}</th>)}</tr></thead>
           <tbody>
             {shown.slice(cur * PAGE, cur * PAGE + PAGE).map((g) => (
