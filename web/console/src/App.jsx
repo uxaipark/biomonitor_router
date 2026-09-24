@@ -228,10 +228,21 @@ function Console({ me, setMe }) {
 /** Any page can open the live modal for a patch. */
 export const openLive = (channel_id) => window.dispatchEvent(new CustomEvent('open-live', { detail: { channel_id: String(channel_id) } }))
 
-/** 머리글 오른쪽 계정 메뉴: 이름·역할·병원, 비밀번호 변경, 로그아웃. 임시 비밀번호면 바꾸기 창을 먼저 띄운다. */
+/** 임시 비밀번호 안내 창은 계정마다(이 브라우저에서) 처음 한 번만 자동으로 띄운다. */
+const pwPromptKey = (u) => `bm_pw_prompted:${u.tenant_id || ''}:${u.username}`
+function pwPromptOnce(u) {
+  if (!u.must_change || u.service) return false
+  try {
+    if (localStorage.getItem(pwPromptKey(u))) return false
+    localStorage.setItem(pwPromptKey(u), String(Date.now()))
+  } catch { /* 저장소를 못 쓰면 매번 띄우는 쪽보다 안 띄우는 쪽 */ return false }
+  return true
+}
+
+/** 머리글 오른쪽 계정 메뉴: 이름·역할·병원, 비밀번호 변경, 로그아웃. 임시 비밀번호면 처음 한 번 바꾸기 창을 띄운다. */
 function UserMenu({ me, setMe }) {
   const [open, setOpen] = useState(false)
-  const [pw, setPw] = useState(!!me.user.must_change && !me.user.service)
+  const [pw, setPw] = useState(() => pwPromptOnce(me.user))
   const ref = useRef(null)
   useEffect(() => {
     if (!open) return
