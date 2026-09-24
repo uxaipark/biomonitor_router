@@ -60,6 +60,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/settings/network", get(net_get).put(net_put))
         .route("/api/settings/network/test", post(net_test))
         .merge(crate::auth_api::routes())
+        .merge(crate::emr_api::routes())
         // 로그인·병원 접근·경로별 권한 (모든 /api/*·/ws). CORS 는 쿠키 인증이라 같은 출처만 — permissive 제거.
         .layer(axum::middleware::from_fn_with_state(state.clone(), crate::auth::guard))
         .fallback_service(spa(&web_dir))

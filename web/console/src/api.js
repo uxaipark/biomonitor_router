@@ -95,6 +95,16 @@ export const api = {
     devMode: (on) => send('PUT', '/api/admin/dev_mode', { on }),
     audit: (limit = 300) => get(`/api/admin/audit?limit=${limit}`),
   },
+  integ: {
+    list: () => get('/api/integration'),
+    catalog: () => get('/api/integration/catalog'),
+    create: (b) => send('POST', '/api/integration', b),
+    get: (id) => get(`/api/integration/${id}`),
+    update: (id, b) => send('PUT', `/api/integration/${id}`, b),
+    remove: (id) => send('DELETE', `/api/integration/${id}`),
+    run: (id, what) => send('POST', `/api/integration/${id}/run`, { what }),
+    received: (id) => get(`/api/integration/${id}/received`),
+  },
   emu: {
     status: () => get('/api/emu/status'),
     layout: () => get('/api/emr/layout'),

@@ -83,6 +83,9 @@ async fn main() -> anyhow::Result<()> {
     // 파형 백업: 닫힌 시간 파일 → NAS/SMB/FTP/SFTP, 검증된 파일만 저장소가 삭제
     router_core::backup::start(state.clone());
 
+    // 상용 EMR 연동 (FHIR·HL7 v2): 켜진 연결마다 인증 → 재원 명단 → 바이탈 전송
+    tokio::spawn(router_core::emr_link::supervise(state.clone()));
+
     // DB API 링크: 환자 메타/패치 재고를 SQLite 로 실시간 push
     tokio::spawn(db_link::run(state.clone(), db_rx));
 

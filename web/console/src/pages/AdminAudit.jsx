@@ -5,6 +5,7 @@ const ACTION = {
   login: '로그인', login_fail: '로그인 실패', logout: '로그아웃', password_change: '비밀번호 변경', password_reset: '비밀번호 초기화',
   user_create: '계정 생성', user_update: '계정 수정', tenant_create: '병원 추가', tenant_update: '병원 수정',
   permissions_save: '권한 저장', dev_mode: '개발 모드',
+  emr_connection_create: 'EMR 연결 추가', emr_connection_update: 'EMR 연결 변경', emr_connection_delete: 'EMR 연결 삭제',
 }
 
 /** 관리 › 감사 기록 — 로그인·계정·권한 변경 기록 (병원 역할은 자기 병원 기록만) */

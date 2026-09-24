@@ -24,3 +24,6 @@ pub mod backup;
 pub mod netcfg;
 pub mod auth;
 pub mod auth_api;
+pub mod http_client;
+pub mod emr_link;
+pub mod emr_api;

@@ -27,6 +27,9 @@ crc32fast = "1"
 mimalloc = { version = "0.1", default-features = false }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 sha2 = "0.10"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10.4"
+encoding_rs = "0.8.41"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libc = "0.2"

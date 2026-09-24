@@ -15,7 +15,8 @@ pub static LAST_OK_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU
 /// Minimal request: returns (status, body). `Connection: close`, so the body is everything after the header.
 pub async fn request(addr: &str, method: &str, path: &str, body: Option<&str>) -> anyhow::Result<(u16, String)> {
     let mut s = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(addr)).await??;
-    let host = addr.split(':').next().unwrap_or(addr);
+    // Host 에 포트까지 — 에뮬레이터는 이 값으로 응답 속 URL(가상 EMR 카탈로그의 base_url 등)을 만든다
+    let host = addr;
     let mut req = format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\nAccept: application/json\r\n");
     if let Some(b) = body {
         req.push_str(&format!("Content-Type: application/json\r\nContent-Length: {}\r\n", b.len()));

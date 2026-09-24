@@ -7,6 +7,7 @@ import AdminUsers from './pages/AdminUsers.jsx'
 import AdminPermissions from './pages/AdminPermissions.jsx'
 import AdminTenants from './pages/AdminTenants.jsx'
 import AdminAudit from './pages/AdminAudit.jsx'
+import Integration from './pages/Integration.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Patients from './pages/Patients.jsx'
 import Live from './pages/Live.jsx'
@@ -41,6 +42,7 @@ const PAGES = [
   ['#/settings/viewer', '뷰어 설정', ViewerSettings, '설정', 'page.settings_viewer'],
   ['#/settings/biosignal', '생체신호 관리', BiosignalAdmin, '설정', 'page.settings_biosignal'],
   ['#/settings/network', '네트워크 설정', NetworkSettings, '설정', 'page.settings_network'],
+  ['#/settings/integration', 'EMR 연동', Integration, '설정', 'page.integration'],
   ['#/admin/users', '계정', AdminUsers, '관리', 'page.admin_users'],
   ['#/admin/permissions', '권한 설정', AdminPermissions, '관리', 'page.admin_permissions'],
   ['#/admin/tenants', '병원 (테넌트)', AdminTenants, '관리', 'page.admin_tenants'],

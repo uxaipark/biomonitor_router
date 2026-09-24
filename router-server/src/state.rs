@@ -84,6 +84,8 @@ pub struct AppState {
     pub net: crate::netcfg::NetCfg,
     /// 계정·권한·병원(테넌트) — 로그인 세션과 권한 매트릭스
     pub auth: crate::auth::Auth,
+    /// 상용 EMR 연동 (FHIR·HL7 v2) — 연결 설정·실행 상태
+    pub emr: crate::emr_link::EmrLink,
     /// 출력 WS 세션 (id → 세션); 발행 시 구독이 맞는 세션의 큐에만 넣는다
     pub sessions: dashmap::DashMap<u64, Arc<Session>>,
     pub next_session: AtomicU64,
@@ -176,6 +178,7 @@ impl AppState {
             backup: crate::backup::Backup::open(&cfg.db_path, &cfg.store_dir),
             net: crate::netcfg::NetCfg::open(&cfg.db_path, &cfg),
             auth: crate::auth::Auth::open(&cfg.db_path),
+            emr: crate::emr_link::EmrLink::open(&cfg.db_path),
             cfg,
             sessions: dashmap::DashMap::new(),
             next_session: AtomicU64::new(1),

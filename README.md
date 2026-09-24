@@ -75,6 +75,18 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 * API: `POST /api/auth/login`(`{tenant, username, password}`)`|logout|password`, `GET /api/auth/me|test-accounts`, `/api/admin/users[/{id}[/reset_password]]`,
   `/api/admin/tenants[/{id}]`, `GET|PUT /api/admin/permissions`, `GET /api/admin/permissions/versions`, `PUT /api/admin/dev_mode`, `GET /api/admin/audit`.
 
+### EMR 연동 (2026-09-24, 설정 › EMR 연동)
+
+패치 수치(HR·호흡수·SpO₂·체온)를 병원 EMR 에 간호 바이탈로 기록한다(`src/emr_link.rs`, `src/emr_api.rs`, `src/http_client.rs`).
+연결 하나 = 이 라우터 병원 × 외부 EMR 한 곳. 연결마다 작업 하나: 인증(SMART Backend JWT·signed JWT·client_credentials basic/post·
+Basic·고정 Bearer·API 키·RNDS 토큰, 401 → 재발급 1회) → 재원 명단(FHIR `Group/inpatient-census` 또는 `Encounter?status=in-progress&_include=Encounter:patient`
+페이지 따라가기, HL7 `hl7/census`) → 환자 매칭(`mrn` 일치 / `pair` 시험용 짝짓기) → 전송(FHIR transaction Bundle, STU3 는 `context`;
+HL7 v2 ORU^R01 over MLLP — PID·PV1 은 기관 명단의 세그먼트 그대로, 버전별 MSH-9·MSH-17/18/20, 시간대 오프셋 유무, ISO-2022-JP·8859-1
+인코딩, 미국 °F) → 응답(201/200·ACK AA, 5xx 3연속이면 회차 중단, 지수 백오프 4 s → 5 분).
+에뮬레이터 가상 EMR 카탈로그(`/api/v1/emrsim`)에서 기관을 골라 추가한다. FHIR R4/STU3 10곳 + HL7 v2 6곳 지원, 미지원 4곳(athena REST·국내 JSON·EUC-KR XML·CDA)은 다음 단계.
+HTTPS 는 아직 없음(`http_client.rs` — 실제 병원은 TLS 종단 필요). JWT 서명은 시험 기관이 검증하지 않아 더미 서명 — 실제 기관용 키 관리 필요.
+API: `GET/POST /api/integration`, `GET /api/integration/catalog`, `GET/PUT/DELETE /api/integration/{id}`, `POST /api/integration/{id}/run {what: census|send}`, `GET /api/integration/{id}/received`.
+
 ### API (P1 추가분)
 
 | 경로 | 내용 |
