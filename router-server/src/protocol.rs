@@ -55,6 +55,26 @@ pub struct Patient {
     /// 병변/기저질환 목록 (리포트 모달 표시용)
     #[serde(default)]
     pub conditions: Vec<String>,
+    /// 연동 EMR 에서의 이 환자 (에뮬레이터 '연동 병원'을 고르면 admissions 에 붙는 조인 키) — EMR 연동의 MRN 매칭에 쓴다
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emr: Option<EmrKey>,
+}
+
+/// 연동 EMR 쪽 식별자 (admissions[].emr)
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct EmrKey {
+    #[serde(default)]
+    pub site: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub mrn: String,
+    #[serde(default)]
+    pub fhir_patient_id: String,
+    #[serde(default)]
+    pub visit: String,
+    #[serde(default)]
+    pub fhir_encounter_id: String,
 }
 
 fn default_quality() -> String {

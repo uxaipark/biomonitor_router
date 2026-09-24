@@ -88,6 +88,7 @@ HTTPS 는 아직 없음(`http_client.rs` — 실제 병원은 TLS 종단 필요)
 입퇴원(ADT) 실시간 반영: HL7 `hl7/adt?since=`(A01·A02·A03·A08·A11), 국내 JSON `adm/events?FROM_SEQ=`, XML `EMR_ADT_0002`, athena `patients/changed` 구독,
 FHIR `Encounter?_lastUpdated=gt…`(5초 겹쳐 읽기) — 15초마다. 변경분 피드가 없는 Epic·Oracle(Group)·CDA 는 60초마다 명단 다시 받기. 처음엔 피드 위치만 맞추고
 (그 전 변경은 전체 명단에 이미 있음), 5분마다 전체 명단으로 한 번 더 맞춘다. 짝은 끈끈하게 유지(퇴원한 쪽 짝만 풀고 빈자리만 새로 채움).
+매칭 `mrn`(식별자 일치): 에뮬레이터에서 연동 병원을 고르면(`POST /api/v1/emrsim/link {site}`) admissions 행에 붙는 `emr {site, mrn, fhir_patient_id, visit}` 로 같은 사람을 찾고(`Patient.emr`), 없으면 우리 MRN = 기관 등록번호. 한 회차가 전부 실패하면 곧바로 명단을 다시 받는다.
 API: `GET/POST /api/integration`, `GET /api/integration/catalog`, `GET/PUT/DELETE /api/integration/{id}`, `POST /api/integration/{id}/run {what: census|send|adt_rewind}`, `GET /api/integration/{id}/received`.
 
 ### API (P1 추가분)

@@ -15,6 +15,8 @@ const ADT_HOW = {
   fhir: 'Encounter _lastUpdated 15초', group: '명단 다시 받기 60초', cda: '문서 목록 다시 받기 60초',
 }
 const ADT_CODE = { A01: '입원', A02: '전동', A03: '퇴원', A08: '정보 변경', A11: '입원 취소' }
+const MATCH = { pair: '순서', emr: '연동 키', mrn: 'MRN' }
+const MATCH_HELP = { pair: '시험용 — 병동 순서대로 짝지음 (같은 사람 아님)', emr: '에뮬레이터 연동 병원 조인 키(등록번호·FHIR id·내원번호)로 같은 사람을 찾음', mrn: '우리 MRN = 기관 등록번호' }
 const ago = (ms) => (ms ? `${Math.max(0, Math.round((Date.now() - ms) / 1000))}초 전` : '—')
 
 export default function Integration() {
@@ -97,7 +99,7 @@ function Detail({ id, edit, onDeleted, onChanged }) {
           <Dropdown value={g.scope_ward || ''} options={[{ value: '', label: '전체 병동' }, ...(wards || []).map((w) => ({ value: w, label: `${wardText(w)} (${w})` }))]} onChange={(v) => put({ scope_ward: v })} searchable width={220} />
         </div>
         <div><small>환자 매칭</small>
-          <span className="seg">{[['pair', '시험용 짝짓기'], ['mrn', 'MRN 일치']].map(([k, l]) => <button key={k} className={g.match_mode === k ? 'active' : ''} disabled={!edit} onClick={() => put({ match_mode: k })}>{l}</button>)}</span>
+          <span className="seg">{[['pair', '시험용 짝짓기'], ['mrn', '식별자 일치']].map(([k, l]) => <button key={k} className={g.match_mode === k ? 'active' : ''} disabled={!edit} onClick={() => put({ match_mode: k })}>{l}</button>)}</span>
         </div>
         <div><small>전송 주기</small>
           <span className="seg">{[60, 300, 900, 3600].map((n) => <button key={n} className={g.interval_s === n ? 'active' : ''} disabled={!edit} onClick={() => put({ interval_s: n })}>{n < 3600 ? `${n / 60}분` : '1시간'}</button>)}</span>
@@ -113,13 +115,13 @@ function Detail({ id, edit, onDeleted, onChanged }) {
       </div>
       {tab === 'links' && (
         <table className="tbl adm-tbl">
-          <thead><tr><th>우리 환자</th><th>침대</th><th /><th>EMR 환자</th><th>EMR 위치</th><th>내원번호</th><th className="num">성공</th><th className="num">실패</th><th>마지막 결과</th></tr></thead>
+          <thead><tr><th>우리 환자</th><th>침대</th><th>매칭</th><th>EMR 환자</th><th>EMR 위치</th><th>내원번호</th><th className="num">성공</th><th className="num">실패</th><th>마지막 결과</th></tr></thead>
           <tbody>
             {d.links.map((l) => (
               <tr key={l.channel_id}>
                 <td><b>{l.local_name}</b> <small className="mono muted">{l.channel_id}</small></td>
                 <td className="mono">{l.local_room}</td>
-                <td className="muted">→</td>
+                <td><span className={'tag small m-' + l.matched_by} title={MATCH_HELP[l.matched_by]}>{MATCH[l.matched_by] || '→'}</span></td>
                 <td><b>{l.remote.name}</b> <small className="mono muted">{l.remote.ident || l.remote.id}</small></td>
                 <td>{l.remote.location || <span className="muted">—</span>}</td>
                 <td className="mono">{l.remote.encounter || <span className="muted">—</span>}</td>

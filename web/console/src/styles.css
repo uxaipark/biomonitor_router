@@ -848,3 +848,5 @@ button.danger { color: var(--err); border-color: color-mix(in srgb, var(--err) 5
 .tag.adt-A01 { border-color: var(--ok); color: var(--ok); } .tag.adt-A03, .tag.adt-A11 { border-color: var(--warn); color: var(--warn); }
 .tag.adt-A02 { border-color: var(--accent); color: var(--accent); }
 td.ok { color: var(--ok); }
+.tag.m-emr, .tag.m-mrn { border-color: var(--ok); color: var(--ok); }
+.tag.m-pair { color: var(--muted); }

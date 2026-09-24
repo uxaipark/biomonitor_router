@@ -426,6 +426,8 @@ fn apply_meta_patches(state: &Arc<AppState>, gw_id: u32, meta: &serde_json::Valu
             birth: prev.as_ref().map(|q| q.birth.clone()).unwrap_or_default(),
             blood: prev.as_ref().map(|q| q.blood.clone()).unwrap_or_default(),
             conditions: prev.as_ref().map(|q| q.conditions.clone()).unwrap_or_default(),
+            // 연동 EMR 조인 키는 EMR 동기화가 채운다 — META 로 갱신할 때 지우지 않는다
+            emr: prev.as_ref().and_then(|q| q.emr.clone()),
         };
         let changed = prev.as_ref() != Some(&patient);
         state.registry.upsert_meta(&channel_id, patient);

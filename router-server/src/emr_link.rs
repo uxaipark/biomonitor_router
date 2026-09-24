@@ -120,6 +120,9 @@ pub struct Link {
     pub local_mrn: String,
     pub local_room: String,
     pub remote: Remote,
+    /// 어떻게 짝지었는지: "pair"(시험용 순서) · "emr"(에뮬레이터 연동 조인 키) · "mrn"(MRN 값 일치)
+    #[serde(default)]
+    pub matched_by: String,
     pub last_sent_ms: u64,
     pub last_result: String,
     pub ok: u64,
@@ -347,8 +350,14 @@ async fn run_conn(state: Arc<AppState>, id: String, stop: Arc<AtomicBool>) {
             // 매칭된 환자가 생길 때까지는 '보냈음'으로 치지 않는다 — 명단이 차면 바로 첫 전송
             let has_links = state.emr.state.lock().unwrap().get(&id).map(|s| !s.links.is_empty()).unwrap_or(false);
             if has_links && (kicks.contains(&"send") || now.saturating_sub(last_send) >= cfg.interval_s.max(15) * 1000) {
+                let (ok0, fail0) = state.emr.state.lock().unwrap().get(&id).map(|s| (s.sent_ok, s.sent_fail)).unwrap_or((0, 0));
                 let tried = send_all(&state, &cfg).await?;
                 last_send = now_ms();
+                // 한 회차가 전부 실패(예: 기관의 환자 명단이 통째로 바뀜 → 모르는 환자 422)면 명단부터 다시
+                let (ok1, fail1) = state.emr.state.lock().unwrap().get(&id).map(|s| (s.sent_ok, s.sent_fail)).unwrap_or((0, 0));
+                if tried > 0 && ok1 == ok0 && fail1 > fail0 {
+                    last_census = 0;
+                }
                 // 새 수치가 있는 환자가 없었으면(라우터 막 시작 등) 주기를 기다리지 않고 15초 뒤 다시
                 if tried == 0 {
                     last_send = last_send.saturating_sub(cfg.interval_s.max(15) * 1000 - 15_000);
@@ -364,6 +373,7 @@ async fn run_conn(state: Arc<AppState>, id: String, stop: Arc<AtomicBool>) {
                 Ok(_) => {
                     s.backoff_s = 0;
                     s.backoff_until_ms = 0;
+                    s.last_error.clear(); // 복구됐으면 지난 오류는 기록 탭에만
                 }
                 Err(e) => {
                     // 지수 백오프 4 s → 5 분, 풀리면 재원 명단·전송을 바로 다시 시도
@@ -542,7 +552,7 @@ async fn census(state: &AppState, cfg: &ConnCfg) -> Result<(), String> {
         s.census = n;
         s.census_ms = now_ms();
     }
-    state.emr.log(&cfg.id, "census", true, "OK", format!("재원 {n}명 · 매칭 {paired}명 ({})", if cfg.match_mode == "mrn" { "MRN 일치" } else { "시험용 짝짓기" }));
+    state.emr.log(&cfg.id, "census", true, "OK", format!("재원 {n}명 · 매칭 {paired}명 ({})", if cfg.match_mode == "mrn" { "식별자 일치" } else { "시험용 짝짓기" }));
     Ok(())
 }
 
@@ -564,7 +574,7 @@ async fn fhir_census(state: &AppState, cfg: &ConnCfg) -> Result<Vec<Remote>, Str
     let mut url = cfg.census_url.clone();
     let mut out: Vec<Remote> = Vec::new();
     let mut pats: HashMap<String, (String, String)> = HashMap::new(); // id → (name, mrn)
-    for _page in 0..20 {
+    for _page in 0..100 {
         let r = fhir_req(state, cfg, "GET", &url, None).await?;
         if r.status != 200 {
             let m = format!("재원 명단 HTTP {}: {}", r.status, r.text().chars().take(200).collect::<String>());
@@ -946,7 +956,14 @@ async fn adt_poll(state: &AppState, cfg: &ConnCfg) -> Result<(), String> {
 // ───────────────────────────── 매칭 ─────────────────────────────
 
 fn match_patients(state: &AppState, cfg: &ConnCfg, remotes: &[Remote], prev: &[Link]) -> Vec<Link> {
-    let mut locals: Vec<(String, String, String, String)> = state
+    struct Local {
+        ch: String,
+        name: String,
+        mrn: String,
+        room: String,
+        emr: Option<crate::protocol::EmrKey>,
+    }
+    let mut locals: Vec<Local> = state
         .registry
         .snapshot()
         .into_iter()
@@ -956,23 +973,30 @@ fn match_patients(state: &AppState, cfg: &ConnCfg, remotes: &[Remote], prev: &[L
             if !cfg.scope_ward.is_empty() && p.ward != cfg.scope_ward {
                 return None;
             }
-            Some((c.channel_id.clone(), p.name.clone(), c.mrn.clone(), if p.bed.is_empty() { p.room.clone() } else { p.bed.clone() }))
+            Some(Local {
+                ch: c.channel_id.clone(),
+                name: p.name.clone(),
+                mrn: c.mrn.clone(),
+                room: if p.bed.is_empty() { p.room.clone() } else { p.bed.clone() },
+                emr: p.emr.clone().filter(|k| k.site == cfg.site_id),
+            })
         })
         .collect();
-    locals.sort_by(|a, b| a.3.cmp(&b.3).then(a.0.cmp(&b.0)));
-    let mk = |l: &(String, String, String, String), r: &Remote| {
+    locals.sort_by(|a, b| a.room.cmp(&b.room).then(a.ch.cmp(&b.ch)));
+    let mk = |l: &Local, r: &Remote, by: &str| {
         // 같은 (패치, 기관 환자) 짝이면 전송 이력을 이어 붙인다
-        let old = prev.iter().find(|o| o.channel_id == l.0 && o.remote.id == r.id);
+        let old = prev.iter().find(|o| o.channel_id == l.ch && o.remote.id == r.id);
         let mut remote = r.clone();
         if remote.encounter.is_none() {
             remote.encounter = old.and_then(|o| o.remote.encounter.clone());
         }
         Link {
-            channel_id: l.0.clone(),
-            local_name: l.1.clone(),
-            local_mrn: l.2.clone(),
-            local_room: l.3.clone(),
+            channel_id: l.ch.clone(),
+            local_name: l.name.clone(),
+            local_mrn: l.mrn.clone(),
+            local_room: l.room.clone(),
             remote,
+            matched_by: by.to_string(),
             last_sent_ms: old.map(|o| o.last_sent_ms).unwrap_or(0),
             last_result: old.map(|o| o.last_result.clone()).unwrap_or_default(),
             ok: old.map(|o| o.ok).unwrap_or(0),
@@ -982,9 +1006,25 @@ fn match_patients(state: &AppState, cfg: &ConnCfg, remotes: &[Remote], prev: &[L
     let cap = cfg.max_patients.max(1);
     let mut out = Vec::new();
     if cfg.match_mode == "mrn" {
+        // 실제 병원 방식: 같은 사람을 식별자로 찾는다.
+        //  1) 에뮬레이터 연동 병원 조인 키(emr.mrn / fhir_patient_id / 내원번호)  2) 우리 MRN = 기관 등록번호
         for l in &locals {
-            if let Some(r) = remotes.iter().find(|r| !r.ident.is_empty() && (r.ident == l.2 || r.ident == l.2.trim_start_matches("MRN-"))) {
-                out.push(mk(l, r));
+            if out.len() >= cap {
+                break;
+            }
+            let by_emr = l.emr.as_ref().and_then(|k| {
+                remotes.iter().find(|r| {
+                    (!k.fhir_patient_id.is_empty() && r.id == k.fhir_patient_id)
+                        || (!k.mrn.is_empty() && (r.ident == k.mrn || r.id == k.mrn))
+                        || (!k.visit.is_empty() && r.encounter.as_deref() == Some(k.visit.as_str()))
+                })
+            });
+            if let Some(r) = by_emr {
+                out.push(mk(l, r, "emr"));
+                continue;
+            }
+            if let Some(r) = remotes.iter().find(|r| !r.ident.is_empty() && (r.ident == l.mrn || r.ident == l.mrn.trim_start_matches("MRN-"))) {
+                out.push(mk(l, r, "mrn"));
             }
         }
     } else {
@@ -995,17 +1035,17 @@ fn match_patients(state: &AppState, cfg: &ConnCfg, remotes: &[Remote], prev: &[L
             if out.len() >= cap {
                 break;
             }
-            let (Some(l), Some(r)) = (locals.iter().find(|l| l.0 == o.channel_id), remotes.iter().find(|r| r.id == o.remote.id)) else { continue };
-            used_l.insert(l.0.clone());
+            let (Some(l), Some(r)) = (locals.iter().find(|l| l.ch == o.channel_id), remotes.iter().find(|r| r.id == o.remote.id)) else { continue };
+            used_l.insert(l.ch.clone());
             used_r.insert(r.id.clone());
-            out.push(mk(l, r));
+            out.push(mk(l, r, "pair"));
         }
         let free_r: Vec<&Remote> = remotes.iter().filter(|r| !used_r.contains(&r.id)).collect();
-        for (l, r) in locals.iter().filter(|l| !used_l.contains(&l.0)).zip(free_r) {
+        for (l, r) in locals.iter().filter(|l| !used_l.contains(&l.ch)).zip(free_r) {
             if out.len() >= cap {
                 break;
             }
-            out.push(mk(l, r));
+            out.push(mk(l, r, "pair"));
         }
     }
     out.truncate(cap);
@@ -1726,6 +1766,7 @@ mod tests {
             local_mrn: "MRN-1".into(),
             local_room: "103A01-A".into(),
             remote: Remote { id: "M1".into(), ident: "M1".into(), name: "A".into(), location: "".into(), encounter: Some("V1".into()), pid_seg: Some("PID|1||M1^^^PRCH^MR||DOE^JOHN".into()), pv1_seg: Some("PV1|1|I|2MS^201^A^PRCH".into()) },
+            matched_by: "pair".into(),
             last_sent_ms: 0,
             last_result: String::new(),
             ok: 0,

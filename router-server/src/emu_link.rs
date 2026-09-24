@@ -322,6 +322,8 @@ pub fn apply_admissions(state: &Arc<AppState>, v: &serde_json::Value) -> usize {
         if !s(a, "birth").is_empty() {
             p.birth = s(a, "birth");
         }
+        // 연동 EMR 조인 키 (에뮬레이터에서 연동 병원을 골랐을 때만 온다)
+        p.emr = a.get("emr").filter(|e| e.is_object()).and_then(|e| serde_json::from_value(e.clone()).ok()).filter(|k: &crate::protocol::EmrKey| !k.site.is_empty());
         if prev.as_ref() != Some(&p) {
             state.registry.upsert_meta(&channel_id, p);
             state.recompute_channel_groups(&channel_id);
