@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
-import { alarmIndex, gatewayAlarmIndex, GW_STATUS, SEV_LABEL, wardText, wardRoom, patchLife, fmtDays, gwLabel } from '../model.js'
+import { alarmIndex, gatewayAlarmIndex, GW_STATUS, SEV_LABEL, wardText, wardRoom, patchLife, fmtDays, gwLabel, nowPlace } from '../model.js'
 import { openLive } from '../App.jsx'
 import { useMe } from '../auth.js'
 import Dropdown from '../Dropdown.jsx'

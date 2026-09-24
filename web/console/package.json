@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "smoke": "vite build --ssr src/ssr-smoke.jsx --outDir .smoke --emptyOutDir --logLevel warn && node .smoke/ssr-smoke.js"
+    "smoke": "vite build --ssr src/ssr-smoke.jsx --outDir .smoke --emptyOutDir --logLevel warn && node .smoke/ssr-smoke.js",
+    "check:undef": "eslint -c eslint.undef.config.mjs --no-config-lookup src"
   },
   "dependencies": {
     "react": "^18.3.1",
