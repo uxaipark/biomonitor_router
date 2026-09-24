@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { api, usePoll, fmtBytes, fmtNum } from '../api.js'
 
 /**
- * 테스트 › 운영 통계 — long-term (24/7/365) operating statistics.
+ * 대시보드 (운영 통계) — long-term (24/7/365) operating statistics.
  * The router samples itself every 2 s and writes one row per minute into SQLite (minute rows for 14 days,
  * hourly rows kept for years). This page reads the aggregated series and shows load, capacity, throughput,
  * availability and incidents over a day, week, month, quarter or year.
@@ -24,13 +24,13 @@ const fmtDur = (s) => {
 }
 
 /** Small multi-series SVG chart: no dependencies, fixed viewBox, lines scaled to a shared max. */
-function Chart({ points, series, range, height = 130, unit = '', stack = false }) {
+function Chart({ points, series, range, height = 130, unit = '', stack = false, fixedMax }) {
   const W = 1000, H = height, pad = { l: 46, r: 8, t: 8, b: 16 }
   const vals = (s) => points.map((p) => (s.get ? s.get(p) : p[s.key]) ?? 0)
   const all = series.flatMap(vals)
   const max = Math.max(1e-9, ...all)
   const nice = (v) => { const e = Math.pow(10, Math.floor(Math.log10(v))); const m = v / e; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * e }
-  const top = nice(max * 1.1)
+  const top = fixedMax || nice(max * 1.1)
   const x = (i) => pad.l + (points.length < 2 ? 0 : (i / (points.length - 1)) * (W - pad.l - pad.r))
   const y = (v) => H - pad.b - (Math.max(0, v) / top) * (H - pad.t - pad.b)
   const path = (s) => vals(s).map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
@@ -95,7 +95,7 @@ export default function OpsStats() {
   return (
     <div className="page">
       <div className="toolbar">
-        <h2 className="h" style={{ margin: 0 }}>운영 통계</h2>
+        <h2 className="h" style={{ margin: 0 }}>대시보드 <small className="muted">운영 통계</small></h2>
         <span className="seg">{RANGES.map(([k, l]) => <button key={k} className={range === k ? 'active' : ''} onClick={() => setR(k)}>{l}</button>)}</span>
         <span className="muted">
           {info?.first_ts ? `수집 시작 ${new Date(info.first_ts * 1000).toLocaleString('ko-KR')}` : '수집 시작 —'}
@@ -116,7 +116,7 @@ export default function OpsStats() {
         <Tile label="유실 / 드롭" value={`${fmtNum(tot.lost || 0)} / ${fmtNum(tot.drops || 0)}`} sub={`WS 지연 ${fmtNum(tot.lag || 0)}`} warn={(tot.drops || 0) > 0} />
       </div>
       <div className="ops-grid2">
-        <section><h4>CPU (%, 1코어 = 100)</h4><Chart points={pts} range={range} unit="" series={[
+        <section><h4>CPU (%, 1코어 = 100 · 4코어 최대 400)</h4><Chart points={pts} range={range} unit="" fixedMax={400} series={[
           { key: 'cpu', label: '라우터 평균', color: '#3ddc84', area: true },
           { key: 'cpu_max', label: '라우터 최대', color: '#ff9f6b' },
           { key: 'cpu_sys', label: '시스템 전체', color: '#7cc4ff' },

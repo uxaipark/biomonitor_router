@@ -27,7 +27,9 @@ import { LiveModal } from './pages/LiveModal.jsx'
 
 // [hash, 메뉴 이름, 페이지, 묶음 메뉴(선택), 권한 자원]
 const PAGES = [
-  ['#/', '대시보드', Dashboard, null, 'page.dashboard'],
+  // 첫 화면 = 대시보드(운영 통계). 권한이 없으면(의료진) 볼 수 있는 첫 메뉴(이벤트보드)로. 머리글 제목을 누르면 여기로.
+  ['#/', '대시보드', OpsStats, null, 'page.ops'],
+  ['#/board', '이벤트보드', Dashboard, null, 'page.dashboard'],
   ['#/alarms', '알람', Alarms, null, 'page.alarms'],
   ['#/events', '이벤트', Events, null, 'page.events'],
   ['#/patients', '환자', Patients, null, 'page.patients'],
@@ -37,7 +39,6 @@ const PAGES = [
   // entries with a 4th element hang under that top-menu group (rendered as a custom nav menu)
   ['#/live', '실시간', Live, '테스트', 'page.test'],
   ['#/test/multiviewer', '멀티 뷰어 테스트', MultiViewerTest, '테스트', 'page.test'],
-  ['#/test/ops', '운영 통계', OpsStats, '테스트', 'page.ops'],
   ['#/test/data', '데이터 관리', DataAdmin, '테스트', 'page.data_admin'],
   ['#/settings/viewer', '뷰어 설정', ViewerSettings, '설정', 'page.settings_viewer'],
   ['#/settings/biosignal', '생체 데이터 관리', BiosignalAdmin, '설정', 'page.settings_biosignal'],
@@ -182,11 +183,13 @@ function Console({ me, setMe }) {
     return () => window.removeEventListener('open-live', f)
   }, [])
 
-  const base = hash.split('?')[0]
+  const base0 = hash.split('?')[0]
+  const base = base0 === '#/test/ops' || base0 === '#/dashboard' ? '#/' : base0 // 운영 통계 옛 주소
   // old bookmark '#/settings' → 뷰어 설정
   // 다른 병원 계정은 이 라우터에서 관리 메뉴만 (데이터 메뉴는 숨김)
   const allowed = PAGES.filter((p) => can(me, p[4]) && (me.site.accessible || p[0].startsWith('#/admin/')))
-  const page = PAGES.find(([h]) => h === (base === '#/settings' ? '#/settings/viewer' : base)) || allowed[0] || PAGES[0]
+  let page = PAGES.find(([h]) => h === (base === '#/settings' ? '#/settings/viewer' : base)) || allowed[0] || PAGES[0]
+  if (page[0] === '#/' && !can(me, page[4]) && allowed[0]) page = allowed[0] // 대시보드 권한 없음 → 볼 수 있는 첫 화면
   // 이 라우터의 병원에 속하지 않은 계정: 관리 화면 외에는 데이터가 없다(서버가 403) — 빈 화면 대신 안내
   const blocked = !me.site.accessible && !page[0].startsWith('#/admin/')
   const Page = blocked ? () => <SiteBlocked me={me} /> : can(me, page[4]) ? page[2] : () => <NoAccess label={page[1]} />
@@ -205,9 +208,9 @@ function Console({ me, setMe }) {
         <a className="brand" href="#/"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)" /><path d="M4 13h4l2-5 3 9 2-6 1.5 2H20" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>{appTitle(me.user)}</a>
         <nav>
           {allowed.filter((p) => !p[3]).map(([h, label]) => (
-            <a key={h} href={h} className={base === h ? 'active' : ''}>{label}{h === '#/alarms' && s.unacked > 0 && <span className="badge">{s.unacked}</span>}</a>
+            <a key={h} href={h} className={page[0] === h ? 'active' : ''}>{label}{h === '#/alarms' && s.unacked > 0 && <span className="badge">{s.unacked}</span>}</a>
           ))}
-          {menus.map((m) => <NavMenu key={m} label={m} base={base} items={allowed.filter((p) => p[3] === m)} hints={navHints} />)}
+          {menus.map((m) => <NavMenu key={m} label={m} base={page[0]} items={allowed.filter((p) => p[3] === m)} hints={navHints} />)}
         </nav>
         <span className="spacer" />
         <span className={'pill ' + (health?.ok ? 'ok' : 'err')} title={`라우터 API ${health?.ok ? '정상' : '응답 없음'}`}>라우터</span>
