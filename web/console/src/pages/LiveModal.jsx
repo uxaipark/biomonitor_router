@@ -5,6 +5,7 @@ import { WaveCanvas } from '../WaveCard.jsx'
 import { AccelPlot, accelNow, ACCEL_COLORS } from '../AccelPlot.jsx'
 import { alarmIndex, flagNames, SEV_LABEL, FLAG_LABEL, FLAG_WARN, patchLife, fmtDays, PATCH_WEAR_DAYS, PATCH_BATTERY_DAYS, homePlace, nowPlace, gwLabel } from '../model.js'
 import HistoryPanel from '../viewer/History.jsx'
+import { go } from '../ListKit.jsx'
 import '../viewer/ds.css'
 import { useMe, canBio, canPhi } from '../auth.js'
 
@@ -49,7 +50,7 @@ const POSTURE = { supine: '앙와위', prone: '복와위', left: '좌측와위',
  * 순서는 보는 사람에 따라: 병원 계정(의료진·IT) = 입원 기록 → 임상 → 기기·전송(맨 아래),
  * 플랫폼 계정(수퍼 어드민·시스템 관리자·리셀러·영업) = 패치 사양·센서 → 임상 → 입원 기록.
  */
-function EmrPanel({ emr, p, row, platform }) {
+function EmrPanel({ emr, p, row, platform, onMap }) {
   const rt = emr.runtime || {}
   const adm = emr.admission || {}
   const mon = adm.monitoring || {}
@@ -69,7 +70,12 @@ function EmrPanel({ emr, p, row, platform }) {
         <Row k="상태">{emr.status}{adm.mode ? ` · ${adm.mode === 'inpatient' ? '입원' : adm.mode}` : ''}</Row>
         {adm.time && <Row k="입원">{dt16(adm.time)} · {adm.ward_name || adm.ward} {adm.bed}</Row>}
         <Row k="입원 병실">{[rt.home_where, adm.ward_name, adm.room && `병실 ${adm.room}`, bed && `침상 ${adm.bed}`].filter(Boolean).join(' · ') || placeText(p, row.space)}</Row>
-        {rt.location && <Row k="현재 위치">{[rt.location_where, rt.location !== rt.home_room ? rt.location_name || rt.location : `입원 병실 내 ${rt.location}`].filter(Boolean).join(' ')}{rt.trip_active && <span className="lm-warn"> · 이동 중</span>}</Row>}
+        {rt.location && (
+          <Row k="현재 위치">
+            {[rt.location_where, rt.location !== rt.home_room ? rt.location_name || rt.location : `입원 병실 내 ${rt.location}`].filter(Boolean).join(' ')}{rt.trip_active && <span className="lm-warn"> · 이동 중</span>}
+            {onMap && <> · <a className="lk-link" onClick={() => onMap(rt)} title="병원 지도에서 지금 위치 보기">지도에서 보기</a></>}
+          </Row>
+        )}
         {(rt.doctor || rt.nurse) && <Row k="담당">{[staff(rt.doctor), staff(rt.nurse)].filter(Boolean).join(' / ')}</Row>}
         <Row k="번호"><span className="mono">#{adm.patient_no || rt.patient_no || '—'} · {emr.mrn}</span></Row>
         <Row k="환자">{[emr.nationality_label, emr.height_cm && `${emr.height_cm} cm`, emr.weight_kg && `${emr.weight_kg} kg`, emr.bmi && `BMI ${emr.bmi}`].filter(Boolean).join(' · ')}</Row>
@@ -171,6 +177,14 @@ export function LiveModal({ channelId, alarms, onClose }) {
   const alarm = aidx.get(channelId)
   const bat = live?.battery ?? row.battery
   const life = patchLife(row, bat)
+  // 지금 위치를 병원 지도에: 도면의 실이면 그 실, 아니면(복도·홀) 붙어 있는 게이트웨이, 그것도 없으면 그 건물·층. 모달은 닫는다
+  const showOnMap = (rt) => {
+    const [bn, fl] = String(rt.location_where || '').split(' ')
+    const b = ['본관', '별관', '신관'].indexOf(bn)
+    const gw = rt.gateway && rt.gateway_idx != null && rt.gateway_idx >= 0 ? rt.gateway_idx + 1 : ''
+    onClose()
+    go('#/map', { room: rt.location, gw, b: b >= 0 ? b : '', f: parseInt(fl, 10) || '' })
+  }
   const rssi = live?.rssi ?? row.rssi
   const acc = accelNow(channelId)
   const ix = idx?.index
@@ -269,7 +283,7 @@ export function LiveModal({ channelId, alarms, onClose }) {
             </section>
             <section className="lm-card">
               <h4>환자 정보</h4>
-              {emr ? <EmrPanel emr={emr} p={p} row={row} platform={!me?.user?.tenant_id} /> : <p className="muted">EMR 정보를 불러오지 못했습니다.</p>}
+              {emr ? <EmrPanel emr={emr} p={p} row={row} platform={!me?.user?.tenant_id} onMap={showOnMap} /> : <p className="muted">EMR 정보를 불러오지 못했습니다.</p>}
             </section>
             <section className="lm-card">
               <h4>파형 저장</h4>
