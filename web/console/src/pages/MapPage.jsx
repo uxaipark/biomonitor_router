@@ -122,16 +122,17 @@ export default function MapPage({ alarms, hash }) {
   const [linked, setLinked] = useState('')
   useEffect(() => {
     const qs = new URLSearchParams((hash || '').split('?')[1] || '')
-    const key = ['pat', 'gw', 'room'].map((k) => qs.get(k) || '').join('|')
-    if (key === '||' || key === linked || !layout || !rows) return
+    const key = ['pat', 'gw', 'room', 'b', 'f'].map((k) => qs.get(k) || '').join('|')
+    if (key === '||||' || key === linked || !layout || !rows) return
     setLinked(key)
     const pat = qs.get('pat'), gwq = qs.get('gw'), room = qs.get('room')
+    // 우선순위: 환자 → 도면에 있는 실 → 게이트웨이(실이 아닌 복도·홀은 가까운 게이트웨이) → 층만
+    const f = room && floors.find((x) => (x.rooms || []).some((r) => r.id === room))
+    const g = gwq && (layout.gateways || []).find((x) => String(x.gw_no) === gwq && x.mount !== 'mobile')
     if (pat) { const r = rows.find((x) => x.channel_id === pat); if (r) pickResult({ kind: 'patient', row: r }) }
-    else if (gwq) { const g = (layout.gateways || []).find((x) => String(x.gw_no) === gwq && x.mount !== 'mobile'); if (g) { pickResult({ kind: 'gw', g }); setPick({ gw: gwq }) } }
-    else if (room) {
-      const f = floors.find((x) => (x.rooms || []).some((r) => r.id === room))
-      if (f) { setSel({ b: f.building_idx, f: f.floor }); setPick({ room }); setHl({ type: 'room', id: room }) }
-    }
+    else if (f) { setSel({ b: f.building_idx, f: f.floor }); setPick({ room }); setHl({ type: 'room', id: room }) }
+    else if (g) { pickResult({ kind: 'gw', g }); setPick({ gw: gwq }) }
+    else if (qs.has('b') || qs.has('f')) setSel({ b: Number(qs.get('b') || 0), f: Number(qs.get('f') || 1) })
   }, [hash, layout, rows]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // RF 커버리지: 벽 선분과 게이트웨이별 다각형은 층이 바뀔 때만 다시 계산한다 (광선 240개 × 벽 수 × 게이트웨이 수)

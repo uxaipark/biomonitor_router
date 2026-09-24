@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 import { api, usePoll } from '../api.js'
 import { openLive } from '../App.jsx'
-import { useQuery, go, Cols, tableMin, GwLink, RoomLink } from '../ListKit.jsx'
+import { useQuery, go, Cols, tableMin, GwName, RoomLink } from '../ListKit.jsx'
 
 /**
  * 이동 중 환자 (에뮬레이터 `/api/v1/emr/trips`, 라우터 EMR 프록시): 검사·방문·전동·화장실·산책·재활 이동의
@@ -94,10 +94,12 @@ export default function Trips({ bedIndex }) {
                     {t.patch_removed && <div className="small warn">패치 분리 (MRI)</div>}
                   </td>
                   <td>
-                    {t.location_name} <small className="muted mono">{t.location}</small>
+                    <a className="lk-link" onClick={() => go('#/map', { room: t.location, gw: gwNo, b: t.building_idx, f: t.floor })} title="병원 지도에서 보기">{t.location_name} <small className="muted mono">{t.location}</small></a>
                     <div className="muted small">{BLD[t.building_idx] || ''} {t.floor}F</div>
                   </td>
-                  <td>{t.shadow || gwNo == null ? <span className="tag small warn">음영 · 연결 없음</span> : <GwLink id={gwNo} name={t.gateway} />}</td>
+                  <td>{t.shadow || gwNo == null
+                    ? <a className="lk-link" onClick={() => go('#/map', { room: t.location, b: t.building_idx, f: t.floor })} title="병원 지도에서 이 위치 보기"><span className="tag small warn">음영 · 연결 없음</span></a>
+                    : <a className="lk-link mono" onClick={() => go('#/map', { gw: gwNo })} title="병원 지도에서 이 게이트웨이 보기"><GwName id={gwNo} name={t.gateway} /></a>}</td>
                   <td>
                     <div className={'tr-bar' + (t.shadow ? ' shadow' : '')}><i style={{ width: `${pct.toFixed(1)}%` }} /></div>
                     <div className="muted small">경과 {dur(t.elapsed)} · 남은 {dur(t.total_remaining)}</div>
