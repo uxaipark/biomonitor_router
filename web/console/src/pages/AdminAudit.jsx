@@ -5,6 +5,7 @@ const ACTION = {
   login: '로그인', login_fail: '로그인 실패', logout: '로그아웃', password_change: '비밀번호 변경', password_reset: '비밀번호 초기화',
   user_create: '계정 생성', user_update: '계정 수정', tenant_create: '병원 추가', tenant_update: '병원 수정',
   permissions_save: '권한 저장', dev_mode: '개발 모드',
+  wave_reset: '파형 저장소 전체 삭제', backup_abort: '백업 중단', backup_purge: '백업 파일 전체 삭제', backup_policy: '저장·백업 정책 변경',
   emr_connection_create: 'EMR 연결 추가', emr_connection_update: 'EMR 연결 변경', emr_connection_delete: 'EMR 연결 삭제',
 }
 

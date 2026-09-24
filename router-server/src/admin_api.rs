@@ -630,7 +630,12 @@ async fn patch_index(State(state): State<Arc<AppState>>, Extension(p): Extension
     let r = tokio::task::spawn_blocking(move || {
         crate::patch_store::read_index(&root, pid).map(|ix| {
             let files = crate::patch_store::list_files(&root, pid);
-            serde_json::json!({ "index": ix, "files": files.iter().map(|(k, p, n)| serde_json::json!({"hour": k, "path": p, "bytes": n})).collect::<Vec<_>>() })
+            serde_json::json!({ "index": ix, "files": files.iter().map(|(k, p, n)| {
+                let seal = crate::patch_store::read_seal(p);
+                let (a, b) = crate::patch_store::key_range(k).unwrap_or((0, 0));
+                serde_json::json!({"hour": k, "path": p, "bytes": n, "start_ms": a, "end_ms": b,
+                                   "sealed": seal.is_some(), "sealed_ok": seal.as_ref().map(|s| s.ok), "crc32": seal.as_ref().map(|s| s.crc32.clone())})
+            }).collect::<Vec<_>>() })
         })
     })
     .await
@@ -939,7 +944,8 @@ async fn reset_loss(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
 /// 파형 저장소 리셋 — 기록 태스크가 핸들을 닫고 저장 파일 전체를 삭제한다.
 /// 삭제 후 유입되는 파형부터 새 파일로 저장이 이어진다 (리포트 과거 구간은 사라짐).
-async fn wave_reset(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+async fn wave_reset(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> impl IntoResponse {
+    state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "wave_reset", "로컬 파형 저장소 전체 삭제");
     state.send_store(crate::patch_store::StoreOp::Reset);
     state.push_event("wave_reset", None, "패치 저장소 리셋 — 저장 파일 전체 삭제".into());
     Json(serde_json::json!({"ok": true}))
@@ -1010,7 +1016,7 @@ async fn delete_group(
     StatusCode::OK.into_response()
 }
 
-// ---------------------------------------------------------------- 파형 백업 (설정 › 생체신호 관리)
+// ---------------------------------------------------------------- 파형 백업 (설정 › 생체 데이터 관리)
 
 fn bk_result(r: Result<serde_json::Value, String>) -> axum::response::Response {
     match r {
@@ -1024,9 +1030,11 @@ async fn backup_status(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     Json(tokio::task::spawn_blocking(move || b.status()).await.unwrap_or_default())
 }
 
-async fn backup_policy(State(state): State<Arc<AppState>>, Json(p): Json<crate::backup::Policy>) -> impl IntoResponse {
+async fn backup_policy(State(state): State<Arc<AppState>>, Extension(who): Extension<Principal>, Json(p): Json<crate::backup::Policy>) -> impl IntoResponse {
+    let detail = format!("저장 단위 {}시간 · 사본 {} · 삭제 {} · 검증 {} · {}", p.block_hours, p.copies, p.delete_mode, p.verify, if p.paused { "일시 중지" } else { "전송 중" });
     let r = state.backup.set_policy(p).map(|_| serde_json::json!({ "ok": true }));
     if r.is_ok() {
+        state.auth.audit(&who.username, who.tenant_id.as_deref().unwrap_or(""), "backup_policy", &detail);
         state.push_event("backup_config", None, "백업 정책 변경".into());
     }
     bk_result(r)
@@ -1088,9 +1096,10 @@ async fn backup_catalog_sync(State(state): State<Arc<AppState>>, Path(id): Path<
 }
 
 /// 백업 중단: 전송 중인 파일까지 바로 끊고 일시 중지
-async fn backup_abort(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+async fn backup_abort(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> impl IntoResponse {
     let r = state.backup.abort().map(|n| serde_json::json!({ "ok": true, "killed": n }));
-    if r.is_ok() {
+    if let Ok(v) = &r {
+        state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "backup_abort", &format!("전송 중 {}건 종료", v["killed"]));
         state.push_event("backup_config", None, "백업 중단 (사용자)".into());
     }
     bk_result(r)
@@ -1101,13 +1110,14 @@ async fn backup_abort(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 struct PurgeBody {
     confirm: String,
 }
-async fn backup_catalog_purge(State(state): State<Arc<AppState>>, Path(id): Path<String>, Json(b): Json<PurgeBody>) -> impl IntoResponse {
+async fn backup_catalog_purge(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(id): Path<String>, Json(b): Json<PurgeBody>) -> impl IntoResponse {
     let Some(t) = state.backup.target(&id) else { return bk_result(Err("대상 없음".into())) };
     if b.confirm.trim() != t.name.trim() {
         return bk_result(Err("확인 문구가 대상 이름과 다릅니다".into()));
     }
     let r = state.backup.purge_target(&id).map(|_| serde_json::json!({ "ok": true }));
     if r.is_ok() {
+        state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "backup_purge", &format!("{} ({})", t.name, t.id));
         state.push_event("backup_config", None, format!("백업 파일 전체 삭제 시작: {}", t.name));
     }
     bk_result(r)

@@ -1,7 +1,10 @@
 //! Per-patch record store (all channels, raw as received, entry CRC), byte-compatible with the Python draft
 //! `router/store.py` so `verify_file()` there reads these files too.
 //!
-//! Layout:  `<root>/patches/<patch_id 8 digits>/<YYYYMMDD-HH>.rec[.gz]`  hourly append-only files (UTC hour of ts_ms)
+//! Layout:  `<root>/patches/<patch_id 8 digits>/<YYYYMMDD-HH>_<N>h.rec[.gz]`  N-hour append-only files (UTC block
+//!          start; N = storage unit setting, default 2; before 2026-09-24 hourly `<YYYYMMDD-HH>.rec[.gz]` — all are read)
+//!          `<root>/patches/<patch_id>/<key>.sum`                         seal of a closed file: whole-file CRC-32 +
+//!          SHA-256, entry count, bad-CRC entries (JSON). Written only after the per-entry CRC walk — backup waits for it
 //!          `<root>/patches/<patch_id>/index.json`                        first/last ts, record & byte counts, lost packets
 //!          `<root>/meta/gw_<gw_id>.json`                                 last META block of every gateway (written on change)
 //!
@@ -51,7 +54,7 @@ pub static LIVE_INDEX: std::sync::LazyLock<dashmap::DashMap<u32, PatchIndex>> = 
 /// is slow (2,000 appends ≈ 0.3–7 s) and must never block the drain: the writer owns every file handle.
 enum WriteOp {
     Append { pid: u32, hour: String, bytes: Vec<u8> },
-    /// The hour file `hour` of `pid` is complete: close it and hand it to gzip.
+    /// The block file `hour` of `pid` is complete: close it and hand it to the sealer (integrity check [+ gzip]).
     Close { pid: u32, hour: String },
     Index { pid: u32, json: String },
     /// Reply once everything queued before this op is on disk.
@@ -83,6 +86,9 @@ fn file_writer(root: PathBuf, rx: std::sync::mpsc::Receiver<WriteOp>, gzip_tx: s
                         if fs::create_dir_all(&dir).is_err() {
                             continue;
                         }
+                        // appending to a file that was already sealed (patch back within the same block): the seal
+                        // no longer covers it — it is re-sealed when the file closes again
+                        let _ = fs::remove_file(dir.join(format!("{hour}.sum")));
                         match OpenOptions::new().create(true).append(true).open(dir.join(format!("{hour}.rec"))) {
                             Ok(f) => {
                                 open.insert(pid, (hour.clone(), f, Instant::now()));
@@ -238,6 +244,129 @@ pub struct PatchStore {
 
 pub fn patch_dir(root: &Path, patch_id: u32) -> PathBuf {
     root.join("patches").join(format!("{patch_id:08}"))
+}
+
+/// Storage block: one file per patch per N UTC hours, N from the backup policy (생체 데이터 관리 › 저장 단위,
+/// default 2). N divides 24 so blocks line up with UTC midnight (00–02, 02–04, …).
+pub static BLOCK_HOURS: AtomicU64 = AtomicU64::new(2);
+pub const BLOCK_CHOICES: [u32; 8] = [1, 2, 3, 4, 6, 8, 12, 24];
+
+/// File key of the block holding `ts_ms`: `YYYYMMDD-HH_<N>h` (HH = block start).
+pub fn block_key(ts_ms: u64) -> String {
+    let h = BLOCK_HOURS.load(Ordering::Relaxed).clamp(1, 24);
+    let ms = h * 3_600_000;
+    format!("{}_{}h", hour_key(ts_ms / ms * ms), h)
+}
+
+/// UTC [start, end) of a file key: `YYYYMMDD-HH_<N>h` = N hours, legacy `YYYYMMDD-HH` = 1 hour.
+pub fn key_range(key: &str) -> Option<(u64, u64)> {
+    if key.len() < 11 {
+        return None;
+    }
+    let y: i64 = key[0..4].parse().ok()?;
+    let m: i64 = key[4..6].parse().ok()?;
+    let d: i64 = key[6..8].parse().ok()?;
+    let h: i64 = key[9..11].parse().ok()?;
+    // days from civil (Howard Hinnant)
+    let (y2, m2) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
+    let era = if y2 >= 0 { y2 } else { y2 - 399 } / 400;
+    let yoe = y2 - era * 400;
+    let doy = (153 * m2 + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468;
+    let start = ((days * 24 + h) * 3_600_000) as u64;
+    let hours: u64 = key[11..].strip_prefix('_').and_then(|x| x.strip_suffix('h')).and_then(|x| x.parse().ok()).unwrap_or(1);
+    let span = hours.clamp(1, 24) * 3_600_000;
+    Some((start, start + span))
+}
+
+/// Seal of a closed store file (`<key>.sum` next to it).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Seal {
+    /// file name the seal covers (`<key>.rec` or `<key>.rec.gz`)
+    pub file: String,
+    pub size: u64,
+    /// CRC-32 (zlib) of the whole file, hex
+    pub crc32: String,
+    /// SHA-256 of the whole file, hex
+    pub sha256: String,
+    pub entries: u64,
+    /// entries whose own CRC-32 failed (0 = intact)
+    pub bad_entries: u64,
+    pub first_ts_ms: u64,
+    pub last_ts_ms: u64,
+    pub sealed_ms: u64,
+    pub ok: bool,
+}
+
+/// `…/<key>.rec[.gz]` → `…/<key>.sum`
+pub fn seal_path(data: &Path) -> PathBuf {
+    let name = data.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let key = name.strip_suffix(".rec.gz").or_else(|| name.strip_suffix(".rec")).unwrap_or(&name);
+    data.with_file_name(format!("{key}.sum"))
+}
+
+/// The seal of a data file, if present and still matching its current size.
+pub fn read_seal(data: &Path) -> Option<Seal> {
+    let s: Seal = serde_json::from_str(&fs::read_to_string(seal_path(data)).ok()?).ok()?;
+    let size = fs::metadata(data).ok()?.len();
+    (s.size == size && Some(s.file.as_str()) == data.file_name().and_then(|n| n.to_str())).then_some(s)
+}
+
+/// Integrity check of a closed file: walk every entry (per-entry CRC), optionally gzip it, then CRC-32 + SHA-256
+/// the final file and write `<key>.sum`. One read of the data (the walk and the hashes share the buffer).
+pub fn seal_file(path: &Path, gzip_level: u32) -> std::io::Result<Seal> {
+    use sha2::{Digest, Sha256};
+    let buf = read_file(path)?;
+    let (mut first, mut last) = (u64::MAX, 0u64);
+    let (entries, bad) = walk_entries(&buf, |e| {
+        first = first.min(e.ts_ms);
+        last = last.max(e.ts_ms);
+    });
+    let mut final_path = path.to_path_buf();
+    let mut bytes = buf;
+    let is_gz = path.extension().map(|e| e == "gz").unwrap_or(false);
+    if gzip_level > 0 && !is_gz {
+        let gz = path.with_extension("rec.gz");
+        let tmp = path.with_extension("rec.gz.tmp");
+        let mut enc = flate2::write::GzEncoder::new(Vec::with_capacity(bytes.len() / 2), flate2::Compression::new(gzip_level));
+        enc.write_all(&bytes)?;
+        let out = enc.finish()?;
+        {
+            let mut f = File::create(&tmp)?;
+            f.write_all(&out)?;
+            f.sync_all()?;
+        }
+        fs::rename(&tmp, &gz)?;
+        let before = bytes.len() as u64;
+        fs::remove_file(path)?;
+        STORE_BYTES.fetch_add(out.len() as u64, Ordering::Relaxed);
+        STORE_BYTES.fetch_sub(before.min(STORE_BYTES.load(Ordering::Relaxed)), Ordering::Relaxed);
+        final_path = gz;
+        bytes = out;
+    } else if is_gz {
+        bytes = fs::read(path)?; // hashes cover the stored (compressed) bytes
+    }
+    let seal = Seal {
+        file: final_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        size: bytes.len() as u64,
+        crc32: format!("{:08x}", wire::crc32(&bytes)),
+        sha256: Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect(),
+        entries,
+        bad_entries: bad,
+        first_ts_ms: if entries > 0 { first } else { 0 },
+        last_ts_ms: last,
+        sealed_ms: crate::protocol::now_ms(),
+        ok: bad == 0,
+    };
+    let sp = seal_path(&final_path);
+    let tmp = sp.with_extension("sum.tmp");
+    fs::write(&tmp, serde_json::to_vec_pretty(&seal).unwrap_or_default())?;
+    fs::rename(&tmp, &sp)?;
+    if !seal.ok {
+        warn!("store: {} sealed with {} bad-CRC entries of {}", final_path.display(), bad, entries + bad);
+    }
+    Ok(seal)
 }
 
 /// UTC hour key `YYYYMMDD-HH` for a unix-ms timestamp (no timezone crate: civil-from-days algorithm).
@@ -416,10 +545,8 @@ pub fn read_index(root: &Path, patch_id: u32) -> Option<PatchIndex> {
 /// ECG samples of a patch in [from_ms, to_ms): (ts_ms, seq, samples in mV).
 pub fn read_ecg_range(root: &Path, patch_id: u32, from_ms: u64, to_ms: u64) -> Vec<(u64, u32, Vec<f32>)> {
     let mut out = Vec::new();
-    let from_key = hour_key(from_ms);
-    let to_key = hour_key(to_ms);
     for (key, path, _) in list_files(root, patch_id) {
-        if key < from_key || key > to_key {
+        if !key_range(&key).map(|(a, b)| a < to_ms && b > from_ms).unwrap_or(false) {
             continue;
         }
         let _ = stream_entries_in(&path, from_ms, to_ms, |e| {
@@ -518,10 +645,8 @@ pub fn stream_entries_in(path: &Path, from_ms: u64, to_ms: u64, mut f: impl FnMu
 /// All waveform channels (int16: ECG, accel, PPG, resp wave) and pace marks of a patch in [from_ms, to_ms).
 pub fn read_wave_range(root: &Path, patch_id: u32, from_ms: u64, to_ms: u64) -> Vec<WaveRec> {
     let mut out = Vec::new();
-    let from_key = hour_key(from_ms);
-    let to_key = hour_key(to_ms);
     for (key, path, _) in list_files(root, patch_id) {
-        if key < from_key || key > to_key {
+        if !key_range(&key).map(|(a, b)| a < to_ms && b > from_ms).unwrap_or(false) {
             continue;
         }
         let _ = stream_entries_in(&path, from_ms, to_ms, |e| {
@@ -620,21 +745,28 @@ impl PatchStore {
         store
     }
 
+    /// Closed files without a valid seal (left by a previous run, or written before seals existed) are sealed now.
+    /// The current block's files are still being written and are sealed at rollover.
     fn queue_stale_rec_files(&self) {
-        let now_key = hour_key(crate::protocol::now_ms());
+        let now_key = block_key(crate::protocol::now_ms());
+        let mut n = 0usize;
         if let Ok(rd) = fs::read_dir(self.root.join("patches")) {
             for d in rd.flatten() {
                 if let Ok(files) = fs::read_dir(d.path()) {
                     for f in files.flatten() {
                         let name = f.file_name().to_string_lossy().to_string();
-                        if let Some(key) = name.strip_suffix(".rec") {
-                            if key < now_key.as_str() {
+                        if let Some(key) = name.strip_suffix(".rec").or_else(|| name.strip_suffix(".rec.gz")) {
+                            if key != now_key && read_seal(&f.path()).is_none() {
                                 let _ = self.gzip_tx.send(f.path());
+                                n += 1;
                             }
                         }
                     }
                 }
             }
+        }
+        if n > 0 {
+            info!("store: {} closed files queued for sealing (integrity check)", n);
         }
     }
 
@@ -665,7 +797,7 @@ impl PatchStore {
         let patch_id = u32::from_le_bytes(raw[0..4].try_into().unwrap());
         let patient_id = u32::from_le_bytes(raw[4..8].try_into().unwrap());
         let seq = u32::from_le_bytes(raw[8..12].try_into().unwrap());
-        let key = hour_key(ts_ms);
+        let key = block_key(ts_ms);
         let root = self.root.clone();
         let pb = self.patches.entry(patch_id).or_insert_with(|| {
             let existing = read_index(&root, patch_id);
@@ -828,6 +960,7 @@ impl PatchStore {
                 continue;
             }
             if fs::remove_file(&path).is_ok() {
+                let _ = fs::remove_file(seal_path(&path));
                 total = total.saturating_sub(size);
                 removed += size;
                 crate::backup::forgotten(rel);
@@ -842,6 +975,7 @@ impl PatchStore {
                     break;
                 }
                 if fs::remove_file(&path).is_ok() {
+                    let _ = fs::remove_file(seal_path(&path));
                     total = total.saturating_sub(size);
                     free += size;
                     blocked_bytes -= size;
@@ -893,37 +1027,26 @@ impl PatchStore {
     }
 }
 
+/// Sealer: every closed block file gets its integrity check ([gzip] + CRC-32/SHA-256 seal), one at a time.
 fn gzip_worker(rx: std::sync::mpsc::Receiver<PathBuf>, level: u32) {
     while let Ok(path) = rx.recv() {
-        if level == 0 {
-            continue; // compression disabled: the .rec stays as written (read paths handle both)
-        }
-        if !path.exists() {
+        // the writer hands over `<key>.rec`; a previous run may have left it gzipped already
+        let path = if path.exists() {
+            path
+        } else {
+            let gz = path.with_extension("rec.gz");
+            if gz.exists() && !path.to_string_lossy().ends_with(".gz") {
+                gz
+            } else {
+                continue;
+            }
+        };
+        if read_seal(&path).is_some() {
             continue;
         }
-        let gz = path.with_extension("rec.gz");
-        let tmp = path.with_extension("rec.gz.tmp");
-        let res = (|| -> std::io::Result<(u64, u64)> {
-            let mut src = File::open(&path)?;
-            let before = src.metadata()?.len();
-            let mut enc = flate2::write::GzEncoder::new(File::create(&tmp)?, flate2::Compression::new(level));
-            std::io::copy(&mut src, &mut enc)?;
-            let out = enc.finish()?;
-            out.sync_all()?;
-            fs::rename(&tmp, &gz)?;
-            let after = fs::metadata(&gz)?.len();
-            fs::remove_file(&path)?;
-            Ok((before, after))
-        })();
-        match res {
-            Ok((before, after)) => {
-                STORE_BYTES.fetch_add(after, Ordering::Relaxed);
-                STORE_BYTES.fetch_sub(before.min(STORE_BYTES.load(Ordering::Relaxed)), Ordering::Relaxed);
-            }
-            Err(e) => {
-                warn!("store: gzip {} failed: {}", path.display(), e);
-                let _ = fs::remove_file(&tmp);
-            }
+        if let Err(e) = seal_file(&path, level) {
+            warn!("store: seal {} failed: {}", path.display(), e);
+            let _ = fs::remove_file(path.with_extension("rec.gz.tmp"));
         }
     }
 }
@@ -971,6 +1094,43 @@ mod tests {
     fn hour_keys() {
         assert_eq!(hour_key(0), "19700101-00");
         assert_eq!(hour_key(1_726_567_200_000), "20240917-10");
+        assert_eq!(block_key(1_726_567_200_000), "20240917-10_2h");
+        assert_eq!(block_key(1_726_567_200_000 + 3_600_000), "20240917-10_2h"); // 11:00 is still the 10–12 block
+        assert_eq!(block_key(1_726_567_200_000 + 7_200_000), "20240917-12_2h");
+        assert_eq!(key_range("20240917-10_2h"), Some((1_726_567_200_000, 1_726_567_200_000 + 7_200_000)));
+        assert_eq!(key_range("20240917-11"), Some((1_726_570_800_000, 1_726_574_400_000))); // legacy hourly
+        assert_eq!(key_range("20240917-06_6h"), Some((1_726_552_800_000, 1_726_574_400_000)));
+    }
+
+    #[test]
+    fn seal_detects_changes() {
+        let dir = std::env::temp_dir().join(format!("pseal-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let mut st = PatchStore::with_gzip(dir.clone(), 0, 0);
+        let t0 = 1_726_567_200_000u64;
+        for s in 1..=5u32 {
+            st.record(t0 + s as u64 * 200, 7, &raw(3002, 88, s));
+        }
+        st.flush(true);
+        let (_, p, _) = list_files(&dir, 3002).remove(0);
+        let seal = seal_file(&p, 0).unwrap();
+        assert!(seal.ok && seal.entries == 5 && seal.sha256.len() == 64 && seal.crc32.len() == 8);
+        assert_eq!(read_seal(&p), Some(seal.clone()));
+        assert_eq!(seal_path(&p).file_name().unwrap(), "20240917-10_2h.sum");
+        // appended after sealing → the seal no longer matches
+        fs::OpenOptions::new().append(true).open(&p).unwrap().write_all(b"x").unwrap();
+        assert!(read_seal(&p).is_none());
+        // a corrupted entry is counted
+        let mut b = fs::read(&p).unwrap();
+        b.pop();
+        b[40] ^= 1;
+        fs::write(&p, b).unwrap();
+        let s2 = seal_file(&p, 0).unwrap();
+        assert!(!s2.ok && s2.bad_entries >= 1);
+        // gzip level > 0: the seal covers the .rec.gz
+        let s3 = seal_file(&p, 1).unwrap();
+        assert!(s3.file.ends_with(".rec.gz") && read_seal(&p.with_extension("rec.gz")).is_some());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -984,7 +1144,7 @@ mod tests {
         for s in 1..=5u32 {
             st.record(t0 + s as u64 * 200, 7, &raw(3001, 88, s));
         }
-        st.record(t0 + 3_600_000, 7, &raw(3001, 88, 9)); // next hour, seq gap 6..8
+        st.record(t0 + 7_200_000, 7, &raw(3001, 88, 9)); // next 2 h block, seq gap 6..8
         st.flush(true);
         let files = list_files(&dir, 3001);
         assert_eq!(files.len(), 2);

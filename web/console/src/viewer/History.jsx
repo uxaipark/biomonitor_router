@@ -379,6 +379,8 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   // hour file keys are UTC (router hour_key); show them in local time
   const hourStart = (key) => Date.UTC(+key.slice(0, 4), +key.slice(4, 6) - 1, +key.slice(6, 8), +key.slice(9, 11))
   const localHour = (key) => { const d = new Date(hourStart(key)); return { day: d.toLocaleDateString('ko-KR'), hh: String(d.getHours()).padStart(2, '0') } }
+  // file span: `YYYYMMDD-HH_2h` = 2 h block, legacy `YYYYMMDD-HH` = 1 h
+  const spanH = (key) => +(key.slice(11).match(/^_(\d+)h/)?.[1] || 1)
   // windows of the selected hour, newest first, clipped to the stored range
   const [liveW0, setLiveW0] = useState(null) // start of the window the live strip is filling
   const [fresh, setFresh] = useState(new Map()) // window start → samples handed over by the live strip (last 4)
@@ -429,15 +431,16 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
         <span className="hx-seg">{SPANS.map((s) => <button key={s} className={span === s ? 'on' : ''} onClick={() => setSpan(s)}>{s}s</button>)}</span>
         {anchor != null && <button className="btn btn-secondary" onClick={() => setAnchor(null)}>지금으로</button>}
         <label className="hx-h"><span className="ds-dim">높이</span><input type="range" min="60" max="320" step="10" value={height} onChange={(e) => setHeight(Number(e.target.value))} title={`ECG ${height}px`} /><span className="ds-dim">{height}px</span></label>
-        <span className="ds-dim">{loading ? '불러오는 중…' : `${(ix.records || 0).toLocaleString()} 레코드 · ${hours.length}개 시간 파일`}</span>
+        <span className="ds-dim">{loading ? '불러오는 중…' : `${(ix.records || 0).toLocaleString()} 레코드 · ${hours.length}개 파일`}</span>
         <span className="spacer" />
         {!compact && <button className="btn btn-secondary" onClick={onClose}>실시간으로</button>}
       </div>
       <div className="hx-hours">{hours.map((f, i) => {
-        const start = hourStart(f.hour), end = start + 3600000
+        const n = spanH(f.hour), start = hourStart(f.hour), end = start + n * 3600000
+        const endH = String((+localHour(f.hour).hh + n) % 24).padStart(2, '0')
         const cur = top != null && top > start && top <= end
         const newest = i === hours.length - 1
-        return <button key={f.hour} className={cur ? 'on' : ''} title={`${localHour(f.hour).day} ${localHour(f.hour).hh}시 · ${(f.bytes / 2 ** 20).toFixed(1)} MB`} onClick={() => setAnchor(newest ? null : end)}>{localHour(f.hour).hh}시</button>
+        return <button key={f.hour} className={cur ? 'on' : ''} title={`${localHour(f.hour).day} ${localHour(f.hour).hh}–${endH}시 · ${(f.bytes / 2 ** 20).toFixed(1)} MB${f.sealed ? ` · 봉인 ${f.sealed_ok ? 'CRC 정상' : 'CRC 오류'}` : ''}`} onClick={() => setAnchor(newest ? null : end)}>{n > 1 ? `${localHour(f.hour).hh}–${endH}시` : `${localHour(f.hour).hh}시`}</button>
       })}</div>
       <div className="hx-list" onScroll={onListScroll} style={{ '--hx-ecg': `${height}px`, '--hx-thin': `${Math.max(20, Math.round(height * 0.28))}px` }}>
         {anchor == null && <LiveWindow id={id} spanMs={spanMs} theme={th} keys={keys.size ? keys : DEFAULT_KEYS} onRollover={onRollover} loaded={loaded} onWindow={onWindow} />}

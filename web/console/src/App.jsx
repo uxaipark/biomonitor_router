@@ -40,7 +40,7 @@ const PAGES = [
   ['#/test/ops', '운영 통계', OpsStats, '테스트', 'page.ops'],
   ['#/test/data', '데이터 관리', DataAdmin, '테스트', 'page.data_admin'],
   ['#/settings/viewer', '뷰어 설정', ViewerSettings, '설정', 'page.settings_viewer'],
-  ['#/settings/biosignal', '생체신호 관리', BiosignalAdmin, '설정', 'page.settings_biosignal'],
+  ['#/settings/biosignal', '생체 데이터 관리', BiosignalAdmin, '설정', 'page.settings_biosignal'],
   ['#/settings/network', '네트워크 설정', NetworkSettings, '설정', 'page.settings_network'],
   ['#/settings/integration', 'EMR 연동', Integration, '설정', 'page.integration'],
   ['#/admin/users', '계정', AdminUsers, '관리', 'page.admin_users'],

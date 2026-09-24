@@ -20,14 +20,15 @@
 게이트웨이 소켓 ─▶ wire::Decoder (26 B 헤더 + payload + CRC-32) ─▶ ingest
       ▲                                                        │
       └── NACK <B kind><I from><I to> (F_CTRL) ◀── gateways ◀──┤ 시퀀스 검사: gap → NACK, 재전송 도착 → recovered
-                                                               ├─▶ patch_store (스레드): patches/<id>/<UTC 시간>.rec, 항목 CRC, gzip, 상한 정리
+                                                               ├─▶ patch_store (스레드): patches/<id>/<UTC 블록>_2h.rec, 항목 CRC, 봉인 .sum, 상한 정리
                                                                ├─▶ registry (패치 = 채널): META patches[] + 레코드 헤더 + EMR 동기화(이름·병동·의료진)
                                                                └─▶ ECG 채널 → 분석 링크 / WS stream_batch (레거시 파이프라인, P2 에서 다채널화)
 ```
 
 * **저장 형식** — `[ts_ms u64][gw_id u32][patient_id u32][seq u32][flags][battery][rssi][n_ch]` + 채널 블록 + `[crc32]`.
   에뮬레이터 저장소의 파이썬 초안 `router/store.py` 와 바이트 호환(`verify_file()` 로 교차 검증됨).
-  시간 파일이 닫히면 gzip(`ROUTER_STORE_GZIP` 수준, 0 = 압축 안 함 — SD 카드 권장), `ROUTER_STORE_MAX_GB` 초과 시 가장 오래된 시간 파일부터 삭제.
+  패치별 저장 단위(기본 2시간, 설정 › 생체 데이터 관리) 파일. 닫히면 무결성 봉인(`<key>.sum`: 항목 CRC 확인 + 파일 CRC-32·SHA-256)[+ gzip(`ROUTER_STORE_GZIP`)],
+  봉인된 파일만 백업. `ROUTER_STORE_MAX_GB` 초과 시 가장 오래된 파일부터 삭제.
 * **NACK 정책** — 게이트웨이당 0.5 s 에 1회, 같은 seq 최대 3회, 한 번에 200 프레임, 10 s 미응답 → `resend_lost`.
   CRC 불일치 프레임은 헤더 seq 로 재요청. 복구 프레임의 패치 seq 는 이상으로 세지 않음.
 * **연속 레코드** — 에뮬레이터는 페이스마크(ch 10)를 같은 패치·같은 seq 의 두 번째 레코드로 보냄.

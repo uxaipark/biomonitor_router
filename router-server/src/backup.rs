@@ -204,6 +204,12 @@ pub struct Policy {
     /// 전송 일시 중지 (삭제 보호는 그대로)
     #[serde(default)]
     pub paused: bool,
+    /// 파형 파일 저장 단위(시간): 패치마다 이 시간 단위로 파일 하나 (1·2·3·4·6·8·12·24). 바꾸면 다음 기록부터.
+    #[serde(default = "d_block_hours")]
+    pub block_hours: u32,
+}
+fn d_block_hours() -> u32 {
+    2
 }
 fn d_copies() -> u32 {
     1
@@ -280,6 +286,10 @@ struct Pending {
     safe_bytes: u64,
     local_files: u64,
     local_bytes: u64,
+    /// 닫혔지만 아직 무결성 확인(봉인 `.sum`)이 안 끝난 파일 — 봉인 뒤에 백업한다
+    unsealed_files: u64,
+    /// 봉인 때 항목 CRC 오류가 나온 파일 (그래도 백업은 한다: 성한 항목까지 잃지 않도록)
+    bad_sealed_files: u64,
 }
 
 pub struct Backup {
@@ -330,23 +340,22 @@ fn day_key(ms: u64) -> String {
     crate::patch_store::hour_key(ms)[..8].to_string()
 }
 
-/// `YYYYMMDD-HH` → 그 시간이 끝나는 UTC ms
+/// 파일 키(`YYYYMMDD-HH_<N>h`, 옛 `YYYYMMDD-HH`) → 그 블록이 끝나는 UTC ms
 fn hour_end_ms(key: &str) -> Option<u64> {
-    if key.len() < 11 {
+    crate::patch_store::key_range(key).map(|r| r.1)
+}
+
+/// 봉인에 적힌 SHA-256 (hex) → bytes
+fn seal_sha(seal: &crate::patch_store::Seal) -> Option<[u8; 32]> {
+    let h = seal.sha256.as_bytes();
+    if h.len() != 64 {
         return None;
     }
-    let y: i64 = key[0..4].parse().ok()?;
-    let m: i64 = key[4..6].parse().ok()?;
-    let d: i64 = key[6..8].parse().ok()?;
-    let h: i64 = key[9..11].parse().ok()?;
-    // days from civil (Howard Hinnant)
-    let (y2, m2) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
-    let era = if y2 >= 0 { y2 } else { y2 - 399 } / 400;
-    let yoe = y2 - era * 400;
-    let doy = (153 * m2 + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146097 + doe - 719468;
-    Some(((days * 24 + h + 1) * 3_600_000) as u64)
+    let mut out = [0u8; 32];
+    for i in 0..32 {
+        out[i] = u8::from_str_radix(std::str::from_utf8(&h[i * 2..i * 2 + 2]).ok()?, 16).ok()?;
+    }
+    Some(out)
 }
 
 fn sha_file(path: &Path) -> std::io::Result<([u8; 32], u64)> {
@@ -625,6 +634,7 @@ impl Backup {
     fn apply_policy_globals(&self) {
         let p = self.policy.read().unwrap();
         EMERGENCY_FREE_PCT.store(p.emergency_free_pct as u64, Ordering::Relaxed);
+        crate::patch_store::BLOCK_HOURS.store(p.block_hours as u64, Ordering::Relaxed);
         ACTIVE.store(self.targets.read().unwrap().iter().any(|t| t.enabled), Ordering::Relaxed);
     }
 
@@ -753,6 +763,9 @@ impl Backup {
         p.min_age_min = p.min_age_min.clamp(1, 24 * 60);
         p.emergency_free_pct = p.emergency_free_pct.clamp(1, 50);
         p.timeout_s = p.timeout_s.clamp(30, 7200);
+        if !crate::patch_store::BLOCK_CHOICES.contains(&p.block_hours) {
+            return Err(format!("저장 단위는 {:?} 시간 중 하나", crate::patch_store::BLOCK_CHOICES));
+        }
         if let Ok(j) = serde_json::to_string(&p) {
             let _ = self.db.lock().unwrap().execute("INSERT OR REPLACE INTO backup_kv (key, value) VALUES ('policy', ?1)", params![j]);
         }
@@ -1493,7 +1506,6 @@ impl Backup {
         let p = self.policy.read().unwrap().clone();
         let active = ACTIVE.load(Ordering::Relaxed);
         let now = now_ms();
-        let now_key = crate::patch_store::hour_key(now);
         let min_age = p.min_age_min as u64 * 60_000;
         let inflight = self.inflight.lock().unwrap().clone();
         let mut jobs: Vec<(String, String, u64)> = Vec::new();
@@ -1515,13 +1527,20 @@ impl Backup {
                         pend.safe_bytes += size;
                         continue;
                     }
-                    if key >= now_key.as_str() {
-                        continue; // 쓰는 중인 시간
-                    }
+                    // 쓰는 중인 블록이거나, 끝난 지 min_age 가 안 됐으면(늦게 오는 레코드) 아직
                     let end_ok = hour_end_ms(key).map(|e| now >= e + min_age).unwrap_or(false);
                     let mtime_ok = md.modified().ok().and_then(|m| m.elapsed().ok()).map(|e| e.as_millis() as u64 >= min_age).unwrap_or(false);
                     if !end_ok || !mtime_ok {
                         continue;
+                    }
+                    // 무결성 확인(봉인)이 끝난 파일만
+                    match crate::patch_store::read_seal(&f.path()) {
+                        None => {
+                            pend.unsealed_files += 1;
+                            continue;
+                        }
+                        Some(seal) if !seal.ok => pend.bad_sealed_files += 1,
+                        Some(_) => {}
                     }
                     pend.files += 1;
                     pend.bytes += size;
@@ -1580,10 +1599,15 @@ impl Backup {
             return; // 다음 스캔에서 새 크기로
         }
         let gen = ABORT_GEN.load(Ordering::Relaxed);
-        let Ok((sha, size)) = sha_file(&local) else { return };
+        // 봉인(무결성 확인 결과)의 SHA-256 을 기준으로 올리고 원격을 검증한다 — 봉인 뒤에 로컬 파일이 바뀌었으면
+        // 원격 해시가 봉인과 달라 실패한다
+        let Some(seal) = crate::patch_store::read_seal(&local) else { return };
+        let Some(sha) = seal_sha(&seal) else { return };
+        let size = seal.size;
         if size != job.size {
             return;
         }
+        let seal_local = crate::patch_store::seal_path(&local);
         let p = self.policy.read().unwrap().clone();
         let targets: Vec<Target> = self.targets.read().unwrap().iter().filter(|t| t.enabled).cloned().collect();
         let need = self.need_copies();
@@ -1622,7 +1646,15 @@ impl Backup {
             }
             self.stats.lock().unwrap().entry(t.id.clone()).or_default().busy += 1;
             let t0 = Instant::now();
-            let r = self.upload(t, &p, &local, &remote, size, &sha, false);
+            // 데이터 파일 → 봉인 파일(.sum) 순서. 봉인까지 올라가야 그 대상의 사본으로 친다
+            let r = self.upload(t, &p, &local, &remote, size, &sha, false).and_then(|_| {
+                let remote_sum = {
+                    let stem = remote.strip_suffix(".rec.gz").or_else(|| remote.strip_suffix(".rec")).unwrap_or(&remote);
+                    format!("{stem}.sum")
+                };
+                let (ssha, ssize) = sha_file(&seal_local).map_err(|e| format!("봉인 파일 읽기 실패: {e}"))?;
+                self.upload(t, &p, &seal_local, &remote_sum, ssize, &ssha, false).map_err(|e| format!("봉인 파일(.sum) 올리기 실패: {e}"))
+            });
             let ms = t0.elapsed().as_millis() as u64;
             let mut st = self.stats.lock().unwrap();
             let s = st.entry(t.id.clone()).or_default();
@@ -1652,7 +1684,8 @@ impl Backup {
                             params![day_key(now_ms()), t.id, size as i64],
                         );
                     }
-                    self.logit(&t.name, &remote, size, ms, true, format!("검증 완료 ({})", if p.verify == "sha256" { format!("SHA-256 {}…", &hex(&sha)[..12]) } else { "크기".into() }));
+                    self.logit(&t.name, &remote, size, ms, true, format!("검증 완료 ({}){}", if p.verify == "sha256" { format!("SHA-256 {}…", &hex(&sha)[..12]) } else { "크기".into() },
+                        if seal.ok { format!(" · 봉인 CRC-32 {}", seal.crc32) } else { format!(" · 주의: 항목 CRC 오류 {}건", seal.bad_entries) }));
                 }
                 Err(_) if ABORT_GEN.load(Ordering::Relaxed) != gen => {
                     // 사용자가 중단했다: 대상 장애가 아니다 (올리다 만 원격 파일은 재개 때 덮어쓴다)
@@ -1684,6 +1717,7 @@ impl Backup {
             }
             SAFE.insert(job.rel.clone(), size);
             if p.delete_mode == "immediate" && fs::remove_file(&local).is_ok() {
+                let _ = fs::remove_file(&seal_local);
                 let cur = crate::patch_store::STORE_BYTES.load(Ordering::Relaxed);
                 crate::patch_store::STORE_BYTES.fetch_sub(size.min(cur), Ordering::Relaxed);
                 forgotten(job.rel.clone());

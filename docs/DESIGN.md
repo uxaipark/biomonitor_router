@@ -96,7 +96,9 @@ NACK 정책: 게이트웨이당 0.5 s에 1회, 같은 seq 최대 3회, 한 요�
 `patch_store.rs`, 전용 OS 스레드(블로킹 I/O를 tokio 워커에서 분리). 큐 상한 65,536, 넘치면 드롭 카운트(`queue_dropped_store`).
 
 ```
-<root>/patches/<patch_id 8자리>/<YYYYMMDD-HH>.rec       UTC 시간 단위, 추가 전용
+<root>/patches/<patch_id 8자리>/<YYYYMMDD-HH>_<N>h.rec  UTC N시간 블록(저장 단위, 기본 2, HH = 블록 시작), 추가 전용
+                                                        (2026-09-24 이전: 1시간 `<YYYYMMDD-HH>.rec` — 둘 다 읽음)
+<root>/patches/<patch_id>/<key>.sum                     봉인: 닫힌 파일의 CRC-32·SHA-256·항목 수·CRC 오류 항목 수 (JSON)
 <root>/patches/<patch_id>/index.json                    first/last ts, records, bytes, lost, last_seq, patient, gw, files
 <root>/meta/gw_<gw_id>.json                             마지막 META (v 가 바뀔 때만 씀)
 항목 = [ts_ms u64][gw_id u32][patient_id u32][seq u32][flags][battery][rssi][n_ch] + 채널 블록 + [crc32 u32]
@@ -104,7 +106,9 @@ NACK 정책: 게이트웨이당 0.5 s에 1회, 같은 seq 최대 3회, 한 요�
 
 * 항목은 수신 레코드의 `patch_id` 뒤 바이트를 그대로 붙이고 CRC를 단다. 에뮬레이터 저장소의 파이썬 `router/store.py`와 바이트 호환이라 `verify_file()`로 교차 검증했다.
 * 쓰기는 패치별 버퍼에 모아 1 s마다 한 번 (초당 파일 쓰기 ≈ 패치 수, 프레임 수가 아님). 열린 핸들은 256개 LRU, 5분 유휴 시 닫음.
-* 시간이 바뀌면 파일을 닫고 gzip 스레드에 넘긴다(레벨 3, `.rec.gz`, 원본 삭제). 읽기는 두 형식 모두 처리.
+* 블록이 바뀌면 파일을 닫고 봉인 스레드에 넘긴다: 모든 항목 CRC 확인 → (gzip 설정 시 `.rec.gz`) → 파일 전체 CRC-32·SHA-256 → `<key>.sum`.
+  봉인된 파일에 다시 쓰게 되면(같은 블록에 패치 복귀) 봉인을 지우고 닫힐 때 다시 봉인한다. 백업은 봉인이 있는 파일만, 봉인 SHA-256 으로
+  원격을 검증하고 `.sum` 도 함께 올린다. 저장 단위는 설정 › 생체 데이터 관리 › 저장·백업 정책(`block_hours` 1·2·3·4·6·8·12·24).
 * 인덱스는 메모리(`LIVE_INDEX`)에 즉시, 디스크에는 60 s마다/종료 시. `lost`는 앞으로 나간 seq 갭의 합(근사).
 * 용량: `STORE_BYTES`를 증분 유지하고 10분마다 재스캔. 상한(`ROUTER_STORE_MAX_GB`) 초과 시 전 패치의 시간 파일을 오래된 순으로 지워 90 %까지 내린다. 쓰는 중인 시간 파일은 지우지 않는다.
 * 읽기 API: 인덱스, 파일 목록, 전체 CRC 검증, ECG 구간 원본/개요(min·max 버킷).

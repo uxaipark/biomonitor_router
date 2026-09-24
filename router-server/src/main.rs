@@ -20,7 +20,7 @@ async fn main() -> anyhow::Result<()> {
 
     let (state, analysis_rx, db_rx, store_rx) = AppState::new(cfg.clone());
 
-    // 패치별 레코드 저장 (시간 단위 파일 + 항목 CRC, 닫힌 파일 gzip, 상한 초과 시 오래된 것부터 삭제)
+    // 패치별 레코드 저장 (저장 단위(기본 2시간) 파일 + 항목 CRC, 닫힌 파일 무결성 봉인(.sum: CRC-32·SHA-256)[+gzip], 상한 초과 시 오래된 것부터 삭제)
     // — 전용 OS 스레드 (블로킹 파일 I/O 를 tokio 워커에서 분리)
     {
         let root = std::path::PathBuf::from(&cfg.store_dir);

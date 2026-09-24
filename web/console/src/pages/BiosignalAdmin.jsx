@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { api, usePoll, fmtBytes } from '../api.js'
 
 /**
- * 설정 › 생체신호 관리: 저장 파형(시간 파일) 백업 대상과 정책.
+ * 설정 › 생체 데이터 관리: 파형 저장 단위, 무결성 봉인, 백업 대상과 정책.
  * 카드 순서 = 우선순위(끌어서 놓기 또는 ▲▼). 필요 사본 수만큼 위에서부터 검증 백업이 끝나야 로컬 파일을 지울 수 있다.
  */
 const KIND_LABEL = { nas: 'NAS (마운트 경로)', smb: 'SMB', ftp: 'FTP', ftps: 'FTPS', sftp: 'SFTP' }
@@ -14,7 +14,10 @@ const fmtDateTime = (ms) => (ms ? new Date(ms).toLocaleString('ko-KR', { hour12:
 const hourLabel = (k) => {
   if (!k || k.length < 11) return '—'
   const d = new Date(Date.UTC(+k.slice(0, 4), +k.slice(4, 6) - 1, +k.slice(6, 8), +k.slice(9, 11)))
-  return d.toLocaleString('ko-KR', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  const n = +(k.slice(11).match(/^_(\d+)h/)?.[1] || 1) // `_2h` = 2시간 파일, 없으면 옛 1시간 파일
+  const s = d.toLocaleString('ko-KR', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  const e = new Date(d.getTime() + n * 3600000).toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute: '2-digit' })
+  return `${s}–${e}`
 }
 const where = (t) => {
   if (t.kind === 'nas') return t.path
@@ -52,19 +55,21 @@ export default function BiosignalAdmin() {
 
   return (
     <div className="page">
-      <h2 className="h">생체신호 관리</h2>
+      <h2 className="h">생체 데이터 관리</h2>
       {err && <p className="err">상태를 불러오지 못했습니다: {String(err.message || err)}</p>}
       <div className="settings bk">
         <section>
           <h3>저장 파형 백업 현황</h3>
           <p className="muted">
-            파형은 패치별 시간 파일(<code>patches/&lt;패치&gt;/&lt;UTC 시간&gt;.rec</code>)로 저장되고, 저장 상한에 닿으면 오래된 시간부터 지워집니다.
+            파형은 패치별로 저장 단위(기본 2시간)마다 파일 하나(<code>patches/&lt;패치&gt;/&lt;UTC 시작&gt;_2h.rec</code>)로 저장됩니다. 파일이 닫히면
+            모든 항목의 CRC 를 다시 확인하고 파일 전체의 <b>CRC-32 와 SHA-256</b> 을 봉인 파일(<code>.sum</code>)로 남깁니다 — <b>봉인이 끝난 파일만</b> 백업하고, 봉인 파일도 함께 올립니다.
+            저장 상한에 닿으면 오래된 파일부터 지워집니다.
             백업 대상이 하나라도 켜져 있으면 <b>검증된 백업이 끝난 파일만</b> 지웁니다. 백업이 밀리면 상한을 넘어서도 보존하고,
             디스크 여유가 비상 기준 아래로 떨어질 때만 백업 안 된 파일을 지우고 사건으로 남깁니다.
           </p>
           <div className="tiles">
             <div className="tile"><div className="tile-label">로컬 저장</div><div className="tile-value">{st ? fmtBytes(st.store_bytes) : '—'}</div><div className="tile-sub">디스크 {st ? `${fmtBytes(diskUsed)} / ${fmtBytes(st.disk_total)} (${diskPct}%)` : '—'}</div></div>
-            <div className={'tile' + (p.files > 2000 ? ' warn' : '')}><div className="tile-label">백업 대기</div><div className="tile-value">{p.files?.toLocaleString() ?? '—'}<small> 파일</small></div><div className="tile-sub">{fmtBytes(p.bytes || 0)} · 가장 오래된 {hourLabel(p.oldest)}</div></div>
+            <div className={'tile' + (p.files > 2000 ? ' warn' : '')}><div className="tile-label">백업 대기</div><div className="tile-value">{p.files?.toLocaleString() ?? '—'}<small> 파일</small></div><div className="tile-sub">{fmtBytes(p.bytes || 0)} · 가장 오래된 {hourLabel(p.oldest)}{p.unsealed_files ? ` · 무결성 확인 중 ${p.unsealed_files.toLocaleString()}` : ''}{p.bad_sealed_files ? ` · CRC 오류 파일 ${p.bad_sealed_files}` : ''}</div></div>
             <div className="tile"><div className="tile-label">백업 완료 (삭제 가능)</div><div className="tile-value">{p.safe_files?.toLocaleString() ?? '—'}<small> 파일</small></div><div className="tile-sub">{fmtBytes(p.safe_bytes || 0)} · 로컬 전체 {p.local_files?.toLocaleString() ?? '—'}개</div></div>
             <div className={'tile' + (st?.blocked_bytes ? ' warn' : '')}><div className="tile-label">상한 초과 보존</div><div className="tile-value">{fmtBytes(st?.blocked_bytes || 0)}</div><div className="tile-sub">백업 전이라 지우지 못한 용량</div></div>
             <div className={'tile' + (st?.unbacked_deleted ? ' err' : '')}><div className="tile-label">비상 삭제 (백업 없이)</div><div className="tile-value">{st?.unbacked_deleted?.toLocaleString() ?? 0}<small> 파일</small></div><div className="tile-sub">{fmtBytes(st?.unbacked_deleted_bytes || 0)} · 라우터 시작 이후</div></div>
@@ -85,7 +90,7 @@ export default function BiosignalAdmin() {
             <span className="spacer" />
             <button className="primary" onClick={() => setEdit({ ...EMPTY })}>+ 대상 추가</button>
           </div>
-          {!targets.length && <p className="muted">아직 백업 대상이 없습니다. 대상을 추가하면 끝난 시간 파일부터 백업을 시작합니다.</p>}
+          {!targets.length && <p className="muted">아직 백업 대상이 없습니다. 대상을 추가하면 끝난 파일부터 백업을 시작합니다.</p>}
           <div className="bk-list">
             {targets.map((t, i) => {
               const s = t.stat || {}
@@ -169,8 +174,15 @@ function PolicyCard({ policy, nTargets, onSaved }) {
   const copies = Array.from({ length: Math.max(nTargets, p.copies) }, (_, i) => [i + 1, i === 0 ? '1 (장애 조치)' : `${i + 1} (중복)`])
   return (
     <section>
-      <h3>백업 정책</h3>
+      <h3>저장 · 백업 정책</h3>
       <div className="bk-form">
+        <label>파일 저장 단위</label>
+        <div><Seg value={p.block_hours ?? 2} options={[1, 2, 3, 4, 6, 8, 12, 24].map((h) => [h, `${h}시간`])} onChange={(v) => set('block_hours', v)} />
+          <div className="muted">
+            환자(패치) 1명당 이 시간마다 파일 하나. 파일 1개 ≈ {(3.6 * (p.block_hours ?? 2)).toFixed(1)} MB(비압축, 실측 시간당 약 3.6 MB),
+            동시 2,000명이면 하루 {Math.round((2000 * 24) / (p.block_hours ?? 2)).toLocaleString()}개 · 2년 {Math.round((2000 * 24 * 730) / (p.block_hours ?? 2) / 10000) / 100}백만 개.
+            길게 잡을수록 파일 수는 줄고, 봉인·백업은 그 단위가 끝난 뒤에 시작합니다. 바꾸면 다음 기록부터 적용됩니다(이미 있는 파일은 그대로).
+          </div></div>
         <label>필요 사본 수</label>
         <div><Seg value={p.copies} options={copies} onChange={(v) => set('copies', v)} />
           <div className="muted">위 순위부터 이 수만큼 검증된 사본이 생겨야 로컬에서 지울 수 있습니다. 1이면 1순위가 실패할 때 다음 순위로 넘어가고, 2 이상이면 여러 곳에 중복 백업합니다.</div></div>
@@ -181,7 +193,7 @@ function PolicyCard({ policy, nTargets, onSaved }) {
         <div><Seg value={p.verify} options={[['sha256', '다시 읽어 SHA-256 비교'], ['size', '크기만 비교 (빠름)']]} onChange={(v) => set('verify', v)} />
           <div className="muted">SHA-256은 올린 파일을 다시 받아 한 바이트도 다르지 않은지 확인합니다. 네트워크 사용량이 두 배가 됩니다.</div></div>
         <label>백업 시작</label>
-        <div>{num('min_age_min')} 분 <span className="muted">— 시간 파일이 끝나고 마지막 쓰기 뒤 이만큼 지나면 (늦게 도착하는 레코드 대비)</span></div>
+        <div>{num('min_age_min')} 분 <span className="muted">— 저장 단위 파일이 끝나고 마지막 쓰기 뒤 이만큼 지나면 (늦게 도착하는 레코드 대비)</span></div>
         <label>비상 삭제</label>
         <div>디스크 여유 {num('emergency_free_pct')} % 미만 <span className="muted">— 이때만 백업 안 된 파일도 오래된 순으로 지웁니다</span></div>
         <label>동시 전송</label>
@@ -269,7 +281,7 @@ function TargetModal({ target, onClose, onSaved }) {
   )
 }
 
-/** 백업 저장소별 목록: 대상 → 시간(UTC 시간 파일)별 요약 → 그 시간의 패치 파일 */
+/** 백업 저장소별 목록: 대상 → 파일 단위(UTC 블록)별 요약 → 그 블록의 패치 파일 */
 function BackupCatalog({ targets }) {
   const [tid, setTid] = useState(targets[0]?.id)
   const id = targets.some((t) => t.id === tid) ? tid : targets[0]?.id
@@ -317,7 +329,7 @@ function BackupCatalog({ targets }) {
       {(err || msg) && <p className="err">{msg || err.message}</p>}
       <div style={{ overflowX: 'auto', maxHeight: 520, overflowY: 'auto' }}>
         <table className="tbl dense">
-          <thead><tr><th>시간 파일 (현지 시각)</th><th className="num">패치 파일</th><th className="num">크기</th><th>백업 시각</th><th /></tr></thead>
+          <thead><tr><th>저장 단위 (현지 시각)</th><th className="num">패치 파일</th><th className="num">크기</th><th>백업 시각</th><th /></tr></thead>
           <tbody>
             {(cat?.hours || []).map((h) => (
               <React.Fragment key={h.hour}>
