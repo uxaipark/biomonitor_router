@@ -6,7 +6,7 @@ import { useQuery, go, Cols, tableMin, GwName, RoomLink } from '../ListKit.jsx'
 /**
  * 이동 중 환자 (에뮬레이터 `/api/v1/emr/trips`, 라우터 EMR 프록시): 검사·방문·전동·화장실·산책·재활 이동의
  * 현재 단계 · 진행 · 타임테이블(현재 → 예정) · 다음 예정 검사, 검사실별 사용 현황.
- * 환자는 침대 id 로 라우터의 패치 행과 잇는다(이름을 누르면 환자 상세, 두 번 누르면 실시간 파형).
+ * 환자는 침대 id 로 라우터의 패치 행과 잇는다(이름을 누르면 파형·환자 정보 모달).
  */
 const KIND = { exam: '검사', visit: '방문', transfer: '병실 이동', shadowtrip: '음영 이동', toilet: '화장실', walk: '산책', shower: '샤워', rehab: '재활' }
 const BLD = ['본관', '별관', '신관']
@@ -77,9 +77,9 @@ export default function Trips({ bedIndex }) {
               const pct = total > 0 ? Math.min(100, ((t.elapsed || 0) / total) * 100) : (t.progress || 0) * 100
               const gwNo = t.gateway_idx != null && t.gateway_idx >= 0 ? t.gateway_idx + 1 : null
               return (
-                <tr key={t.id} className={(row ? 'clickable' : '') + (t.shadow ? ' tr-shadow' : '')} onDoubleClick={() => row && openLive(row.channel_id)} title={row ? '두 번 누르면 실시간 파형' : ''}>
+                <tr key={t.id} className={(row ? 'clickable' : '') + (t.shadow ? ' tr-shadow' : '')} >
                   <td>
-                    {row ? <a className="lk-link" onClick={() => go('#/patients', { sel: row.channel_id })}><b>{t.name}</b></a> : <b>{t.name}</b>} <small className="muted">{SEX[t.sex] || t.sex}/{t.age}</small>
+                    {row ? <a className="lk-link" onClick={() => openLive(row.channel_id)} title="파형·환자 정보 보기"><b>{t.name}</b></a> : <b>{t.name}</b>} <small className="muted">{SEX[t.sex] || t.sex}/{t.age}</small>
                     <div className="muted small">{t.bed} · {t.ward}</div>
                   </td>
                   <td>
