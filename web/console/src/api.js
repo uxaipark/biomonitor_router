@@ -76,7 +76,7 @@ export const api = {
   },
   auth: {
     me: () => get('/api/auth/me'),
-    login: (username, password) => send('POST', '/api/auth/login', { username, password }),
+    login: (tenant, username, password) => send('POST', '/api/auth/login', { tenant, username, password }),
     logout: () => send('POST', '/api/auth/logout'),
     password: (old, nw) => send('POST', '/api/auth/password', { old, new: nw }),
     testAccounts: () => get('/api/auth/test-accounts'),

@@ -125,6 +125,8 @@ pub struct Principal {
     pub perms: HashMap<String, u8>,
     /// 서비스 토큰(스크립트·연동)으로 들어온 요청
     pub service: bool,
+    /// 로그인 때 고른 병원 (없음 = 플랫폼으로 로그인)
+    pub context: Option<String>,
 }
 
 impl Principal {
@@ -153,11 +155,12 @@ CREATE TABLE IF NOT EXISTS tenants (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'hospital', region TEXT NOT NULL DEFAULT '',
   contact TEXT NOT NULL DEFAULT '', reseller TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1, created_ms INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE, name TEXT NOT NULL, role TEXT NOT NULL,
-  tenant_id TEXT REFERENCES tenants(id), pw TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
-  must_change INTEGER NOT NULL DEFAULT 1, test_pw TEXT, created_ms INTEGER NOT NULL, last_login_ms INTEGER);
+  id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, name TEXT NOT NULL, role TEXT NOT NULL,
+  tenant_id TEXT REFERENCES tenants(id), tenant_key TEXT NOT NULL DEFAULT '', pw TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+  must_change INTEGER NOT NULL DEFAULT 1, test_pw TEXT, created_ms INTEGER NOT NULL, last_login_ms INTEGER,
+  UNIQUE (tenant_key, username));
 CREATE TABLE IF NOT EXISTS user_tenants (user_id INTEGER NOT NULL, tenant_id TEXT NOT NULL, PRIMARY KEY (user_id, tenant_id));
-CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, created_ms INTEGER NOT NULL, expires_ms INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, created_ms INTEGER NOT NULL, expires_ms INTEGER NOT NULL, tenant TEXT);
 CREATE TABLE IF NOT EXISTS perm_matrix (tenant TEXT NOT NULL, role TEXT NOT NULL, resource TEXT NOT NULL, level INTEGER NOT NULL,
   PRIMARY KEY (tenant, role, resource));
 CREATE TABLE IF NOT EXISTS perm_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant TEXT NOT NULL, saved_ms INTEGER NOT NULL,
@@ -219,8 +222,8 @@ fn yes() -> bool {
 pub struct Auth {
     db: Mutex<Connection>,
     users: RwLock<HashMap<i64, User>>,
-    /// sha256(token) → (user_id, expires_ms)
-    sessions: Mutex<HashMap<String, (i64, u64)>>,
+    /// sha256(token) → (user_id, expires_ms, 로그인 때 고른 병원 — 플랫폼 계정이 한 병원으로 들어온 경우)
+    sessions: Mutex<HashMap<String, (i64, u64, Option<String>)>>,
     /// tenant("*" = 전역) → matrix
     matrix: RwLock<HashMap<String, Matrix>>,
     dev_mode: AtomicBool,
@@ -229,18 +232,43 @@ pub struct Auth {
     fails: Mutex<HashMap<String, (u32, u64)>>,
 }
 
-/// 시험용 계정: (아이디, 이름, 역할, 병원, 임시 비밀번호, 추가 담당 병원)
-const SEED: [(&str, &str, &str, Option<&str>, &str, &[&str]); 9] = [
-    ("superadmin", "수퍼 어드민", "super_admin", None, "Super!2026", &[]),
-    ("sysadmin", "시스템 관리자", "system_admin", None, "Sys!2026", &[]),
-    ("reseller1", "메디링크 리셀러", "reseller", None, "Resell!2026", &["H001", "H002"]),
-    ("sales1", "CRM 영업 김영업", "sales_crm", None, "Sales!2026", &["H001"]),
-    ("it.h001", "본원 IT 매니저", "hospital_it", Some("H001"), "It!2026", &[]),
-    ("dr.kim", "김의사 (심장내과)", "doctor", Some("H001"), "Doctor!2026", &[]),
-    ("nurse.lee", "이간호 (3A병동)", "nurse", Some("H001"), "Nurse!2026", &[]),
-    ("staff.park", "박스태프 (원무)", "staff", Some("H001"), "Staff!2026", &[]),
-    ("dr.h002", "다른 병원 의사", "doctor", Some("H002"), "Doctor!2026", &[]),
+/// 플랫폼 시험용 계정: (아이디, 이름, 역할, 임시 비밀번호, 담당 병원)
+const PLATFORM_SEED: [(&str, &str, &str, &str, &[&str]); 4] = [
+    ("superadmin", "수퍼 어드민", "super_admin", "Super!2026", &[]),
+    ("sysadmin", "시스템 관리자", "system_admin", "Sys!2026", &[]),
+    ("reseller1", "메디링크 리셀러", "reseller", "Resell!2026", &["H001", "H002", "H003"]),
+    ("sales1", "CRM 영업 김영업", "sales_crm", "Sales!2026", &["H001", "H003"]),
 ];
+/// 병원마다 만드는 시험용 계정: (아이디, 이름, 역할, 임시 비밀번호). 아이디는 병원 안에서만 유일하다 —
+/// 같은 `dr.kim` 이 병원마다 따로 있고, 로그인할 때 고른 병원 ID 로 구분한다.
+const TENANT_SEED: [(&str, &str, &str, &str); 6] = [
+    ("it.admin", "IT 매니저", "hospital_it", "It!2026"),
+    ("dr.kim", "김의사 (심장내과)", "doctor", "Doctor!2026"),
+    ("dr.lee", "이의사 (호흡기내과)", "doctor", "Doctor!2026"),
+    ("nurse.lee", "이간호 (병동)", "nurse", "Nurse!2026"),
+    ("nurse.choi", "최간호 (중환자실)", "nurse", "Nurse!2026"),
+    ("staff.park", "박스태프 (원무)", "staff", "Staff!2026"),
+];
+/// 시험용 병원: (ID, 이름, 지역). 첫 줄은 이 라우터의 병원(site)으로 바뀐다.
+const TENANT_DEMO: [(&str, &str, &str); 3] = [
+    ("H001", "바이오모니터 병원 (본관·별관·신관)", "경기"),
+    ("H002", "데모 병원 (격리 시험용)", "서울"),
+    ("H003", "서울 중앙병원 (데모)", "서울"),
+];
+
+fn seed_tenant_accounts(db: &Connection, tenant: &str) -> usize {
+    let now = now_ms() as i64;
+    let mut n = 0;
+    for (u, name, role, pw) in TENANT_SEED.iter() {
+        if let Ok(k) = db.execute(
+            "INSERT OR IGNORE INTO users (username, name, role, tenant_id, tenant_key, pw, must_change, test_pw, created_ms) VALUES (?1, ?2, ?3, ?4, ?4, ?5, 1, ?6, ?7)",
+            params![u, name, role, tenant, hash_pw(pw), pw, now],
+        ) {
+            n += k;
+        }
+    }
+    n
+}
 
 impl Auth {
     pub fn open(db_path: &str) -> Self {
@@ -249,6 +277,7 @@ impl Auth {
             Connection::open_in_memory().expect("in-memory sqlite")
         });
         let _ = db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;");
+        migrate(&db);
         if let Err(e) = db.execute_batch(SCHEMA) {
             warn!("auth schema: {}", e);
         }
@@ -264,39 +293,45 @@ impl Auth {
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| "H001".into());
         let now = now_ms() as i64;
-        // 병원(테넌트): 이 라우터의 병원 + 격리 시험용 두 번째 병원
+        // 병원(테넌트): 이 라우터의 병원 + 격리 시험용 병원들 (없는 것만)
         let n: i64 = db.query_row("SELECT COUNT(*) FROM tenants", [], |r| r.get(0)).unwrap_or(0);
-        if n == 0 {
-            let _ = db.execute(
-                "INSERT INTO tenants (id, name, region, contact, reseller, created_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![site, "바이오모니터 병원 (본관·별관·신관)", "경기", "IT 지원실 031-000-0000", "reseller1", now],
-            );
-            if site != "H002" {
+        if n == 0 || dev {
+            for (i, (id, name, region)) in TENANT_DEMO.iter().enumerate() {
+                let id = if i == 0 { site.as_str() } else { id };
                 let _ = db.execute(
-                    "INSERT INTO tenants (id, name, region, contact, reseller, created_ms) VALUES ('H002', '데모 병원 (격리 시험용)', '서울', '', 'reseller1', ?1)",
-                    params![now],
+                    "INSERT OR IGNORE INTO tenants (id, name, region, contact, reseller, created_ms) VALUES (?1, ?2, ?3, '', 'reseller1', ?4)",
+                    params![id, name, region, now],
                 );
             }
         }
-        let n: i64 = db.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0)).unwrap_or(0);
-        if n == 0 {
-            for (u, name, role, tenant, pw, extra) in SEED.iter() {
-                let tenant = tenant.map(|t| if t == "H001" { site.clone() } else { t.to_string() });
-                let r = db.execute(
-                    "INSERT INTO users (username, name, role, tenant_id, pw, must_change, test_pw, created_ms) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7)",
-                    params![u, name, role, tenant, hash_pw(pw), pw, now],
-                );
-                if let Err(e) = r {
-                    warn!("seed user {}: {}", u, e);
-                    continue;
-                }
-                let id = db.last_insert_rowid();
-                for t in extra.iter() {
-                    let t = if *t == "H001" { site.clone() } else { t.to_string() };
-                    let _ = db.execute("INSERT OR IGNORE INTO user_tenants (user_id, tenant_id) VALUES (?1, ?2)", params![id, t]);
+        if dev {
+            let mut made = 0;
+            for (u, name, role, pw, extra) in PLATFORM_SEED.iter() {
+                let k = db
+                    .execute(
+                        "INSERT OR IGNORE INTO users (username, name, role, tenant_id, tenant_key, pw, must_change, test_pw, created_ms) VALUES (?1, ?2, ?3, NULL, '', ?4, 1, ?5, ?6)",
+                        params![u, name, role, hash_pw(pw), pw, now],
+                    )
+                    .unwrap_or(0);
+                made += k;
+                // 담당 병원은 이미 있던 시험용 계정에도 채운다 (시험용 병원이 늘어난 경우)
+                if let Ok(id) = db.query_row("SELECT id FROM users WHERE tenant_key = '' AND username = ?1 AND test_pw IS NOT NULL", params![u], |r| r.get::<_, i64>(0)) {
+                    for t in extra.iter() {
+                        let t = if *t == "H001" { site.clone() } else { t.to_string() };
+                        let _ = db.execute("INSERT OR IGNORE INTO user_tenants (user_id, tenant_id) VALUES (?1, ?2)", params![id, t]);
+                    }
                 }
             }
-            info!("auth: seeded {} test accounts (temporary passwords, must change)", SEED.len());
+            let tenants: Vec<String> = db
+                .prepare("SELECT id FROM tenants WHERE active = 1")
+                .and_then(|mut st| st.query_map([], |r| r.get::<_, String>(0)).map(|rows| rows.flatten().collect()))
+                .unwrap_or_default();
+            for t in &tenants {
+                made += seed_tenant_accounts(&db, t);
+            }
+            if made > 0 {
+                info!("auth: seeded {} test accounts (dev mode, temporary passwords)", made);
+            }
         }
         let _ = db.execute("DELETE FROM sessions WHERE expires_ms < ?1", params![now]);
         // 스크립트·감시 도구용 서비스 토큰: 환경변수, 없으면 DB 옆 `service_token` 파일(처음 실행 때 만들고 0600)
@@ -394,10 +429,10 @@ impl Auth {
     fn reload_sessions(&self) {
         let db = self.db.lock().unwrap();
         let mut m = HashMap::new();
-        if let Ok(mut st) = db.prepare("SELECT token_hash, user_id, expires_ms FROM sessions") {
-            if let Ok(rows) = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))) {
-                for (h, u, e) in rows.flatten() {
-                    m.insert(h, (u, e as u64));
+        if let Ok(mut st) = db.prepare("SELECT token_hash, user_id, expires_ms, tenant FROM sessions") {
+            if let Ok(rows) = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, Option<String>>(3)?))) {
+                for (h, u, e, t) in rows.flatten() {
+                    m.insert(h, (u, e as u64, t));
                 }
             }
         }
@@ -448,12 +483,19 @@ impl Auth {
         out
     }
 
-    fn principal_of(&self, u: &User) -> Principal {
-        let scope = match u.role.as_str() {
+    /// `ctx` = 로그인 때 고른 병원. 플랫폼 계정이 병원을 골라 들어오면 그 세션은 그 병원 하나로 좁혀진다.
+    fn principal_of(&self, u: &User, ctx: Option<&str>) -> Principal {
+        let mut scope = match u.role.as_str() {
             "super_admin" | "system_admin" => Scope::All,
             "reseller" | "sales_crm" => Scope::Some(u.tenants.iter().cloned().collect()),
             _ => Scope::Some(u.tenant_id.iter().cloned().collect()),
         };
+        if is_platform(&u.role) {
+            if let Some(t) = ctx {
+                scope = Scope::Some([t.to_string()].into_iter().collect());
+            }
+        }
+        let ptenant = if is_platform(&u.role) { ctx.map(String::from) } else { u.tenant_id.clone() };
         Principal {
             user_id: u.id,
             username: u.username.clone(),
@@ -461,8 +503,9 @@ impl Auth {
             role: u.role.clone(),
             tenant_id: u.tenant_id.clone(),
             scope,
-            perms: self.effective(&u.role, u.tenant_id.as_deref().or(Some(&self.site_tenant()))),
+            perms: self.effective(&u.role, ptenant.as_deref().or(Some(&self.site_tenant()))),
             service: false,
+            context: ctx.map(String::from),
         }
     }
 
@@ -476,6 +519,7 @@ impl Auth {
             scope: Scope::All,
             perms: RESOURCES.iter().map(|r| (r.0.to_string(), 2u8)).collect(),
             service: true,
+            context: None,
         }
     }
 
@@ -487,7 +531,7 @@ impl Auth {
             }
         }
         let h = sha_hex(token.as_bytes());
-        let (uid, exp) = *self.sessions.lock().unwrap().get(&h)?;
+        let (uid, exp, ctx) = self.sessions.lock().unwrap().get(&h).cloned()?;
         let now = now_ms();
         if exp < now {
             self.sessions.lock().unwrap().remove(&h);
@@ -501,16 +545,20 @@ impl Auth {
         // 사용 중이면 만료를 늘린다 (1분에 한 번만 DB 기록)
         if exp - now < SESSION_MS - 60_000 {
             let ne = now + SESSION_MS;
-            self.sessions.lock().unwrap().insert(h.clone(), (uid, ne));
+            self.sessions.lock().unwrap().insert(h.clone(), (uid, ne, ctx.clone()));
             if let Ok(db) = self.db.lock() {
                 let _ = db.execute("UPDATE sessions SET expires_ms = ?1 WHERE token_hash = ?2", params![ne as i64, h]);
             }
         }
-        Some(self.principal_of(u))
+        Some(self.principal_of(u, ctx.as_deref()))
     }
 
-    pub fn login(&self, username: &str, password: &str) -> Result<(String, Principal, bool), String> {
-        let key = username.trim().to_lowercase();
+    /// 병원 ID + 아이디 + 비밀번호. 병원 계정은 자기 병원 ID 로만, 플랫폼 계정은 병원 ID 를 비우거나(플랫폼)
+    /// 담당 병원 ID 로 들어온다(그 세션은 그 병원만). 어느 쪽이 틀렸는지는 알려 주지 않는다(계정 탐색 방지).
+    pub fn login(&self, tenant: &str, username: &str, password: &str) -> Result<(String, Principal, bool), String> {
+        let tenant = tenant.trim().to_uppercase();
+        let uname = username.trim().to_lowercase();
+        let key = format!("{tenant}/{uname}");
         let now = now_ms();
         {
             let f = self.fails.lock().unwrap();
@@ -520,8 +568,18 @@ impl Auth {
                 }
             }
         }
-        let user = self.users.read().unwrap().values().find(|u| u.username.to_lowercase() == key).cloned();
-        let ok = user.as_ref().map(|u| verify_pw(password, &u.pw)).unwrap_or_else(|| {
+        let user = {
+            let users = self.users.read().unwrap();
+            let hosp = users.values().find(|u| u.username.to_lowercase() == uname && u.tenant_id.as_deref().unwrap_or("") == tenant && !tenant.is_empty());
+            let plat = users.values().find(|u| {
+                u.username.to_lowercase() == uname
+                    && u.tenant_id.is_none()
+                    && (tenant.is_empty() || matches!(u.role.as_str(), "super_admin" | "system_admin") || u.tenants.iter().any(|t| *t == tenant))
+            });
+            hosp.or(plat).cloned()
+        };
+        let tenant_ok = tenant.is_empty() || self.tenants().iter().any(|t| t.id == tenant && t.active);
+        let ok = tenant_ok && user.as_ref().map(|u| verify_pw(password, &u.pw)).unwrap_or_else(|| {
             let _ = verify_pw(password, &hash_pw("x")); // 계정 유무가 응답 시간으로 드러나지 않게
             false
         });
@@ -533,25 +591,29 @@ impl Auth {
             }
             e.0 += 1;
             drop(f);
-            self.audit(&key, "", "login_fail", "");
-            return Err("아이디 또는 비밀번호가 올바르지 않습니다".into());
+            self.audit(&uname, &tenant, "login_fail", "");
+            return Err("병원 ID·아이디·비밀번호를 확인하세요".into());
         };
         self.fails.lock().unwrap().remove(&key);
+        let ctx = if tenant.is_empty() { None } else { Some(tenant.clone()) };
         let token = random_hex(32);
         let h = sha_hex(token.as_bytes());
         let exp = now + SESSION_MS;
         {
             let db = self.db.lock().unwrap();
-            let _ = db.execute("INSERT INTO sessions (token_hash, user_id, created_ms, expires_ms) VALUES (?1, ?2, ?3, ?4)", params![h, u.id, now as i64, exp as i64]);
+            let _ = db.execute(
+                "INSERT INTO sessions (token_hash, user_id, created_ms, expires_ms, tenant) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![h, u.id, now as i64, exp as i64, ctx],
+            );
             let _ = db.execute("UPDATE users SET last_login_ms = ?1 WHERE id = ?2", params![now as i64, u.id]);
             let _ = db.execute("DELETE FROM sessions WHERE expires_ms < ?1", params![now as i64]);
         }
-        self.sessions.lock().unwrap().insert(h, (u.id, exp));
+        self.sessions.lock().unwrap().insert(h, (u.id, exp, ctx.clone()));
         if let Some(x) = self.users.write().unwrap().get_mut(&u.id) {
             x.last_login_ms = Some(now);
         }
-        self.audit(&u.username, u.tenant_id.as_deref().unwrap_or(""), "login", role_label(&u.role));
-        Ok((token, self.principal_of(&u), u.must_change))
+        self.audit(&u.username, ctx.as_deref().or(u.tenant_id.as_deref()).unwrap_or(""), "login", role_label(&u.role));
+        Ok((token, self.principal_of(&u, ctx.as_deref()), u.must_change))
     }
 
     pub fn logout(&self, token: &str) {
@@ -563,7 +625,7 @@ impl Auth {
     }
 
     fn drop_sessions_of(&self, uid: i64) {
-        self.sessions.lock().unwrap().retain(|_, (u, _)| *u != uid);
+        self.sessions.lock().unwrap().retain(|_, (u, _, _)| *u != uid);
         if let Ok(db) = self.db.lock() {
             let _ = db.execute("DELETE FROM sessions WHERE user_id = ?1", params![uid]);
         }
@@ -598,6 +660,7 @@ impl Auth {
                       "tenant_id": p.tenant_id, "tenant_name": p.tenant_id.as_deref().map(tname), "must_change": u.map(|u| u.must_change).unwrap_or(false),
                       "service": p.service },
             "scope": p.scope,
+            "context": { "tenant_id": p.context, "name": p.context.as_deref().map(tname) },
             "site": { "tenant_id": site, "name": tname(&site), "accessible": p.can_access(&site) },
             "dev_mode": self.dev_mode(),
             "perms": p.perms,
@@ -605,6 +668,15 @@ impl Auth {
     }
 
     /// 로그인 화면의 시험용 계정 (개발 모드에서만, 아직 임시 비밀번호인 계정만)
+    /// 로그인 화면의 병원 목록 (개발 모드에서만 — 운영에서는 병원 ID 를 직접 입력)
+    pub fn login_tenants(&self) -> Vec<serde_json::Value> {
+        if !self.dev_mode() {
+            return Vec::new();
+        }
+        let site = self.site_tenant();
+        self.tenants().into_iter().filter(|t| t.active).map(|t| serde_json::json!({"id": t.id, "name": t.name, "is_site": t.id == site})).collect()
+    }
+
     pub fn test_accounts(&self) -> Vec<serde_json::Value> {
         if !self.dev_mode() {
             return Vec::new();
@@ -696,6 +768,10 @@ impl Auth {
             )
             .map_err(|e| e.to_string())?;
         }
+        if create && self.dev_mode() {
+            let n = seed_tenant_accounts(&db, &id);
+            info!("auth: tenant {} created — {} test accounts (dev mode)", id, n);
+        }
         drop(db);
         self.reload_users();
         self.audit(&p.username, &id, if create { "tenant_create" } else { "tenant_update" }, &t.name);
@@ -783,17 +859,17 @@ impl Auth {
         let db = self.db.lock().unwrap();
         let uid = match id {
             Some(uid) => {
-                db.execute("UPDATE users SET name = ?2, role = ?3, tenant_id = ?4, active = ?5 WHERE id = ?1", params![uid, name, role, tenant, active as i64])
+                db.execute("UPDATE users SET name = ?2, role = ?3, tenant_id = ?4, tenant_key = COALESCE(?4, ''), active = ?5 WHERE id = ?1", params![uid, name, role, tenant, active as i64])
                     .map_err(|e| e.to_string())?;
                 uid
             }
             None => {
                 let pw = temp_password();
                 db.execute(
-                    "INSERT INTO users (username, name, role, tenant_id, pw, must_change, test_pw, active, created_ms) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7, ?8)",
+                    "INSERT INTO users (username, name, role, tenant_id, tenant_key, pw, must_change, test_pw, active, created_ms) VALUES (?1, ?2, ?3, ?4, COALESCE(?4, ''), ?5, 1, ?6, ?7, ?8)",
                     params![username, name, role, tenant, hash_pw(&pw), if self.dev_mode() { Some(pw.clone()) } else { None }, active as i64, now_ms() as i64],
                 )
-                .map_err(|e| if e.to_string().contains("UNIQUE") { "이미 있는 아이디입니다".to_string() } else { e.to_string() })?;
+                .map_err(|e| if e.to_string().contains("UNIQUE") { "이 병원에 이미 있는 아이디입니다".to_string() } else { e.to_string() })?;
                 temp = Some(pw);
                 db.last_insert_rowid()
             }
@@ -973,6 +1049,39 @@ impl Auth {
             }
         }
         v
+    }
+}
+
+/// 2026-09-24 첫 판: 아이디가 전체에서 유일(UNIQUE username), 세션에 병원 문맥 없음 → 병원 안에서 유일 + 세션 병원
+fn migrate(db: &Connection) {
+    let sql: Option<String> = db.query_row("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'", [], |r| r.get(0)).ok();
+    if sql.map(|s| s.contains("username TEXT NOT NULL UNIQUE")).unwrap_or(false) {
+        let r = db.execute_batch(
+            "BEGIN;
+             ALTER TABLE users RENAME TO users_v1;
+             CREATE TABLE users (
+               id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, name TEXT NOT NULL, role TEXT NOT NULL,
+               tenant_id TEXT REFERENCES tenants(id), tenant_key TEXT NOT NULL DEFAULT '', pw TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+               must_change INTEGER NOT NULL DEFAULT 1, test_pw TEXT, created_ms INTEGER NOT NULL, last_login_ms INTEGER,
+               UNIQUE (tenant_key, username));
+             INSERT INTO users (id, username, name, role, tenant_id, tenant_key, pw, active, must_change, test_pw, created_ms, last_login_ms)
+               SELECT id, username, name, role, tenant_id, COALESCE(tenant_id, ''), pw, active, must_change, test_pw, created_ms, last_login_ms FROM users_v1;
+             DROP TABLE users_v1;
+             DELETE FROM users WHERE username IN ('it.h001', 'dr.h002') AND test_pw IS NOT NULL;
+             DELETE FROM sessions;
+             COMMIT;",
+        );
+        match r {
+            Ok(_) => info!("auth: users table migrated (username unique per hospital)"),
+            Err(e) => {
+                let _ = db.execute_batch("ROLLBACK;");
+                warn!("auth: users migration failed: {}", e);
+            }
+        }
+    }
+    let has_tenant: bool = db.prepare("SELECT tenant FROM sessions LIMIT 0").is_ok();
+    if !has_tenant {
+        let _ = db.execute_batch("ALTER TABLE sessions ADD COLUMN tenant TEXT;");
     }
 }
 
@@ -1407,19 +1516,30 @@ mod tests {
     #[test]
     fn tenant_isolation_and_defaults() {
         let a = Auth::open(":memory:");
-        let (_, doc, _) = a.login("dr.h002", "Doctor!2026").unwrap();
+        let (_, doc, _) = a.login("H002", "dr.kim", "Doctor!2026").unwrap();
         assert!(!doc.can_access("H001"), "H002 doctor must not reach H001 data");
-        let (_, sys, _) = a.login("sysadmin", "Sys!2026").unwrap();
+        let (_, sys, _) = a.login("", "sysadmin", "Sys!2026").unwrap();
         assert!(sys.can_access("H001") && !sys.phi() && !sys.bio(), "system admin: all hospitals, masked");
-        let (_, nurse, _) = a.login("nurse.lee", "Nurse!2026").unwrap();
+        let (_, nurse, _) = a.login("H001", "nurse.lee", "Nurse!2026").unwrap();
         assert!(nurse.phi() && nurse.bio() && nurse.can_access("H001") && !nurse.can_access("H002"));
-        assert!(a.login("dr.kim", "wrong").is_err());
+        assert!(a.login("H001", "dr.kim", "wrong").is_err());
+        assert!(a.login("", "dr.kim", "Doctor!2026").is_err(), "hospital account needs its hospital ID");
+        assert!(a.login("H009", "dr.kim", "Doctor!2026").is_err());
+        // 플랫폼 계정이 병원을 골라 들어오면 그 병원 하나로 좁혀진다
+        let (_, r, _) = a.login("H002", "reseller1", "Resell!2026").unwrap();
+        assert!(r.can_access("H002") && !r.can_access("H001"));
+        let (_, s2, _) = a.login("H003", "sales1", "Sales!2026").unwrap();
+        assert!(s2.can_access("H003"));
+        assert!(a.login("H002", "sales1", "Sales!2026").is_err(), "sales1 is not assigned to H002");
+        // 같은 아이디가 병원마다 따로 — H001 의사와 H002 의사는 다른 계정
+        let (_, d1, _) = a.login("H001", "dr.kim", "Doctor!2026").unwrap();
+        assert_ne!(d1.user_id, doc.user_id);
     }
 
     #[test]
     fn doctor_edits_only_nurse_staff_within_own_level() {
         let a = Auth::open(":memory:");
-        let (_, doc, _) = a.login("dr.kim", "Doctor!2026").unwrap();
+        let (_, doc, _) = a.login("H001", "dr.kim", "Doctor!2026").unwrap();
         let mut m = Matrix::new();
         m.entry("nurse".into()).or_default().insert("page.alarms".into(), 1);
         m.entry("hospital_it".into()).or_default().insert("data.phi".into(), 2); // 무시되어야 함

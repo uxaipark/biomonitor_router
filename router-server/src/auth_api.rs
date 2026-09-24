@@ -41,6 +41,8 @@ fn result<T: serde::Serialize>(r: Result<T, String>) -> Response {
 
 #[derive(Deserialize)]
 struct LoginIn {
+    #[serde(default)]
+    tenant: String,
     username: String,
     password: String,
 }
@@ -48,7 +50,7 @@ struct LoginIn {
 async fn login(State(state): State<Arc<AppState>>, Json(b): Json<LoginIn>) -> Response {
     // PBKDF2 는 수십 ms 걸리므로 워커 스레드를 막지 않게
     let st = state.clone();
-    let r = tokio::task::spawn_blocking(move || st.auth.login(&b.username, &b.password)).await;
+    let r = tokio::task::spawn_blocking(move || st.auth.login(&b.tenant, &b.username, &b.password)).await;
     match r {
         Ok(Ok((token, p, _must))) => {
             let body = state.auth.me(&p);
@@ -87,7 +89,7 @@ async fn change_password(State(state): State<Arc<AppState>>, Extension(p): Exten
 
 async fn test_accounts(State(state): State<Arc<AppState>>) -> Response {
     Json(serde_json::json!({ "dev_mode": state.auth.dev_mode(), "accounts": state.auth.test_accounts(),
-                             "site": state.auth.site_tenant() }))
+                             "tenants": state.auth.login_tenants(), "site": state.auth.site_tenant() }))
     .into_response()
 }
 
@@ -140,7 +142,7 @@ struct TenantQ {
 }
 
 fn tenant_param(state: &AppState, p: &Principal, q: &Option<String>) -> String {
-    q.clone().filter(|t| !t.is_empty()).or_else(|| p.tenant_id.clone()).unwrap_or_else(|| state.auth.site_tenant())
+    q.clone().filter(|t| !t.is_empty()).or_else(|| p.tenant_id.clone()).or_else(|| p.context.clone()).unwrap_or_else(|| state.auth.site_tenant())
 }
 
 async fn perms(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Query(q): Query<TenantQ>) -> Response {

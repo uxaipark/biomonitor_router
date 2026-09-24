@@ -244,6 +244,7 @@ function UserMenu({ me, setMe }) {
       <button className="user-btn" onClick={() => setOpen(!open)} title={`${u.name} · ${u.role_label}`}>
         <span className={'role-dot r-' + u.role} />
         <span className="um-name">{u.name}</span>
+        {(u.tenant_id || me.context?.tenant_id) && <span className="um-tenant mono">{u.tenant_id || me.context.tenant_id}</span>}
         <small>{u.role_label}</small>
       </button>
       {open && (
@@ -251,6 +252,7 @@ function UserMenu({ me, setMe }) {
           <div className="um-who"><b>{u.name}</b><span className="mono">{u.username}</span></div>
           <div className="um-row"><small>역할</small>{u.role_label}</div>
           <div className="um-row"><small>소속</small>{u.tenant_name ? `${u.tenant_id} · ${u.tenant_name}` : '플랫폼'}</div>
+          {!u.tenant_id && <div className="um-row"><small>로그인 병원</small>{me.context?.tenant_id ? `${me.context.tenant_id} · ${me.context.name || ''} (이 병원만)` : '플랫폼 (담당 전체)'}</div>}
           <div className="um-row"><small>이 라우터</small>{me.site.tenant_id} · {me.site.name}</div>
           <div className="um-row"><small>개인정보 · 생체신호</small>{canPhi(me) ? '원문' : '마스킹'} · {canBio(me) ? '보기' : '없음'}</div>
           {me.dev_mode && <div className="um-row dev"><small>개발 모드</small>켜짐</div>}

@@ -66,9 +66,13 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
   저장할 때마다 판이 남는다(이전 설정 불러오기), 초기값 = `auth.rs` 의 `RESOURCES` 기본 열.
 * **마스킹**: `data.phi` 없으면 이름·MRN·환자번호·연락처·주소·생년월일을 **서버가** 가리고, `data.biosignal` 없으면 수치·파형(`/api/wave`, `/api/patches`, `/ws`)을 내보내지 않는다.
 * **병원 격리**: 요청마다 `site.tenant_id` 접근 여부를 먼저 확인 — 다른 병원 계정은 이 라우터의 환자·파형·알람·설정에 403.
-* **시험용 계정**(개발 모드, 임시 비밀번호): `superadmin`/`Super!2026`, `sysadmin`/`Sys!2026`, `reseller1`/`Resell!2026`, `sales1`/`Sales!2026`,
-  `it.h001`/`It!2026`, `dr.kim`/`Doctor!2026`, `nurse.lee`/`Nurse!2026`, `staff.park`/`Staff!2026`, `dr.h002`/`Doctor!2026`(다른 병원).
-* API: `POST /api/auth/login|logout|password`, `GET /api/auth/me|test-accounts`, `/api/admin/users[/{id}[/reset_password]]`,
+* **로그인 = 병원 ID + 아이디 + 비밀번호.** 아이디는 병원 안에서만 유일(같은 `dr.kim` 이 병원마다 따로). 플랫폼 계정은 병원 ID 를 비우면
+  플랫폼(담당 전체)으로, 담당 병원 ID 를 넣으면 그 병원 하나로 들어온다(세션이 그 병원으로 좁혀짐).
+* **시험용 계정**(개발 모드에서 병원마다 자동 생성, 임시 비밀번호) — 병원 H001(이 라우터)·H002·H003 각각:
+  `it.admin`/`It!2026`, `dr.kim`·`dr.lee`/`Doctor!2026`, `nurse.lee`·`nurse.choi`/`Nurse!2026`, `staff.park`/`Staff!2026`.
+  플랫폼: `superadmin`/`Super!2026`, `sysadmin`/`Sys!2026`, `reseller1`/`Resell!2026`(H001·H002·H003), `sales1`/`Sales!2026`(H001·H003).
+  개발 모드에서 병원을 새로 만들면 그 병원의 시험용 계정도 함께 만들어진다.
+* API: `POST /api/auth/login`(`{tenant, username, password}`)`|logout|password`, `GET /api/auth/me|test-accounts`, `/api/admin/users[/{id}[/reset_password]]`,
   `/api/admin/tenants[/{id}]`, `GET|PUT /api/admin/permissions`, `GET /api/admin/permissions/versions`, `PUT /api/admin/dev_mode`, `GET /api/admin/audit`.
 
 ### API (P1 추가분)

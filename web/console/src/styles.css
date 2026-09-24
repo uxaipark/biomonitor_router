@@ -793,3 +793,18 @@ header.top .pill { white-space: nowrap; flex: none; }
 header.top .user-menu { flex: none; }
 .user-btn small { display: none; }
 @media (min-width: 1700px) { .user-btn small { display: inline; } }
+/* 로그인: 병원 선택 */
+.login-tenant { display: grid; grid-template-columns: 60px 1fr; gap: 10px; align-items: start; margin-bottom: 14px; }
+.lt-label { font-size: 12.5px; color: var(--muted); padding-top: 9px; }
+.lt-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.lt-item { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; padding: 8px 12px; border-radius: 9px; background: var(--panel2); border: 1px solid var(--line); cursor: pointer; }
+.lt-item b { font-size: 14px; }
+.lt-item span { font-size: 12.5px; color: var(--muted); }
+.lt-item small { font-size: 11px; color: var(--ok); }
+.lt-item.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel2)); }
+.lt-item.plat b { color: var(--warn); }
+.lt-manual { display: flex; gap: 12px; align-items: center; }
+.lt-manual input { width: 200px; font-size: 15px; text-transform: uppercase; }
+.la-gt small { display: block; font-size: 11px; color: var(--muted); opacity: .8; }
+@media (max-width: 700px) { .login-tenant { grid-template-columns: 1fr; } }
+.um-tenant { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
