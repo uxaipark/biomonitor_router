@@ -411,7 +411,9 @@ fn apply_meta_patches(state: &Arc<AppState>, gw_id: u32, meta: &serde_json::Valu
             floor: loc.floor.to_string(),
             ward: prev.as_ref().map(|q| q.ward.clone()).unwrap_or_default(),
             zone: gw_name.clone(),
-            room: loc.room.clone(),
+            // 병실 = 입원 병실(EMR 동기화가 채움). META 는 현재 위치(게이트웨이의 방)라 검사 이동 중엔 다르다 —
+            // 둘이 번갈아 덮어써 지도에서 환자가 층을 오가던 문제. 현재 위치는 building/floor 와 행의 space 로 따로 둔다.
+            room: prev.as_ref().map(|q| q.room.clone()).filter(|r| !r.is_empty()).unwrap_or_else(|| loc.room.clone()),
             // 침대는 EMR 동기화가 채운다. META 가 잠깐 다른 방을 가리켜도 지우지 않는다 — 화면이 그 방의 침대인지 확인한다
             bed: prev.as_ref().map(|q| q.bed.clone()).unwrap_or_default(),
             doctor: prev.as_ref().map(|q| q.doctor.clone()).unwrap_or_default(),

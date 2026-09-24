@@ -71,17 +71,20 @@ export default function MapPage({ alarms, hash }) {
   const gidx = useMemo(() => gatewayAlarmIndex(alarms?.alarms), [alarms])
   const gwById = useMemo(() => new Map((gws || []).map((g) => [String(g.gw_id), g])), [gws])
   // patients on this floor: by room id (EMR) — fall back to the gateway's room for moving patients
+  // 도면의 모든 실 id — 환자의 현재 위치(게이트웨이의 방)가 도면에 있는 실이면 그곳에 그린다
+  const roomIds = useMemo(() => new Set(floors.flatMap((f) => (f.rooms || []).map((r) => r.id))), [floors])
   const byRoom = useMemo(() => {
     const m = new Map()
     for (const r of rows || []) {
       if (!r.connected) continue
-      const room = r.patient?.room || r.space
+      // 지금 있는 곳 우선(검사·재활·투석 등으로 이동 중이면 그 실), 모르면 입원 병실
+      const room = (r.space && roomIds.has(r.space) ? r.space : '') || r.patient?.room || r.space
       if (!room) continue
       if (!m.has(room)) m.set(room, [])
       m.get(room).push(r)
     }
     return m
-  }, [rows])
+  }, [rows, roomIds])
   // building dropdown: connected patients per building (rooms of its floors)
   const buildingOpts = useMemo(() => buildings.map((b) => {
     let n = 0
