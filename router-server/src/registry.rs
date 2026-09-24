@@ -40,6 +40,8 @@ pub struct ChannelState {
     pub patch_issued_ms: u64,
     /// 이 패치의 첫 레코드 시각 (발급 시각을 모를 때 착용 시작으로 씀)
     pub first_seen_ms: u64,
+    /// 에뮬레이터 환자 목록의 `patch_wear_days` 로 정한 착용 시작 (있으면 최우선)
+    pub wear_ms: u64,
     /// (수신 시각, 패킷) — 분석 응답 대기 서큘러 버퍼.
     /// 수신 시각은 분석 지연 시 타임아웃 방출(무분석 통과)에 사용된다.
     pub pending: VecDeque<(Instant, EcgPacket)>,
@@ -48,7 +50,7 @@ pub struct ChannelState {
 impl ChannelState {
     /// 착용 시작: 발급 시각이 있으면 그것, 없으면 첫 수신
     pub fn wear_start_ms(&self) -> u64 {
-        if self.patch_issued_ms > 0 { self.patch_issued_ms } else { self.first_seen_ms }
+        if self.wear_ms > 0 { self.wear_ms } else if self.patch_issued_ms > 0 { self.patch_issued_ms } else { self.first_seen_ms }
     }
 
     fn new() -> Self {
@@ -77,6 +79,7 @@ impl ChannelState {
             pseq_reorder: 0,
             patch_issued_ms: 0,
             first_seen_ms: 0,
+            wear_ms: 0,
             pending: VecDeque::new(),
         }
     }
@@ -497,6 +500,15 @@ impl Registry {
     }
 
     /// 레코드 헤더의 패치 상태 (환자번호·플래그·배터리·RSSI)
+    /// 환자 목록의 착용 일수로 정한 착용 시작 (발급 시각보다 우선). 2시간 넘게 달라질 때만 바꾼다.
+    pub fn set_wear_start(&self, channel_id: &str, ms: u64) {
+        if let Some(mut ch) = self.channels.get_mut(channel_id) {
+            if ch.wear_ms == 0 || ch.wear_ms.abs_diff(ms) > 2 * 3_600_000 {
+                ch.wear_ms = ms;
+            }
+        }
+    }
+
     /// 패치 레지스트리의 발급 시각 (있는 행만)
     pub fn set_patch_issued(&self, channel_id: &str, ms: u64) -> bool {
         match self.channels.get_mut(channel_id) {

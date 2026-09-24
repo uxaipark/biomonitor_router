@@ -210,6 +210,11 @@ pub fn apply_patients(state: &Arc<AppState>, v: &serde_json::Value) -> usize {
         let Some(patch_id) = a.get("patch_id").and_then(|x| x.as_u64()) else { continue };
         let channel_id = patch_id.to_string();
         let Some(prev) = state.registry.patient_of(&channel_id) else { continue };
+        // 착용 일수(에뮬레이터 패치 수명 모델): 발급 시각보다 이것이 정확하다 → 착용 시작 = 지금 − 일수 (0.1일 반올림 흔들림은 2시간 이내면 무시)
+        if let Some(d) = a.get("patch_wear_days").and_then(|x| x.as_f64()) {
+            let ms = crate::protocol::now_ms().saturating_sub((d * 86_400_000.0) as u64);
+            state.registry.set_wear_start(&channel_id, ms);
+        }
         let mut p = prev.clone();
         let spec = s(a, "specialty");
         if !spec.is_empty() {

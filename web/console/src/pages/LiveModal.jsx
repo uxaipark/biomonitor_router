@@ -14,7 +14,6 @@ const RHYTHM = {
   vt: '심실빈맥', block: '방실차단', asystole: '무수축', paced: '페이스 리듬', paced_aai: '페이스 리듬 (AAI)', paced_vvi: '페이스 리듬 (VVI)',
   paced_ddd: '페이스 리듬 (DDD)', paced_crt: '페이스 리듬 (CRT)', paced_malfunction: '페이스메이커 오작동',
 }
-const DEVICE = { ecg_patch: 'ECG 패치', spo2_ring: 'SpO₂ 링', temp_patch: '체온 패치' }
 const SEX = { M: '남', F: '여' }
 const MOBILITY = { ambulatory: '보행 가능', limited: '보행 제한', bedridden: '와상' }
 
@@ -38,6 +37,96 @@ const Vital = ({ label, value, unit, cls, sub }) => (
 )
 
 const Row = ({ k, children }) => <><dt>{k}</dt><dd>{children}</dd></>
+
+const dt16 = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '')
+const md16 = (t) => (t ? String(t).replace('T', ' ').slice(5, 16) : '')
+const NEWS_CLS = { 낮음: 'ok', 중간: 'warn', 높음: 'err' }
+const ACTIVITY = { still: '안정', walking: '보행', moving: '움직임', sleeping: '수면' }
+const POSTURE = { supine: '앙와위', prone: '복와위', left: '좌측와위', right: '우측와위', sitting: '좌위', standing: '입위' }
+
+/**
+ * 에뮬레이터 환자 상세(`/api/emr/patients/{profile}`, 라우터 EMR 프록시) — 에뮬레이터 '환자 정보' 패널과 같은 항목, 기기 세트는 뺌.
+ * 순서는 보는 사람에 따라: 병원 계정(의료진·IT) = 입원 기록 → 임상 → 기기·전송(맨 아래),
+ * 플랫폼 계정(수퍼 어드민·시스템 관리자·리셀러·영업) = 패치 사양·센서 → 임상 → 입원 기록.
+ */
+function EmrPanel({ emr, p, row, platform }) {
+  const rt = emr.runtime || {}
+  const adm = emr.admission || {}
+  const mon = adm.monitoring || {}
+  const link = emr.emr_link
+  const news = emr.news2
+  const staff = (x) => (x && typeof x === 'object' ? `${x.name}${x.title ? ` ${x.title}` : ''}` : x)
+  const bed = /-([A-Z0-9]+)$/.exec(adm.bed || '')?.[1]
+  const record = (
+    <section key="record">
+      <h5 className="lm-sub">입원 기록</h5>
+      <div className="lm-dx">
+        <b>{emr.disease}</b>
+        <span className="mono">{emr.icd10}</span>
+      </div>
+      <dl className="lm-dl">
+        <Row k="주진단">{[emr.disease && `${emr.disease} (${emr.icd10})`, emr.ward_specialty].filter(Boolean).join(' · ')}</Row>
+        <Row k="상태">{emr.status}{adm.mode ? ` · ${adm.mode === 'inpatient' ? '입원' : adm.mode}` : ''}</Row>
+        {adm.time && <Row k="입원">{dt16(adm.time)} · {adm.ward_name || adm.ward} {adm.bed}</Row>}
+        <Row k="입원 병실">{[rt.home_where, adm.ward_name, adm.room && `병실 ${adm.room}`, bed && `침상 ${adm.bed}`].filter(Boolean).join(' · ') || placeText(p, row.space)}</Row>
+        {rt.location && <Row k="현재 위치">{[rt.location_where, rt.location !== rt.home_room ? rt.location_name || rt.location : `입원 병실 내 ${rt.location}`].filter(Boolean).join(' ')}{rt.trip_active && <span className="lm-warn"> · 이동 중</span>}</Row>}
+        {(rt.doctor || rt.nurse) && <Row k="담당">{[staff(rt.doctor), staff(rt.nurse)].filter(Boolean).join(' / ')}</Row>}
+        <Row k="번호"><span className="mono">#{adm.patient_no || rt.patient_no || '—'} · {emr.mrn}</span></Row>
+        <Row k="환자">{[emr.nationality_label, emr.height_cm && `${emr.height_cm} cm`, emr.weight_kg && `${emr.weight_kg} kg`, emr.bmi && `BMI ${emr.bmi}`].filter(Boolean).join(' · ')}</Row>
+        {emr.address?.label && <Row k="거주지">{emr.address.label}</Row>}
+        {adm.exams?.length > 0 && <Row k="검사 일정">{adm.exams.map((x, i) => <div key={i}>{md16(x.time)} {x.type}{x.room ? ` (${x.room}, ${x.duration_min}분)` : ''}{x.done ? ' · 완료' : ''}</div>)}</Row>}
+        {link && (
+          <Row k="연동 EMR">
+            <b>{link.name}</b> <span className="mono">{link.site}</span>
+            <div className="mono muted">mrn {link.identifiers?.mrn}{link.identifiers?.rrn ? ` · rrn ${link.identifiers.rrn}` : ''} · 내원 {link.visit} · FHIR Patient/{link.fhir_patient_id}</div>
+            <div className="muted">{link.location?.ward_name} {link.location?.room}{link.location?.bed ? `-${link.location.bed}` : ''} · EMR 수신 {link.received?.count ?? 0}건</div>
+          </Row>
+        )}
+      </dl>
+    </section>
+  )
+  const clinical = (
+    <section key="clinical">
+      <h5 className="lm-sub">임상</h5>
+      <dl className="lm-dl">
+        {rt.rhythm_now && <Row k="현재 리듬"><b className={rt.episode ? 'lm-warn' : ''}>{rt.rhythm_now}</b></Row>}
+        {mon.tier_ko && (
+          <Row k="모니터링 처방">
+            <b>{mon.tier_ko} {mon.days}일</b>{rt.rx_day != null && ` · D+${rt.rx_day}`}{rt.rx_left_h != null && ` · 남은 ${(rt.rx_left_h / 24).toFixed(1)}일`}{mon.acuity != null && ` · 위중도 ${mon.acuity}`}
+            <div className="muted">{md16(mon.start)} ~ {md16(mon.end)}</div>
+            {mon.reason && <div className="muted">{mon.reason}</div>}
+          </Row>
+        )}
+        <Row k="기저 리듬">{RHYTHM[emr.rhythm] || emr.rhythm || '—'}</Row>
+        {news && (
+          <Row k="NEWS2">
+            <span className={`tag small ${NEWS_CLS[news.risk] || ''}`}>{news.score}</span> {news.risk}
+            {Object.entries(news.parts || {}).filter(([, v]) => v > 0).map(([k, v]) => ` ${k} ${v}`).join(' ·')}
+          </Row>
+        )}
+        <Row k="페이스메이커">{emr.pacemaker ? (emr.pacemaker_info?.mode || emr.pacemaker_info?.type || '있음') : '없음'}</Row>
+        {emr.comorbidities?.length > 0 && <Row k="기저질환">{emr.comorbidities.join(', ')}</Row>}
+        <Row k="알레르기"><span className={emr.allergies && emr.allergies !== '없음' ? 'lm-warn' : ''}>{emr.allergies || '없음'}</span></Row>
+        {emr.mobility && <Row k="거동">{MOBILITY[emr.mobility] || emr.mobility}</Row>}
+        {(rt.activity || rt.posture) && <Row k="활동/자세">{[ACTIVITY[rt.activity] || rt.activity, POSTURE[rt.posture] || rt.posture].filter(Boolean).join(' / ')}</Row>}
+        <Row k="체온/혈당/호흡">{[emr.temp_profile, emr.glucose_profile, emr.resp_kind].filter(Boolean).join(' / ')}</Row>
+      </dl>
+    </section>
+  )
+  const device = (
+    <section key="device">
+      <h5 className="lm-sub">패치 · 센서 · 전송</h5>
+      <dl className="lm-dl">
+        {rt.patch && <Row k="패치"><span className="mono">{rt.patch} (id {rt.patch_id})</span> · <b className={rt.battery <= 15 ? 'lm-warn' : ''}>{Math.round(rt.battery)}%</b>{rt.lead_off && <span className="lm-warn"> · 전극 탈락</span>}{rt.spo2_off && <span className="lm-warn"> · SpO₂ 센서 이탈</span>}</Row>}
+        {rt.patch_wear_days != null && <Row k="착용">{rt.patch_wear_days}일 / 최대 14일 · 배터리 약 15.5일</Row>}
+        {rt.channels?.length > 0 && <Row k="전송 채널"><span className="mono">{rt.channels.join(', ')}</span></Row>}
+        {row.sample_rate > 0 && <Row k="ECG">{row.sample_rate} Hz</Row>}
+        {rt.gateway && <Row k="게이트웨이"><span className="mono">{rt.gateway}</span> · RSSI {rt.rssi} dBm</Row>}
+      </dl>
+    </section>
+  )
+  return <>{platform ? [device, clinical, record] : [record, clinical, device]}</>
+}
 
 /** One patient in detail: header (who / where / status), live vitals and waves (or the stored history), and
  *  side cards with alarms, the EMR profile (via the router's EMR proxy) and the storage index. */
@@ -65,8 +154,11 @@ export function LiveModal({ channelId, alarms, onClose }) {
   useEffect(() => {
     let alive = true
     setEmr(null)
-    if (pid) api.emu.patient(pid).then((d) => { if (alive) setEmr(d) }).catch(() => { if (alive) setEmr(null) })
-    return () => { alive = false }
+    // 현재 리듬·위치·배터리·NEWS2 같은 실시간 항목이 있어 10초마다 다시 읽는다
+    const load = () => { if (pid) api.emu.patient(pid).then((d) => { if (alive) setEmr(d) }).catch(() => {}) }
+    load()
+    const t = setInterval(load, 10000)
+    return () => { alive = false; clearInterval(t) }
   }, [pid])
   if (!row) return <div className="modal-bg" onClick={onClose}><div className="modal lm"><p className="muted">패치 {channelId} 정보를 불러오는 중…</p></div></div>
 
@@ -177,25 +269,7 @@ export function LiveModal({ channelId, alarms, onClose }) {
             </section>
             <section className="lm-card">
               <h4>환자 정보</h4>
-              {emr ? (
-                <>
-                  <div className="lm-dx">
-                    <b>{emr.disease}</b>
-                    <span className="mono">{emr.icd10}</span>
-                  </div>
-                  <dl className="lm-dl">
-                    <Row k="진료과">{emr.ward_specialty || p.department}</Row>
-                    <Row k="리듬">{RHYTHM[emr.rhythm] || emr.rhythm}</Row>
-                    <Row k="페이스메이커">{emr.pacemaker ? '있음' : '없음'}</Row>
-                    {emr.comorbidities?.length > 0 && <Row k="기저질환">{emr.comorbidities.join(', ')}</Row>}
-                    <Row k="알레르기"><span className={emr.allergies && emr.allergies !== '없음' ? 'lm-warn' : ''}>{emr.allergies || '없음'}</span></Row>
-                    <Row k="신체">{emr.height_cm} cm · {emr.weight_kg} kg · BMI {emr.bmi}</Row>
-                    {emr.mobility && <Row k="거동">{MOBILITY[emr.mobility] || emr.mobility}</Row>}
-                    {emr.devices?.length > 0 && <Row k="기기">{emr.devices.map((d) => { const k = d.label || d.key || d; return DEVICE[k] || k }).join(', ')}</Row>}
-                    {emr.admission?.time && <Row k="입원">{emr.admission.time.replace('T', ' ').slice(0, 16)}</Row>}
-                  </dl>
-                </>
-              ) : <p className="muted">EMR 정보를 불러오지 못했습니다.</p>}
+              {emr ? <EmrPanel emr={emr} p={p} row={row} platform={!me?.user?.tenant_id} /> : <p className="muted">EMR 정보를 불러오지 못했습니다.</p>}
             </section>
             <section className="lm-card">
               <h4>파형 저장</h4>
@@ -203,7 +277,7 @@ export function LiveModal({ channelId, alarms, onClose }) {
                 <dl className="lm-dl">
                   <Row k="기간">{fmtTime(ix.first_ts_ms)} ~ {fmtTime(ix.last_ts_ms)}</Row>
                   <Row k="레코드">{(ix.records ?? 0).toLocaleString()}{ix.lost ? <span className="lm-warn"> · 유실 {ix.lost}</span> : ''}</Row>
-                  <Row k="용량">{fmtBytes(ix.bytes)} · 시간 파일 {(idx.files || []).length}개</Row>
+                  <Row k="용량">{fmtBytes(ix.bytes)} · 파일 {(idx.files || []).length}개</Row>
                 </dl>
               ) : <p className="muted">{bio ? '저장된 파형이 없습니다.' : '생체신호 권한이 없어 표시하지 않습니다.'}</p>}
               {bio && !history && ix && <button className="lm-hxbtn" onClick={() => setHistory(true)}>저장된 파형 보기 →</button>}

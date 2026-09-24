@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { alarmIndex, gatewayAlarmIndex, GW_STATUS, SEV_LABEL, wardText, wardRoom, patchLife, fmtDays } from '../model.js'
 import { openLive } from '../App.jsx'
+import { useMe } from '../auth.js'
 import Dropdown from '../Dropdown.jsx'
 import FloorPlan, { LEGEND, LOD, bedBox, wallSegments, coveragePolygon, polyPoints, COV_OPEN_M } from './FloorPlan.jsx'
 
@@ -48,6 +49,7 @@ export default function MapPage({ alarms, hash }) {
   })
   const covMode = mode === 'coverage'
   const [hoverGw, setHoverGw] = useState(null) // 마우스를 올린 게이트웨이 번호 → 반투명 커버리지
+  const me = useMe()
   const [tip, setTip] = useState(null) // 호버 팁: { kind: 'pat'|'gw', id, x, y } (화면 좌표)
   // 검색·하이라이트 (에뮬레이터 평면도와 같은 동작): 고르면 그 층으로 가서 빨간 링 + 확대, 검색어를 지우면 원래대로
   const [q, setQ] = useState('')
@@ -389,7 +391,7 @@ export default function MapPage({ alarms, hash }) {
         />
         {tip && <MapTip tip={tip} row={tip.kind === 'pat' ? (rows || []).find((r) => r.channel_id === tip.id) : null}
           gw={tip.kind === 'gw' ? floorGws.find((x) => String(x.gw_no) === tip.id) : null} live={tip.kind === 'gw' ? gwById.get(tip.id) : null}
-          alarm={tip.kind === 'pat' ? aidx.get(tip.id) : gidx.get(tip.id)} />}
+          alarm={tip.kind === 'pat' ? aidx.get(tip.id) : gidx.get(tip.id)} platform={!me?.user?.tenant_id} />}
         <aside className="map-side">
           {pickRoom && <><h4>{pickRoom.id} <small>{pickRoom.kind} · {pickRoom.ward}</small></h4><small className="muted">게이트웨이 {pickRoom.gateway ? '있음' : '없음'} · 침대 {pickRoom.beds?.length || 0}</small></>}
           {pickGw && <><h4>{pickGw.id} <small>{pickGw.type}</small></h4><GwInfo g={gwById.get(String(pickGw.gw_no))} />
@@ -434,11 +436,15 @@ const SEX = { M: '남', F: '여' }
 const ageOf = (birth) => { const y = +(String(birth || '').slice(0, 4)); return y > 1900 ? new Date().getFullYear() - y : null }
 const fmtUp = (s) => (s == null ? '—' : s >= 86400 ? `${Math.floor(s / 86400)}일 ${Math.floor((s % 86400) / 3600)}시간` : s >= 3600 ? `${Math.floor(s / 3600)}시간 ${Math.floor((s % 3600) / 60)}분` : `${Math.floor(s / 60)}분`)
 
-/** 지도 호버 팁: 환자·게이트웨이 기본 정보 (마우스 옆, 화면 가장자리에서는 반대쪽으로) */
-function MapTip({ tip, row, gw, live, alarm }) {
-  const W = 300, H = 260
+/**
+ * 지도 호버 팁: 환자·게이트웨이 기본 정보 (마우스 옆, 화면 가장자리에서는 반대쪽으로). 한 항목 = 한 줄(넘치면 말줄임).
+ * 순서: 병원 계정 = 위치·진료·담당·바이탈 먼저, 패치·게이트웨이는 아래 / 플랫폼 계정 = 패치·신호·게이트웨이 먼저.
+ */
+function MapTip({ tip, row, gw, live, alarm, platform }) {
+  const W = 375, H = 280
   const left = tip.x + 16 + W > window.innerWidth ? tip.x - 16 - W : tip.x + 16
   const top = Math.max(8, Math.min(tip.y + 12, window.innerHeight - H - 8))
+  const R = (k, v, cls) => (v == null || v === '' ? null : <React.Fragment key={k}><dt>{k}</dt><dd className={cls} title={typeof v === 'string' ? v : undefined}>{v}</dd></React.Fragment>)
   let body = null
   if (row) {
     const p = row.patient || {}
@@ -447,38 +453,41 @@ function MapTip({ tip, row, gw, live, alarm }) {
     const age = ageOf(p.birth)
     const place = wardRoom(p.room || row.space)
     const lost = !row.connected || row.stale
+    const clinical = [
+      R('위치', [wardText(p.ward), place?.room || p.room, p.bed ? `${p.bed.slice(-1)} 침대` : null].filter(Boolean).join(' · ') || row.space),
+      R('진료', [p.department, p.diagnosis].filter(Boolean).join(' · ')),
+      R('담당', [p.doctor && `의사 ${p.doctor}`, p.nurse && `간호사 ${p.nurse}`].filter(Boolean).join(' · ')),
+      R('바이탈', lost ? <span className="muted">수신 없음</span> : <>HR <b>{v.hr ?? '—'}</b> · SpO₂ <b>{v.spo2 ?? '—'}</b> · RR <b>{v.resp ?? '—'}</b>{v.temp != null ? <> · <b>{v.temp.toFixed(1)}</b>°C</> : null}</>),
+      R('MRN', row.mrn, 'mono'),
+    ]
+    const device = [
+      R('패치', `${row.channel_id} · 배터리 ${row.battery ?? '—'}%${life?.batLeft != null ? ` (약 ${fmtDays(life.batLeft)})` : ''}`, 'mono'),
+      life && R('착용', `${fmtDays(life.worn)}째 · 교체 ${life.left <= 0 ? '지금' : `${fmtDays(life.left)} 뒤`} (${life.reason})`, life.level ? `mt-${life.level}` : ''),
+      R('신호', `RSSI ${row.rssi ?? '—'} dBm · ${row.connected ? (row.stale ? '수신 지연' : '수신 중') : '해제'}`),
+      R('게이트웨이', row.gateway_id, 'mono'),
+    ]
     body = (
       <>
         <div className="mt-head"><b>{p.name || row.mrn || row.channel_id}</b><span>{[SEX[p.sex] || p.sex, age != null ? `${age}세` : null].filter(Boolean).join(' · ')}</span></div>
         {alarm && <div className={`mt-alarm sev-${alarm.severity}`}>{SEV_LABEL[alarm.severity]} · {alarm.message}</div>}
-        <dl>
-          <dt>위치</dt><dd>{[wardText(p.ward), place?.room || p.room, p.bed ? `${p.bed.slice(-1)} 침대` : null].filter(Boolean).join(' · ') || row.space || '—'}</dd>
-          {(p.department || p.diagnosis) && <><dt>진료</dt><dd>{[p.department, p.diagnosis].filter(Boolean).join(' · ')}</dd></>}
-          {(p.doctor || p.nurse) && <><dt>담당</dt><dd>{[p.doctor && `의사 ${p.doctor}`, p.nurse && `간호사 ${p.nurse}`].filter(Boolean).join(' · ')}</dd></>}
-          <dt>MRN · 패치</dt><dd className="mono">{row.mrn || '—'} · {row.channel_id}</dd>
-          <dt>바이탈</dt><dd>{lost ? <span className="muted">수신 없음</span> : <>HR <b>{v.hr ?? '—'}</b> · SpO₂ <b>{v.spo2 ?? '—'}</b> · RR <b>{v.resp ?? '—'}</b>{v.temp != null ? <> · <b>{v.temp.toFixed(1)}</b>°C</> : null}</>}</dd>
-          <dt>패치</dt><dd>배터리 {row.battery ?? '—'}%{life?.batLeft != null ? ` (약 ${fmtDays(life.batLeft)})` : ''} · RSSI {row.rssi ?? '—'} dBm</dd>
-          {life && <><dt>착용</dt><dd className={life.level ? `mt-${life.level}` : ''}>{fmtDays(life.worn)}째 · 교체 {life.left <= 0 ? '지금' : `${fmtDays(life.left)} 뒤`} ({life.reason})</dd></>}
-          <dt>게이트웨이</dt><dd className="mono">{row.gateway_id || '—'}</dd>
-        </dl>
+        <dl>{platform ? [...device, ...clinical] : [...clinical, ...device]}</dl>
         <div className="mt-foot">누르면 실시간 파형</div>
       </>
     )
   } else if (gw) {
     const st = live?.status || {}
+    const place = [R('설치 위치', gw.room), R('상태', `${!live ? '미접속' : !live.connected ? '끊김' : live.silent ? '무응답' : '연결'}${live && st.status != null ? ` · ${GW_STATUS[st.status] || ''}` : ''}`), R('연결 패치', `${live?.patches ?? 0} / ${gw.capacity || '—'}`)]
+    const tech = live ? [
+      R('CPU · MEM · NET', `${st.cpu ?? '—'}% · ${st.mem ?? '—'}% · ${st.net ?? '—'}%`),
+      R('WAN · 온도', `${st.wan_rssi ?? '—'} dBm · ${st.temp ?? '—'}°C`),
+      R('가동', fmtUp(st.uptime ?? st.uptime_s)),
+      R('수신', `프레임 ${live.frames?.toLocaleString?.() ?? '—'} · NACK ${live.nack_tx ?? 0} · 복구 ${live.recovered ?? 0}`),
+    ] : []
     body = (
       <>
         <div className="mt-head"><b>{gw.id}</b><span>#{gw.gw_no} · {gw.type}</span></div>
         {alarm && <div className={`mt-alarm sev-${alarm.severity}`}>{SEV_LABEL[alarm.severity]} · {alarm.message}</div>}
-        <dl>
-          <dt>설치 위치</dt><dd>{gw.room || '—'}</dd>
-          <dt>상태</dt><dd>{!live ? '미접속' : !live.connected ? '끊김' : live.silent ? '무응답' : '연결'}{live && st.status != null ? ` · ${GW_STATUS[st.status] || ''}` : ''}</dd>
-          <dt>패치</dt><dd>{live?.patches ?? 0} / {gw.capacity || '—'}</dd>
-          {live && <><dt>CPU · MEM · NET</dt><dd>{st.cpu ?? '—'}% · {st.mem ?? '—'}% · {st.net ?? '—'}%</dd>
-            <dt>WAN · 온도</dt><dd>{st.wan_rssi ?? '—'} dBm · {st.temp ?? '—'}°C</dd>
-            <dt>가동</dt><dd>{fmtUp(st.uptime ?? st.uptime_s)}</dd>
-            <dt>수신</dt><dd>프레임 {live.frames?.toLocaleString?.() ?? '—'} · NACK {live.nack_tx ?? 0} · 복구 {live.recovered ?? 0}</dd></>}
-        </dl>
+        <dl>{platform ? [place[1], place[2], ...tech, place[0]] : [...place, ...tech]}</dl>
         <div className="mt-foot">누르면 상세 · 올려 두면 커버리지</div>
       </>
     )

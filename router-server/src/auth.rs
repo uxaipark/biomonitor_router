@@ -1282,7 +1282,7 @@ pub fn mask_tail(s: &str) -> String {
 
 /// 개인정보 키 (값 전체를 가리거나 이름 규칙으로 가린다)
 const PHI_NAME_KEYS: [&str; 3] = ["name", "patient_name", "emergency_contact"];
-const PHI_TAIL_KEYS: [&str; 2] = ["mrn", "patient_id"];
+const PHI_TAIL_KEYS: [&str; 6] = ["mrn", "patient_id", "patient_no", "visit", "fhir_patient_id", "fhir_encounter_id"];
 const PHI_DROP_KEYS: [&str; 7] = ["phone", "address", "birth_date", "birth", "home_address", "rrn", "email"];
 
 /// JSON 안의 개인정보 필드를 가린다(재귀). `vital_keys` 가 있으면 생체 수치도 지운다.

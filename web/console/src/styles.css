@@ -555,7 +555,7 @@ button.danger:hover { background: var(--err); color: #fff; }
 .lm-actions .seg button { border: 0; border-radius: 0; padding: 6px 16px; background: transparent; }
 .lm-actions .seg button.active { background: var(--accent); color: #fff; }
 .lm-close { font-size: 16px; padding: 4px 10px; }
-.lm-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px; }
+.lm-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 442px; } /* 환자 정보 칸 340 → 442 px (+30%) */
 .lm-main { min-width: 0; overflow: auto; padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
 .lm-side { overflow: auto; padding: 14px 16px 16px; border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 12px; }
 @media (max-width: 1000px) {
@@ -860,7 +860,8 @@ td.ok { color: var(--ok); }
 .map-tip .mt-alarm { margin: 0 0 6px; padding: 3px 7px; border-radius: 6px; font-weight: 600; }
 .map-tip dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; }
 .map-tip dt { color: var(--muted); white-space: nowrap; }
-.map-tip dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.map-tip dd { margin: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.map-tip .mt-head, .map-tip .mt-alarm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .map-tip .mt-warn { color: var(--warn, #d97706); font-weight: 600; }
 .map-tip .mt-err { color: var(--err, #dc2626); font-weight: 600; }
 .map-tip .mt-foot { margin-top: 6px; color: var(--muted); font-size: 11.5px; }
@@ -868,3 +869,6 @@ td.ok { color: var(--ok); }
 .map-tip .mt-alarm.sev-high { background: var(--sev-high); color: #fff; }
 .map-tip .mt-alarm.sev-medium { background: var(--sev-medium); color: #111; }
 .map-tip .mt-alarm.sev-low { background: var(--panel2); }
+
+.lm-card .lm-sub { margin: 12px 0 4px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 12px; color: var(--muted); font-weight: 600; }
+.lm-card section:first-of-type .lm-sub { border-top: 0; padding-top: 0; margin-top: 2px; }
