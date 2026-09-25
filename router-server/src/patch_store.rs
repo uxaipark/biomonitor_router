@@ -490,15 +490,27 @@ pub fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
     Ok(raw)
 }
 
-/// Hour files of a patch, sorted by hour key: (hour_key, path, size).
+/// 백업에서 다시 받아 온 파일(로컬에서 이미 지운 과거 구간)을 두는 곳. 저장 상한·정리·백업 대상이 아니다.
+pub const RESTORE_DIR: &str = ".restore-cache";
+pub fn restore_dir(root: &Path, patch_id: u32) -> PathBuf {
+    root.join(RESTORE_DIR).join("patches").join(format!("{patch_id:08}"))
+}
+
+/// Block files of a patch (local, plus ones restored from backup that are no longer local), sorted by key:
+/// (key, path, size).
 pub fn list_files(root: &Path, patch_id: u32) -> Vec<(String, PathBuf, u64)> {
-    let mut v = Vec::new();
-    if let Ok(rd) = fs::read_dir(patch_dir(root, patch_id)) {
-        for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().to_string();
-            if let Some(key) = name.strip_suffix(".rec").or_else(|| name.strip_suffix(".rec.gz")) {
-                let size = e.metadata().map(|m| m.len()).unwrap_or(0);
-                v.push((key.to_string(), e.path(), size));
+    let mut v: Vec<(String, PathBuf, u64)> = Vec::new();
+    for dir in [patch_dir(root, patch_id), restore_dir(root, patch_id)] {
+        if let Ok(rd) = fs::read_dir(dir) {
+            for e in rd.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if let Some(key) = name.strip_suffix(".rec").or_else(|| name.strip_suffix(".rec.gz")) {
+                    if v.iter().any(|x| x.0 == key) {
+                        continue; // 로컬이 있으면 로컬
+                    }
+                    let size = e.metadata().map(|m| m.len()).unwrap_or(0);
+                    v.push((key.to_string(), e.path(), size));
+                }
             }
         }
     }
@@ -1019,6 +1031,7 @@ impl PatchStore {
         crate::backup::on_store_reset();
         let _ = fs::remove_dir_all(self.root.join("patches"));
         let _ = fs::remove_dir_all(self.root.join("meta"));
+        let _ = fs::remove_dir_all(self.root.join(RESTORE_DIR));
         fs::create_dir_all(self.root.join("patches")).ok();
         fs::create_dir_all(self.root.join("meta")).ok();
         STORE_BYTES.store(0, Ordering::Relaxed);

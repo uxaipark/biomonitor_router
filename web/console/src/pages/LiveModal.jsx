@@ -291,7 +291,7 @@ export function LiveModal({ channelId, alarms, onClose }) {
                 <dl className="lm-dl">
                   <Row k="기간">{fmtTime(ix.first_ts_ms)} ~ {fmtTime(ix.last_ts_ms)}</Row>
                   <Row k="레코드">{(ix.records ?? 0).toLocaleString()}{ix.lost ? <span className="lm-warn"> · 유실 {ix.lost}</span> : ''}</Row>
-                  <Row k="용량">{fmtBytes(ix.bytes)} · 파일 {(idx.files || []).length}개</Row>
+                  <Row k="용량">{fmtBytes(ix.bytes)} · 파일 {(idx.files || []).length}개{(idx.files || []).some((f) => f.where === 'backup') ? ` (로컬 ${(idx.files || []).filter((f) => f.where !== 'backup').length} · ☁ 백업 ${(idx.files || []).filter((f) => f.where === 'backup').length})` : ''}</Row>
                 </dl>
               ) : <p className="muted">{bio ? '저장된 파형이 없습니다.' : '생체신호 권한이 없어 표시하지 않습니다.'}</p>}
               {bio && !history && ix && <button className="lm-hxbtn" onClick={() => setHistory(true)}>저장된 파형 보기 →</button>}

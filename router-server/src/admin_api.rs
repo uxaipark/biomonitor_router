@@ -627,15 +627,27 @@ async fn patch_index(State(state): State<Arc<AppState>>, Extension(p): Extension
     let phi = p.phi();
     let Some(pid) = patch_id_of(&id) else { return (StatusCode::BAD_REQUEST, "bad patch id").into_response() };
     let root = std::path::PathBuf::from(&state.cfg.store_dir);
+    let bk = state.backup.clone();
     let r = tokio::task::spawn_blocking(move || {
         crate::patch_store::read_index(&root, pid).map(|ix| {
             let files = crate::patch_store::list_files(&root, pid);
-            serde_json::json!({ "index": ix, "files": files.iter().map(|(k, p, n)| {
+            // where: local = 로컬 저장소, restored = 백업에서 받아 둔 복원 캐시, backup = 백업에만 있음(열면 받아 온다)
+            let mut out: Vec<(String, serde_json::Value)> = files.iter().map(|(k, p, n)| {
                 let seal = crate::patch_store::read_seal(p);
                 let (a, b) = crate::patch_store::key_range(k).unwrap_or((0, 0));
-                serde_json::json!({"hour": k, "path": p, "bytes": n, "start_ms": a, "end_ms": b,
-                                   "sealed": seal.is_some(), "sealed_ok": seal.as_ref().map(|s| s.ok), "crc32": seal.as_ref().map(|s| s.crc32.clone())})
-            }).collect::<Vec<_>>() })
+                let wh = if p.to_string_lossy().contains(crate::patch_store::RESTORE_DIR) { "restored" } else { "local" };
+                (k.clone(), serde_json::json!({"hour": k, "path": p, "bytes": n, "start_ms": a, "end_ms": b, "where": wh,
+                                   "sealed": seal.is_some(), "sealed_ok": seal.as_ref().map(|s| s.ok), "crc32": seal.as_ref().map(|s| s.crc32.clone())}))
+            }).collect();
+            for (k, _rel, n) in bk.remote_blocks(pid) {
+                if out.iter().any(|x| x.0 == k) {
+                    continue;
+                }
+                let (a, b) = crate::patch_store::key_range(&k).unwrap_or((0, 0));
+                out.push((k.clone(), serde_json::json!({"hour": k, "bytes": n, "start_ms": a, "end_ms": b, "where": "backup", "sealed": true})));
+            }
+            out.sort_by(|x, y| x.0.cmp(&y.0));
+            serde_json::json!({ "index": ix, "files": out.into_iter().map(|x| x.1).collect::<Vec<_>>() })
         })
     })
     .await
@@ -738,7 +750,9 @@ async fn wave_read(
 
     if mode == "overview" {
         let buckets = getn("buckets", 600) as usize;
+        let bk = state.backup.clone();
         let r = tokio::task::spawn_blocking(move || {
+            bk.ensure_local(pid, from, to, 13); // 로컬에서 지운 과거 구간은 백업에서 (하루 = 2시간 파일 12개)
             crate::patch_store::overview(&root, pid, from, to, buckets)
         }).await.unwrap_or_default();
         let pts: Vec<serde_json::Value> = r.into_iter()
@@ -753,7 +767,9 @@ async fn wave_read(
     let to = to.min(from + 120_000);
     let _permit = hist_sem().acquire().await;
     let sr = state.registry.sample_rate_of(&channel_id).unwrap_or(250);
+    let bk = state.backup.clone();
     let r: Vec<(u64, u32, Vec<f32>)> = tokio::task::spawn_blocking(move || {
+        bk.ensure_local(pid, from, to, 2);
         crate::patch_store::read_ecg_range(&root, pid, from, to)
     }).await.unwrap_or_default().into_iter().map(|(ts, _seq, s)| (ts, sr, s)).collect();
     // 레코드 간 seq 갭(미전송 구간)은 세그먼트 분리로 표현
@@ -811,7 +827,11 @@ async fn wave_read_all(
     let root = std::path::PathBuf::from(&state.cfg.store_dir);
     let Some(pid) = patch_id_of(&channel_id) else { return (StatusCode::BAD_REQUEST, "bad patch id").into_response() };
     let _permit = hist_sem().acquire().await;
-    let recs = tokio::task::spawn_blocking(move || crate::patch_store::read_wave_range(&root, pid, from, to)).await.unwrap_or_default();
+    let bk = state.backup.clone();
+    let recs = tokio::task::spawn_blocking(move || {
+        bk.ensure_local(pid, from, to, 2); // 로컬에서 지운 구간은 백업에서 받아 온다 (첫 요청만 느림)
+        crate::patch_store::read_wave_range(&root, pid, from, to)
+    }).await.unwrap_or_default();
     // per-channel run detection: a new segment when the seq jumps or the time gap is not one bundle
     // each segment keeps its own samples (records interleave channels); the blob is laid out segment by segment
     struct Seg { key: &'static str, fs: u32, axes: usize, scale: f32, t0: u64, n: usize, data: Vec<i16>, last_seq: u32, last_end: u64 }

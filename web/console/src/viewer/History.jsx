@@ -432,7 +432,7 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
         <span className="hx-seg">{SPANS.map((s) => <button key={s} className={span === s ? 'on' : ''} onClick={() => setSpan(s)}>{s}s</button>)}</span>
         {anchor != null && <button className="btn btn-secondary" onClick={() => setAnchor(null)}>지금으로</button>}
         <label className="hx-h"><span className="ds-dim">높이</span><input type="range" min="60" max="320" step="10" value={height} onChange={(e) => setHeight(Number(e.target.value))} title={`ECG ${height}px`} /><span className="ds-dim">{height}px</span></label>
-        <span className="ds-dim">{loading ? '불러오는 중…' : `${(ix.records || 0).toLocaleString()} 레코드 · ${hours.length}개 파일`}</span>
+        <span className="ds-dim">{loading ? '불러오는 중…' : `${(ix.records || 0).toLocaleString()} 레코드 · ${hours.length}개 파일${hours.some((f) => f.where === 'backup') ? ` (☁ 백업 ${hours.filter((f) => f.where === 'backup').length})` : ''}`}</span>
         <span className="spacer" />
         {!compact && <button className="btn btn-secondary" onClick={onClose}>실시간으로</button>}
       </div>
@@ -441,7 +441,7 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
         const endH = String((+localHour(f.hour).hh + n) % 24).padStart(2, '0')
         const cur = top != null && top > start && top <= end
         const newest = i === hours.length - 1
-        return <button key={f.hour} className={cur ? 'on' : ''} title={`${localHour(f.hour).day} ${localHour(f.hour).hh}–${endH}시 · ${(f.bytes / 2 ** 20).toFixed(1)} MB${f.sealed ? ` · 봉인 ${f.sealed_ok ? 'CRC 정상' : 'CRC 오류'}` : ''}`} onClick={() => setAnchor(newest ? null : end)}>{n > 1 ? `${localHour(f.hour).hh}–${endH}시` : `${localHour(f.hour).hh}시`}</button>
+        return <button key={f.hour} className={cur ? 'on' : ''} title={`${localHour(f.hour).day} ${localHour(f.hour).hh}–${endH}시 · ${(f.bytes / 2 ** 20).toFixed(1)} MB${f.sealed ? ` · 봉인 ${f.sealed_ok === false ? 'CRC 오류' : 'CRC 정상'}` : ''}${f.where === 'backup' ? ' · 백업 서버에만 있음 (열면 받아 옵니다)' : f.where === 'restored' ? ' · 백업에서 받아 둔 파일' : ''}`} onClick={() => setAnchor(newest ? null : end)}>{f.where === 'backup' ? '☁ ' : f.where === 'restored' ? '↓ ' : ''}{n > 1 ? `${localHour(f.hour).hh}–${endH}시` : `${localHour(f.hour).hh}시`}</button>
       })}</div>
       <div className="hx-list" onScroll={onListScroll} style={{ '--hx-ecg': `${height}px`, '--hx-thin': `${Math.max(20, Math.round(height * 0.28))}px` }}>
         {anchor == null && <LiveWindow id={id} spanMs={spanMs} theme={th} keys={keys.size ? keys : DEFAULT_KEYS} onRollover={onRollover} loaded={loaded} onWindow={onWindow} />}

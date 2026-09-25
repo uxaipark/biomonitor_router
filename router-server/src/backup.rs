@@ -325,6 +325,7 @@ CREATE TABLE IF NOT EXISTS backup_daily (day TEXT NOT NULL, target TEXT NOT NULL
 CREATE TABLE IF NOT EXISTS backup_catalog (target TEXT NOT NULL, rel TEXT NOT NULL, hour TEXT NOT NULL, size INTEGER NOT NULL, sha BLOB,
   done_ms INTEGER NOT NULL, src TEXT NOT NULL DEFAULT 'upload', PRIMARY KEY (target, rel));
 CREATE INDEX IF NOT EXISTS backup_catalog_th ON backup_catalog (target, hour);
+CREATE INDEX IF NOT EXISTS backup_catalog_rel ON backup_catalog (rel);
 ";
 
 fn now_ms() -> u64 {
@@ -582,6 +583,8 @@ impl Backup {
                 }
             }
         }
+        // 원격 파일 이름(늦게 온 레코드로 .late-… 이름이 된 경우 rel 과 다르다) — 옛 표에는 없어 추가
+        let _ = db.execute("ALTER TABLE backup_catalog ADD COLUMN remote TEXT", []);
         // 대상별 목록이 생기기 전에 올린 사본(아직 로컬에 있는 것)을 목록에 채운다
         if let Ok(mut st) = db.prepare("SELECT rel, target, size, sha, done_ms FROM backup_files") {
             let rows: Vec<(String, String, i64, Vec<u8>, i64)> = st
@@ -1053,6 +1056,160 @@ impl Backup {
         set("deleted", serde_json::json!(deleted));
         info!("backup: purged target {} — {} files deleted", t.name, deleted);
         Ok(())
+    }
+
+    // ---------------------------------------------------------------- 백업에서 다시 읽기 (히스토리)
+
+    /// 백업 목록에 있는 이 패치의 파일: (키, rel, 크기) — 로컬에 없어도 히스토리 목록에 보이게
+    pub fn remote_blocks(&self, patch_id: u32) -> Vec<(String, String, u64)> {
+        let like = format!("patches/{patch_id:08}/%");
+        let db = self.db.lock().unwrap();
+        let Ok(mut st) = db.prepare("SELECT rel, MAX(size) FROM backup_catalog WHERE rel LIKE ?1 GROUP BY rel") else { return Vec::new() };
+        let rows: Vec<(String, i64)> = st.query_map(params![like], |r| Ok((r.get(0)?, r.get(1)?))).map(|it| it.flatten().collect()).unwrap_or_default();
+        rows.into_iter().map(|(rel, size)| (hour_of(&rel), rel, size.max(0) as u64)).collect()
+    }
+
+    /// [from, to) 에 걸치는 이 패치의 파일 중 로컬에 없고 백업에만 있는 것을 받아 온다(최대 max 개).
+    /// 이미 받아 둔 것(복원 캐시)은 다시 받지 않는다. 반환: (받은 수, 실패 메시지들)
+    pub fn ensure_local(&self, patch_id: u32, from_ms: u64, to_ms: u64, max: usize) -> (usize, Vec<String>) {
+        let local: HashSet<String> = crate::patch_store::list_files(&self.root, patch_id).into_iter().map(|x| x.0).collect();
+        let mut want: Vec<(String, String)> = self
+            .remote_blocks(patch_id)
+            .into_iter()
+            .filter(|(k, _, _)| !local.contains(k) && crate::patch_store::key_range(k).map(|(a, b)| a < to_ms && b > from_ms).unwrap_or(false))
+            .map(|(k, rel, _)| (k, rel))
+            .collect();
+        want.sort();
+        want.truncate(max);
+        let (mut n, mut errs) = (0usize, Vec::new());
+        for (_, rel) in want {
+            match self.restore(patch_id, &rel) {
+                Ok(_) => n += 1,
+                Err(e) => errs.push(format!("{rel}: {e}")),
+            }
+        }
+        (n, errs)
+    }
+
+    /// 백업에서 파일 하나를 복원 캐시로 받는다: 대상 순위대로 시도, SHA-256(업로드 때 값, 없으면 원격 .sum)으로 검증
+    fn restore(&self, patch_id: u32, rel: &str) -> Result<PathBuf, String> {
+        static LOCKS: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+        let name = rel.rsplit('/').next().unwrap_or(rel).to_string();
+        let dir = crate::patch_store::restore_dir(&self.root, patch_id);
+        let dest = dir.join(&name);
+        // 같은 파일을 두 요청이 동시에 받지 않게 (먼저 받은 쪽을 기다렸다가 결과를 쓴다)
+        loop {
+            if dest.exists() {
+                return Ok(dest);
+            }
+            if LOCKS.lock().unwrap().insert(rel.to_string()) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let res = (|| {
+            fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            let rows: Vec<(String, i64, Option<Vec<u8>>, Option<String>)> = {
+                let db = self.db.lock().unwrap();
+                let mut st = db.prepare("SELECT target, size, sha, remote FROM backup_catalog WHERE rel = ?1").map_err(|e| e.to_string())?;
+                let v = st.query_map(params![rel], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).map_err(|e| e.to_string())?.flatten().collect();
+                v
+            };
+            if rows.is_empty() {
+                return Err("백업 목록에 없음".into());
+            }
+            let p = self.policy.read().unwrap().clone();
+            let targets = self.targets.read().unwrap().clone();
+            let mut last = String::from("백업 대상 없음");
+            for t in targets.iter().filter(|t| rows.iter().any(|r| r.0 == t.id)) {
+                let (_, size, sha, remote) = rows.iter().find(|r| r.0 == t.id).cloned().unwrap();
+                let remote = remote.filter(|r| !r.is_empty()).unwrap_or_else(|| rel.to_string());
+                let tmp = dir.join(format!(".{name}.part"));
+                if let Err(e) = self.download(t, &p, &remote, &tmp) {
+                    last = format!("{}: {e}", t.name);
+                    let _ = fs::remove_file(&tmp);
+                    continue;
+                }
+                let (h, n) = sha_file(&tmp).map_err(|e| e.to_string())?;
+                // 기대 해시: 업로드 때 적어 둔 값, 없으면(원격 목록 읽기로 찾은 파일) 원격 봉인 파일의 sha256
+                let want = sha.filter(|s| s.len() == 32).or_else(|| {
+                    let stem = remote.strip_suffix(".rec.gz").or_else(|| remote.strip_suffix(".rec")).unwrap_or(&remote);
+                    let st = dir.join(format!(".{name}.sum.part"));
+                    let got = self.download(t, &p, &format!("{stem}.sum"), &st).ok().and_then(|_| fs::read_to_string(&st).ok());
+                    let _ = fs::remove_file(&st);
+                    got.and_then(|j| serde_json::from_str::<crate::patch_store::Seal>(&j).ok()).and_then(|s| seal_sha(&s)).map(|a| a.to_vec())
+                });
+                let ok = match &want {
+                    Some(w) => w.as_slice() == h.as_slice(),
+                    None => size <= 0 || n == size as u64,
+                };
+                if !ok {
+                    last = format!("{}: 받은 파일 검증 실패 (SHA-256/크기 불일치)", t.name);
+                    let _ = fs::remove_file(&tmp);
+                    continue;
+                }
+                fs::rename(&tmp, &dest).map_err(|e| e.to_string())?;
+                info!("backup: restored {} from {} for history ({} KB)", rel, t.name, n >> 10);
+                return Ok(dest.clone());
+            }
+            Err(last)
+        })();
+        LOCKS.lock().unwrap().remove(rel);
+        if res.is_ok() {
+            self.prune_restore_cache(5 << 30);
+        }
+        res
+    }
+
+    /// 원격 파일 하나를 로컬 경로로 받는다
+    fn download(&self, t: &Target, p: &Policy, remote: &str, dest: &Path) -> Result<(), String> {
+        match t.kind.as_str() {
+            "nas" => fs::copy(Path::new(t.path.trim()).join(remote), dest).map(|_| ()).map_err(|e| e.to_string()),
+            "smb" => {
+                let auth = t.smb_auth(&self.work)?;
+                let full = join_remote(&t.path, remote).trim_start_matches('/').to_string();
+                let o = t.smbclient(&auth, p, &format!("get \"{}\" \"{}\"", full, dest.display()));
+                let _ = fs::remove_file(&auth);
+                let o = o?;
+                if o.status.success() && dest.exists() { Ok(()) } else { Err(stderr_msg(&o)) }
+            }
+            _ => {
+                let mut cmd = t.curl(p);
+                cmd.arg("-o").arg(dest).arg(t.url(remote));
+                let o = run_with_stdin(cmd, &t.curl_cfg())?;
+                if o.status.success() { Ok(()) } else { Err(stderr_msg(&o)) }
+            }
+        }
+    }
+
+    /// 복원 캐시가 cap 을 넘으면 오래 안 쓴(수정 시각이 오래된) 파일부터 지운다
+    fn prune_restore_cache(&self, cap: u64) {
+        let base = self.root.join(crate::patch_store::RESTORE_DIR).join("patches");
+        let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> = Vec::new();
+        if let Ok(rd) = fs::read_dir(&base) {
+            for d in rd.flatten() {
+                if let Ok(fs2) = fs::read_dir(d.path()) {
+                    for f in fs2.flatten() {
+                        if let Ok(m) = f.metadata() {
+                            files.push((m.modified().unwrap_or(std::time::UNIX_EPOCH), m.len(), f.path()));
+                        }
+                    }
+                }
+            }
+        }
+        let mut total: u64 = files.iter().map(|f| f.1).sum();
+        if total <= cap {
+            return;
+        }
+        files.sort();
+        for (_, n, path) in files {
+            if total <= cap / 10 * 9 {
+                break;
+            }
+            if fs::remove_file(&path).is_ok() {
+                total = total.saturating_sub(n);
+            }
+        }
     }
 
     // ---------------------------------------------------------------- 대상별 백업 목록
@@ -1676,8 +1833,8 @@ impl Backup {
                             params![job.rel, t.id, size as i64, sha.to_vec(), remote, now_ms() as i64],
                         );
                         let _ = db.execute(
-                            "INSERT OR REPLACE INTO backup_catalog (target, rel, hour, size, sha, done_ms, src) VALUES (?1,?2,?3,?4,?5,?6,'upload')",
-                            params![t.id, job.rel, hour_of(&job.rel), size as i64, sha.to_vec(), now_ms() as i64],
+                            "INSERT OR REPLACE INTO backup_catalog (target, rel, hour, size, sha, done_ms, src, remote) VALUES (?1,?2,?3,?4,?5,?6,'upload',?7)",
+                            params![t.id, job.rel, hour_of(&job.rel), size as i64, sha.to_vec(), now_ms() as i64, remote],
                         );
                         let _ = db.execute(
                             "INSERT INTO backup_daily (day, target, files, bytes) VALUES (?1,?2,1,?3) ON CONFLICT(day, target) DO UPDATE SET files = files + 1, bytes = bytes + ?3",
