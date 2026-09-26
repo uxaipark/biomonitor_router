@@ -208,7 +208,7 @@ function Console({ me, setMe }) {
         <a className="brand" href="#/"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)" /><path d="M4 13h4l2-5 3 9 2-6 1.5 2H20" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>{appTitle(me.user)}</a>
         <nav>
           {allowed.filter((p) => !p[3]).map(([h, label]) => (
-            <a key={h} href={h} className={page[0] === h ? 'active' : ''}>{label}{h === '#/alarms' && s.unacked > 0 && <span className="badge">{s.unacked}</span>}</a>
+            <a key={h} href={h} className={page[0] === h ? 'active' : ''}>{label}{h === '#/alarms' && <span className={'badge' + (s.unacked > 0 ? '' : ' empty')} title={s.unacked > 0 ? `미확인 알람 ${s.unacked}건` : ''}>{s.unacked > 999 ? '999+' : s.unacked || ''}</span>}</a>
           ))}
           {menus.map((m) => <NavMenu key={m} label={m} base={page[0]} items={allowed.filter((p) => p[3] === m)} hints={navHints} />)}
         </nav>

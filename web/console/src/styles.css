@@ -42,7 +42,9 @@ header nav .nav-menu.open .dd-caret { transform: rotate(180deg); }
 header nav .nav-sub { position: absolute; top: calc(100% + 4px); left: 0; z-index: 45; min-width: 180px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.35); padding: 5px; display: flex; flex-direction: column; gap: 1px; }
 header nav .nav-sub a { display: flex; justify-content: space-between; gap: 14px; white-space: nowrap; }
 header nav .nav-sub .hint { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
-header nav .badge { background: var(--crit); color: #fff; border-radius: 10px; font-size: 11px; padding: 0 6px; margin-left: 5px; }
+/* 알람 수 배지: 폭 고정(세 자리 + '+') — 숫자가 바뀌어도 메뉴가 흔들리지 않게 */
+header nav .badge { display: inline-block; box-sizing: border-box; width: 36px; text-align: center; background: var(--crit); color: #fff; border-radius: 10px; font-size: 11px; line-height: 16px; padding: 0 2px; margin-left: 5px; font-variant-numeric: tabular-nums; vertical-align: 1px; }
+header nav .badge.empty { visibility: hidden; } /* 0건이어도 자리는 남겨 메뉴가 당겨지지 않게 */
 .pill { padding: 3px 10px; border-radius: 12px; background: var(--panel2); border: 1px solid var(--line); font-size: 12.5px; }
 .pill.ok { border-color: var(--ok); color: var(--ok); }
 .pill.warn { border-color: var(--warn); color: var(--warn); }
