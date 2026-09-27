@@ -64,13 +64,20 @@ const Tile = ({ label, value, sub, warn, title }) => (
 const KIND = { restart: '재시작', full_reset: '가동 초기화', store_stall: '저장 스톨', queue_drop: '저장 드롭', ws_lag: 'WS 지연', disk_low: '디스크 부족', reset: '통계 초기화' }
 
 export default function OpsStats() {
-  const [range, setRange] = useState(() => { try { return localStorage.getItem('ops.range') || 'day' } catch { return 'day' } })
+  // 구간 선택: '자동' 이면 수집된 데이터 양으로 정한다 — 1시간 미만 5분, 1시간 이상 1시간, 1일 이상 1일, 1주 이상 1주, 1개월 이상이면 1개월에서 멈춤 (사용자 결정)
+  const [sel, setSel] = useState(() => { try { return localStorage.getItem('ops.range') || 'auto' } catch { return 'auto' } })
   // 5분 구간은 2 s 샘플이라 5 s 마다, 나머지는 30 s 마다 새로 읽는다
-  const [data, , refresh] = usePoll(() => api.metrics(range), range === '5min' ? 5000 : 30000, [range])
   const [info, , refreshInfo] = usePoll(api.metricsInfo, 60000)
+  const autoRange = useMemo(() => {
+    const span = info?.first_ts ? Date.now() / 1000 - info.first_ts : 0
+    return span >= 30 * 86400 ? 'month' : span >= 7 * 86400 ? 'week' : span >= 86400 ? 'day' : span >= 3600 ? 'hour' : '5min'
+  }, [info])
+  const range = sel === 'auto' ? autoRange : sel
+  // 5분 구간은 2초 샘플이라 2초마다 다시 그린다 (사용자 요청); 나머지는 30초
+  const [data, , refresh] = usePoll(() => api.metrics(range), range === '5min' ? 2000 : 30000, [range])
   const [stats] = usePoll(api.stats, 5000)
   const [msg, setMsg] = useState('')
-  const setR = (r) => { setRange(r); try { localStorage.setItem('ops.range', r) } catch { /* ignore */ } }
+  const setR = (r) => { setSel(r); try { localStorage.setItem('ops.range', r) } catch { /* ignore */ } }
   const points = data?.points || []
   const tot = data?.totals || {}
   const cov = data?.coverage || {}
@@ -120,7 +127,10 @@ export default function OpsStats() {
       </div>
       {/* 구간 선택·수집 정보·초기화: 수치 카드와 그래프 사이 (사용자 요청) */}
       <div className="toolbar ops-range">
-        <span className="seg">{RANGES.map(([k, l]) => <button key={k} className={range === k ? 'active' : ''} onClick={() => setR(k)}>{l}</button>)}</span>
+        <span className="seg">
+          <button className={sel === 'auto' ? 'active' : ''} onClick={() => setR('auto')} title="수집된 데이터 양에 맞춰 구간을 고릅니다 (1시간 미만 5분 → 1시간 → 1일 → 1주 → 1개월에서 멈춤)">자동{sel === 'auto' ? ` · ${(RANGES.find(([k]) => k === range) || [])[1] || range}` : ''}</button>
+          {RANGES.map(([k, l]) => <button key={k} className={sel === k ? 'active' : ''} onClick={() => setR(k)}>{l}</button>)}
+        </span>
         <span className="muted">
           {info?.first_ts ? `수집 시작 ${new Date(info.first_ts * 1000).toLocaleString('ko-KR')}` : '수집 시작 —'}
           {info ? ` · 분 기록 ${fmtNum(info.minute_rows)}(${info.keep_days}일 보관) · 시간 기록 ${fmtNum(info.hour_rows)} · DB ${fmtBytes(info.db_bytes)}` : ''}
