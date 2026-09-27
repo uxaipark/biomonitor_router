@@ -1172,3 +1172,5 @@ button.ghost:hover { border-color: var(--line); color: var(--text); }
 .bk-policy > label { display: flex; align-items: center; }
 .bk-policy > label:nth-last-child(2), .bk-policy > div:last-child { border-bottom: 0; }
 .ops-range { margin: 14px 0 10px; }
+.ops-limit-label { font-size: 10px; fill: var(--err, #dc2626); font-weight: 600; }
+.ops-limit-text { color: var(--err, #dc2626); font-weight: 500; }
