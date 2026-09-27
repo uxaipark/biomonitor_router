@@ -60,10 +60,13 @@ export default function AdminControl() {
       <div className="ctl-head">
         <h2 className="h">서비스 제어</h2>
         <span className={'pill ' + (st.stopped ? 'warn' : 'ok')}>{st.stopped ? `${st.stopped}개 멈춤` : '모두 정상'}</span>
-        <span className="muted">멈추면 모든 화면 위에 띠로 알리고 감사 기록에 남습니다. 라우터를 재시작해도 멈춘 상태는 유지됩니다(알람 억제만 풀림).</span>
+        <span className="muted">{st.dev_mode
+          ? '개발 모드: 사유 없이 스위치 한 번으로 켜고 끕니다(기록에는 "개발 모드"로 남음). 운영 모드로 바꾸면 사유가 필수가 됩니다.'
+          : '멈추면 모든 화면 위에 띠로 알리고 감사 기록에 남습니다. 라우터를 재시작해도 멈춘 상태는 유지됩니다(알람 억제만 풀림).'}</span>
+        <ModeSwitch me={me} dev={st.dev_mode} />
       </div>
       {msg && <p className="err">{msg}</p>}
-      <Maintenance st={st} edit={edit} onDone={done} setMsg={setMsg} />
+      <Maintenance st={st} edit={edit} dev={st.dev_mode} onDone={done} setMsg={setMsg} />
       {(() => {
         const m = mode || (st.stopped ? 'start' : 'stop')
         const bySvc = new Map(st.services.map((s) => [s.service, s]))
@@ -78,7 +81,7 @@ export default function AdminControl() {
               : '받을 준비(저장·환자 정보) → 수신 → 화면 → 알림·EMR → 백업 순으로 켭니다. 단계마다 확인한 뒤 다음으로 넘어가세요.'}</span>
           </div>
           <div className="ctl-grid">
-            {ORDER[m].map(([svc, hint], i) => bySvc.get(svc) && <ServiceCard key={svc} s={bySvc.get(svc)} edit={edit} onAct={act} step={i + 1} hint={hint} mode={m} />)}
+            {ORDER[m].map(([svc, hint], i) => bySvc.get(svc) && <ServiceCard key={svc} s={bySvc.get(svc)} edit={edit} dev={st.dev_mode} onAct={act} step={i + 1} hint={hint} mode={m} />)}
           </div>
         </>
       })()}
@@ -86,7 +89,26 @@ export default function AdminControl() {
   )
 }
 
-function ServiceCard({ s, edit, onAct, step, hint, mode }) {
+/** 개발 모드 ↔ 운영 모드 — 권한 설정 페이지의 개발 모드와 같은 스위치(auth.dev_mode, 수퍼 어드민만). 개발 모드면 사유 없이 켜고 끈다. */
+function ModeSwitch({ me, dev }) {
+  const [busy, setBusy] = useState(false)
+  const sa = me?.user?.role === 'super_admin'
+  const flip = async () => {
+    if (!sa || busy) return
+    if (dev && !window.confirm('운영 모드로 바꾸면 서비스를 멈출 때 사유가 필수가 되고, 수퍼 어드민도 개인정보·생체신호가 가려지며 로그인 화면의 시험용 계정 표시가 사라집니다. 계속할까요?')) return
+    if (!dev && !window.confirm('개발 모드로 바꾸면 사유 없이 서비스를 멈추고 켤 수 있고, 수퍼 어드민이 전체 권한을 갖습니다. 병원 운영 중에는 쓰지 마세요. 계속할까요?')) return
+    setBusy(true)
+    try { await api.admin.devMode(!dev); window.location.reload() } catch (e) { window.alert(e.message); setBusy(false) }
+  }
+  return (
+    <span className={'ctl-mode seg' + (dev ? ' dev' : '')} title={sa ? '수퍼 어드민만 바꿀 수 있습니다' : '수퍼 어드민만 바꿀 수 있습니다 (보기만)'}>
+      <button className={dev ? 'active' : ''} disabled={!sa || busy} onClick={() => !dev && flip()}>개발 모드</button>
+      <button className={!dev ? 'active' : ''} disabled={!sa || busy} onClick={() => dev && flip()}>운영 모드</button>
+    </span>
+  )
+}
+
+function ServiceCard({ s, edit, dev, onAct, step, hint, mode }) {
   const info = INFO[s.service] || {}
   const [reason, setReason] = useState('')
   const [auto, setAuto] = useState(s.service === 'alarm' ? 30 : 0)
@@ -100,6 +122,8 @@ function ServiceCard({ s, edit, onAct, step, hint, mode }) {
   }
   const flip = () => {
     if (!edit) return
+    // 개발 모드: 사유·확인 없이 바로 켜고 끈다
+    if (dev) { setOpen(false); onAct(s.service, s.on ? { on: false, minutes: s.service === 'alarm' ? 30 : undefined, keep_critical: true } : { on: true }); return }
     if (s.on) { setOpen(!open); return }
     if (window.confirm(`${s.label}을(를) ${s.service === 'alarm' ? '다시 알리게' : '다시 켜게'} 합니다. 계속할까요?`)) onAct(s.service, { on: true })
   }
@@ -111,7 +135,7 @@ function ServiceCard({ s, edit, onAct, step, hint, mode }) {
         <b>{s.label}</b>
         {/* 상태 표시 겸 스위치: 켜짐 → 누르면 멈춤 입력 펼침, 멈춤 → 누르면 확인 후 다시 켬 */}
         <button role="switch" aria-checked={s.on} className={'ctl-switch' + (s.on ? ' on' : ' off') + (open ? ' pending' : '')} onClick={flip} disabled={!edit}
-          title={!edit ? '권한이 없어 바꿀 수 없습니다' : s.on ? (open ? '멈춤 입력 닫기' : '멈추기 — 사유를 적습니다') : '다시 켜기'}>
+          title={!edit ? '권한이 없어 바꿀 수 없습니다' : dev ? (s.on ? '멈추기 (개발 모드: 사유 없음)' : '다시 켜기') : s.on ? (open ? '멈춤 입력 닫기' : '멈추기 — 사유를 적습니다') : '다시 켜기'}>
           <span className="ctl-knob" /><span className="ctl-sw-text">{stateText}</span>
         </button>
       </header>
@@ -143,12 +167,12 @@ function ServiceCard({ s, edit, onAct, step, hint, mode }) {
 }
 
 /** 유지보수 모드: 백업·EMR 전송 멈춤 + 알람 알림 억제(최대 60분)를 한 번에, 끝낼 때도 한 번에 */
-function Maintenance({ st, edit, onDone, setMsg }) {
+function Maintenance({ st, edit, dev, onDone, setMsg }) {
   const [reason, setReason] = useState('')
   const [min, setMin] = useState(60)
   const on = st.maintenance
   const go = async (start) => {
-    if (start && !reason.trim()) { window.alert('사유를 적어 주세요'); return }
+    if (start && !reason.trim() && !dev) { window.alert('사유를 적어 주세요'); return }
     try { await api.control.maintenance(start ? { on: false, reason, minutes: min, keep_critical: true } : { on: true }); onDone() } catch (e) { setMsg(e.message) }
   }
   return (
@@ -160,7 +184,7 @@ function Maintenance({ st, edit, onDone, setMsg }) {
       {edit && (on
         ? <button className="primary" onClick={() => go(false)}>유지보수 끝내기</button>
         : <div className="ctl-form">
-            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="사유 (필수) — 예: NAS 점검" />
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={dev ? '사유 (개발 모드: 생략 가능)' : '사유 (필수) — 예: NAS 점검'} />
             <select value={min} onChange={(e) => setMin(Number(e.target.value))}>{MUTE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
             <button onClick={() => go(true)}>유지보수 시작</button>
           </div>)}

@@ -149,6 +149,8 @@ pub fn status(state: &AppState) -> serde_json::Value {
         "stopped": stopped,
         "alarm_mute": { "until_ms": ALARM_MUTE_UNTIL.load(Ordering::Relaxed), "keep_critical": ALARM_MUTE_KEEP_CRITICAL.load(Ordering::Relaxed), "max_min": ALARM_MAX_MIN },
         "maintenance": book.values().any(|s| s.maintenance),
+        // 개발 모드면 사유 없이 켜고 끌 수 있다 (운영 모드 = 사유 필수)
+        "dev_mode": state.auth.dev_mode(),
     })
 }
 
@@ -171,7 +173,10 @@ pub fn set(state: &AppState, who: &str, svc: &str, req: &SetReq, maintenance: bo
         return Err(format!("알 수 없는 서비스: {svc}"));
     }
     let now = now_ms();
-    if !req.on && req.reason.trim().is_empty() {
+    // 개발 모드(auth.dev_mode)에서는 사유 없이 자유롭게 켜고 끈다 — 기록에는 "개발 모드"로 남긴다
+    let dev = state.auth.dev_mode();
+    let reason = if req.reason.trim().is_empty() && dev && !req.on { "개발 모드".to_string() } else { req.reason.trim().to_string() };
+    if !req.on && reason.is_empty() {
         return Err("멈추는 사유를 적어 주세요".into());
     }
     let until = match (req.on, svc) {
@@ -207,7 +212,7 @@ pub fn set(state: &AppState, who: &str, svc: &str, req: &SetReq, maintenance: bo
         if req.on {
             b.remove(svc);
         } else {
-            b.insert(svc.to_string(), Stop { by: who.to_string(), at_ms: now, reason: req.reason.trim().to_string(), until_ms: until, maintenance });
+            b.insert(svc.to_string(), Stop { by: who.to_string(), at_ms: now, reason: reason.clone(), until_ms: until, maintenance });
         }
     }
     save();
@@ -215,7 +220,7 @@ pub fn set(state: &AppState, who: &str, svc: &str, req: &SetReq, maintenance: bo
     let detail = if req.on {
         label(svc).to_string()
     } else {
-        format!("{} — {}{}", label(svc), req.reason.trim(), if until > 0 { format!(" (자동 재개 {}분 뒤)", (until - now) / 60_000) } else { String::new() })
+        format!("{} — {}{}", label(svc), reason, if until > 0 { format!(" (자동 재개 {}분 뒤)", (until - now) / 60_000) } else { String::new() })
     };
     state.auth.audit(who, "", if req.on { "control_start" } else { "control_stop" }, &detail);
     state.push_event("control", None, format!("서비스 {what}: {detail} · {who}"));
