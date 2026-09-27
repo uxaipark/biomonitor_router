@@ -112,7 +112,7 @@ pub fn record(age_ms: i64) {
 pub fn stats() -> serde_json::Value {
     let mut v: Vec<i32> = RING.lock().unwrap().iter().copied().collect();
     if v.is_empty() {
-        return serde_json::json!({ "n": 0, "offset_ms": OFFSET_MS.load(Ordering::Relaxed) });
+        return serde_json::json!({ "n": 0, "offset_ms": OFFSET_MS.load(Ordering::Relaxed), "reset_epoch": RESET_MS.load(Ordering::Relaxed) });
     }
     v.sort_unstable();
     let n = v.len();
