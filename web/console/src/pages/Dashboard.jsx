@@ -86,7 +86,7 @@ export default function Dashboard({ alarms }) {
         {sys && <Tile label="가동 시간" value={fmtDur(stats?.uptime_s)} sub={`분석 서버 ${stats?.analysis_connected ? '연결' : '패스스루'}`} />}
         {sys && <Tile label="전송 지연" value={e2e ? `${e2e.e2e} ms` : stats?.latency?.n ? `${stats.latency.p50} ms` : '—'}
           sub={e2e
-            ? `에뮬레이터→이 브라우저 (종단 간) · 에뮬레이터→라우터 ${e2e.e2r ?? stats?.latency?.p50 ?? '—'} ms · 라우터→브라우저 ${e2e.r2v ?? '—'} ms · 라우터 전체 p50 ${stats?.latency?.p50 ?? '—'} / p95 ${stats?.latency?.p95 ?? '—'} ms`
+            ? `에뮬레이터→이 브라우저 (종단 간) · 에뮬레이터→라우터 ${e2e.e2r ?? stats?.latency?.p50 ?? '—'} ms · 라우터→브라우저 ${e2e.r2v ?? '—'} ms · 라우터 전체 p50 ${stats?.latency?.p50 ?? '—'} / p95 ${stats?.latency?.p95 ?? '—'} ms${stats?.latency?.offset_ms ? ` · 시계 보정 +${stats.latency.offset_ms} ms` : ''}`
             : stats?.latency?.n ? `에뮬레이터→라우터 p50 · p95 ${stats.latency.p95} ms · 표본 ${fmtNum(stats.latency.n)} · 이 브라우저 종단 간 측정 중…` : '프레임 없음'}
           cls={(e2e?.e2e ?? stats?.latency?.p95) > 2000 ? 'warn' : ''} />}
       </section>

@@ -29,18 +29,19 @@ const setStatus = (s) => { status = s; emit('status', s) }
 const LAT_KEEP = 40
 const lat = { e2e: [], e2r: [], r2v: [], at: 0 }
 const med = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[s.length >> 1] }
-function noteLatency(recv, sentMs, items) {
+function noteLatency(recv, sentMs, items, offsetMs = 0) {
   const ts = med(items.map((it) => it.ts_ms).filter((t) => t > 0))
   if (ts == null) return
   const push = (k, v) => { lat[k].push(v); if (lat[k].length > LAT_KEEP) lat[k].shift() }
-  push('e2e', recv - ts)
-  if (sentMs > 0) { push('e2r', sentMs - ts); push('r2v', recv - sentMs) }
-  lat.at = recv
+  // offsetMs = 라우터가 관측한 에뮬레이터 시계 앞섬(음수 나이의 최대 절대값) — 에뮬레이터 시각이 들어가는 구간에 더한다
+  push('e2e', recv - ts + offsetMs)
+  if (sentMs > 0) { push('e2r', sentMs - ts + offsetMs); push('r2v', recv - sentMs) }
+  lat.at = recv; lat.offset = offsetMs
 }
 /** 최근 40개 배치의 중앙값 (ms). 스트림이 2초 넘게 없으면 null */
 export function latencyNow() {
   if (!lat.at || Date.now() - lat.at > 2000) return null
-  return { e2e: med(lat.e2e), e2r: med(lat.e2r), r2v: med(lat.r2v), n: lat.e2e.length, at: lat.at }
+  return { e2e: med(lat.e2e), e2r: med(lat.e2r), r2v: med(lat.r2v), n: lat.e2e.length, at: lat.at, offset: lat.offset || 0 }
 }
 
 function decodeBatch(buf) {
@@ -50,6 +51,7 @@ function decodeBatch(buf) {
   const header = JSON.parse(td.decode(new Uint8Array(buf, 5, hlen)))
   const items = header.items || []
   items.sentMs = header.sent_ms || 0
+  items.offsetMs = header.offset_ms || 0
   const counts = header.counts || []
   let off = 5 + hlen
   for (let i = 0; i < items.length; i++) {
@@ -124,7 +126,7 @@ function open() {
     if (ev.data instanceof ArrayBuffer) {
       const t0 = performance.now()
       const items = decodeBatch(ev.data)
-      noteLatency(Date.now(), items.sentMs, items)
+      noteLatency(Date.now(), items.sentMs, items, items.offsetMs)
       handleItems(items)
       wsCounters.frames++; wsCounters.bytes += ev.data.byteLength; wsCounters.items += items.length; wsCounters.decodeMs += performance.now() - t0
       return

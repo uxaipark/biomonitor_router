@@ -22,6 +22,7 @@ async fn main() -> anyhow::Result<()> {
     router_core::control::load(&cfg.db_path);
     // 보안 운영: 차단 IP·로그인 실패·스캐닝 기록 (router.db)
     router_core::security::init(&cfg.db_path);
+    router_core::latency::init(&cfg.db_path); // 전송 지연 시계 보정값
     let (state, analysis_rx, db_rx, store_rx) = AppState::new(cfg.clone());
 
     // 패치별 레코드 저장 (저장 단위(기본 2시간) 파일 + 항목 CRC, 닫힌 파일 무결성 봉인(.sum: CRC-32·SHA-256)[+gzip], 상한 초과 시 오래된 것부터 삭제)

@@ -1137,9 +1137,9 @@ button.ghost:hover { border-color: var(--line); color: var(--text); }
 .tri-track { position: relative; width: 70px; height: 20px; border-radius: 999px; display: flex; align-items: center; justify-content: space-between; padding: 0 6px; box-sizing: border-box; cursor: pointer;
   background: linear-gradient(180deg, color-mix(in srgb, var(--line) 85%, #000 6%), color-mix(in srgb, var(--line) 55%, transparent));
   box-shadow: inset 0 2px 4px rgba(0,0,0,.35), inset 0 -1px 0 rgba(255,255,255,.08), 0 1px 0 rgba(255,255,255,.05); transition: background .2s ease; }
-.tri-stop { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--muted) 55%, transparent); box-shadow: inset 0 1px 1px rgba(0,0,0,.4); z-index: 1; }
+.tri-stop { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--muted) 55%, transparent); box-shadow: inset 0 1px 1px rgba(0,0,0,.4); z-index: 1; pointer-events: none; }
 .tri-stop.locked { background: transparent; border: 1px dashed color-mix(in srgb, var(--muted) 50%, transparent); width: 5px; height: 5px; box-shadow: none; cursor: not-allowed; }
-.tri-knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; z-index: 2; cursor: pointer;
+.tri-knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; z-index: 2; pointer-events: none;
   background: radial-gradient(circle at 35% 30%, #fff, color-mix(in srgb, var(--panel2, #e5e7eb) 80%, #999));
   box-shadow: 0 1px 2px rgba(0,0,0,.45), 0 2px 5px rgba(0,0,0,.25), inset 0 -1px 1px rgba(0,0,0,.15), inset 0 1px 0 rgba(255,255,255,.7);
   transition: left .18s cubic-bezier(.4,0,.2,1), background .18s ease; }

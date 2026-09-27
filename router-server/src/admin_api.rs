@@ -68,6 +68,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/control/{svc}", post(control_set))
         .route("/api/settings/network", get(net_get).put(net_put))
         .route("/api/settings/network/test", post(net_test))
+        .route("/api/settings/network/latency_reset", post(latency_reset))
         .route("/api/time", get(|| async { Json(serde_json::json!({ "now_ms": crate::protocol::now_ms() })) }))
         .route("/api/security", get(security_view))
         .route("/api/security/settings", put(security_settings))
@@ -87,6 +88,15 @@ pub fn router(state: Arc<AppState>) -> Router {
         // 보안 운영: 차단 IP 는 어떤 경로든 403, 나머지는 응답 뒤 스캐닝 분류 — 가장 바깥(정적 파일 포함)
         .layer(axum::middleware::from_fn_with_state(state.clone(), crate::security::guard))
         .with_state(state)
+}
+
+/// 네트워크 설정 › 지연시간 계산 리셋: 시계 보정값과 표본을 0 으로
+async fn latency_reset(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> impl IntoResponse {
+    let before = crate::latency::offset_ms();
+    crate::latency::reset_offset();
+    state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "latency_reset", &format!("시계 보정값 {before} ms → 0"));
+    state.push_event("latency_reset", None, format!("지연시간 계산 리셋 (보정값 {before} ms → 0) · {}", p.username));
+    Json(crate::latency::stats())
 }
 
 // ---------------------------------------------------------------- 보안 운영 (운영관리 › 보안 운영)

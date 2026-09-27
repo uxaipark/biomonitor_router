@@ -183,9 +183,9 @@ function TriSwitch({ value, max = 2, onChange }) {
   const key = (e) => { if (e.key === 'ArrowRight') { e.preventDefault(); pick(Math.min(lv + 1, max)) } else if (e.key === 'ArrowLeft') { e.preventDefault(); pick(Math.max(lv - 1, 0)) } else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); cycle() } }
   return (
     <span className={'tri lv' + lv + (max < 2 ? ' capped' : '')} role="slider" tabIndex={0} aria-valuemin={0} aria-valuemax={2} aria-valuenow={lv} aria-valuetext={LEVEL_LABEL[lv]} title={`${LEVEL_LABEL[lv]} — 누르거나 ←/→ 로 바꿉니다${max < 2 ? ` (최대 ${LEVEL_LABEL[max]})` : ''}`} onKeyDown={key}>
-      <span className="tri-track">
-        {[0, 1, 2].map((n) => <span key={n} className={'tri-stop' + (n > max ? ' locked' : '') + (n === lv ? ' cur' : '')} onClick={() => pick(n)} title={n > max ? '자기 권한보다 높게 줄 수 없습니다' : LEVEL_LABEL[n]} />)}
-        <span className="tri-knob" onClick={cycle} />
+      <span className="tri-track" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); const n = Math.min(2, Math.max(0, Math.floor((e.clientX - r.left) / r.width * 3))); pick(n) }}>
+        {[0, 1, 2].map((n) => <span key={n} className={'tri-stop' + (n > max ? ' locked' : '') + (n === lv ? ' cur' : '')} title={n > max ? '자기 권한보다 높게 줄 수 없습니다' : LEVEL_LABEL[n]} />)}
+        <span className="tri-knob" />
       </span>
       <span className="tri-label">{LEVEL_LABEL[lv]}</span>
     </span>

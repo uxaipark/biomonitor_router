@@ -25,6 +25,31 @@ const FIELDS = [
 
 const SOURCE = { db: '이 화면에서 설정됨', env: '환경변수/기본값', unset: '설정 안 됨' }
 
+/** 전송 지연 시계 보정 — 에뮬레이터 시계가 앞서 음수 나이가 보이면 그 최대 절대값을 보정값으로 두고 모든 지연에 더한다. 여기서 또는 가동 초기화 때만 0 으로. */
+function LatencyCard() {
+  const [stats, , refresh] = usePoll(api.stats, 5000)
+  const [msg, setMsg] = useState('')
+  const l = stats?.latency || {}
+  const reset = async () => {
+    if (!window.confirm(`지연시간 계산을 리셋합니다. 시계 보정값 ${l.offset_ms ?? 0} ms 와 표본이 0 이 되고, 다음 프레임부터 다시 계산합니다. 계속할까요?`)) return
+    try { await api.net.latencyReset(); setMsg('리셋했습니다.'); refresh?.() } catch (e) { setMsg('실패: ' + e.message) }
+  }
+  return (
+    <section>
+      <h3>전송 지연 · 시계 보정</h3>
+      <div className="kv">
+        <div><small>에뮬레이터 → 라우터 (보정 후)</small><span>{l.n ? <>p50 <b>{l.p50} ms</b> · p95 {l.p95} ms · 최소 {l.min} · 최대 {l.max} · 표본 {l.n.toLocaleString()}</> : '프레임 없음'}</span></div>
+        <div><small>시계 보정값</small><span><b>{l.offset_ms ?? 0} ms</b> <span className="muted">— 관측된 음수 나이의 최대 절대값(에뮬레이터 시계 앞섬). 모든 지연 표시에 더해집니다.</span></span></div>
+      </div>
+      <div className="toolbar" style={{ marginTop: 10, marginBottom: 0 }}>
+        <button onClick={reset}>지연시간 계산 리셋</button>
+        <span className="muted small">보정값과 표본을 0 으로. 가동 초기화 때도 0 이 됩니다.</span>
+        {msg && <span className="muted small">{msg}</span>}
+      </div>
+    </section>
+  )
+}
+
 export default function NetworkSettings() {
   const [net, err, refresh] = usePoll(api.net.get, 5000)
   const [draft, setDraft] = useState({})
@@ -77,6 +102,8 @@ export default function NetworkSettings() {
             </p>
           )}
         </section>
+
+        <LatencyCard />
 
         {FIELDS.map((f) => {
           const cur = net?.[f.key]

@@ -239,6 +239,7 @@ fn run(state: &Arc<AppState>, who: &str, reason: &str) -> Result<(), String> {
         a.store(0, Ordering::Relaxed);
     }
     state.backup.reset_stats();
+    crate::latency::reset_offset(); // 전송 지연 시계 보정값 0
     let metrics_ok = crate::metrics::reset(&state.metrics);
     crate::admin_api::clear_series_cache();
     state.alarms.clear();
