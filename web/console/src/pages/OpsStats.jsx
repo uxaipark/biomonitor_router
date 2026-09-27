@@ -146,7 +146,7 @@ export default function OpsStats() {
         <button className="danger" onClick={reset}>통계 초기화</button>
       </div>
       <div className="ops-grid2">
-        <section><h4>CPU (%, 1코어 = 100 · 4코어 최대 400 · <span className="ops-limit-text">주의 = 전체의 75 %</span>)</h4><Chart points={pts} range={range} unit="" fixedMax={400} limit={{ value: 300, label: '주의 (75 %)' }} series={[
+        <section><h4>CPU (%, 1코어 = 100 · 4코어 최대 400 · <span className="ops-limit-text">주의 300 %</span>)</h4><Chart points={pts} range={range} unit="" fixedMax={400} limit={{ value: 300, label: '주의 300 %' }} series={[
           { key: 'cpu', label: '라우터 평균', color: '#3ddc84', area: true },
           { key: 'cpu_max', label: '라우터 최대', color: '#ff9f6b' },
           { key: 'cpu_sys', label: '시스템 전체', color: '#7cc4ff' },
