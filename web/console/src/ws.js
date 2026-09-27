@@ -24,12 +24,32 @@ const emit = (kind, v) => { for (const fn of listeners[kind]) fn(v) }
 export const wsStatus = () => status
 const setStatus = (s) => { status = s; emit('status', s) }
 
+// 전송 지연(travel time): 시계가 모두 NTP 로 맞춰져 있다는 전제로 보정 없이 차이만 본다 (사용자 결정)
+//  e2r = 라우터 송신(sent_ms) − 프레임 ts_ms (에뮬레이터→라우터), r2v = 브라우저 수신 − sent_ms (라우터→뷰어), e2e = 수신 − ts_ms
+const LAT_KEEP = 40
+const lat = { e2e: [], e2r: [], r2v: [], at: 0 }
+const med = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[s.length >> 1] }
+function noteLatency(recv, sentMs, items) {
+  const ts = med(items.map((it) => it.ts_ms).filter((t) => t > 0))
+  if (ts == null) return
+  const push = (k, v) => { lat[k].push(v); if (lat[k].length > LAT_KEEP) lat[k].shift() }
+  push('e2e', recv - ts)
+  if (sentMs > 0) { push('e2r', sentMs - ts); push('r2v', recv - sentMs) }
+  lat.at = recv
+}
+/** 최근 40개 배치의 중앙값 (ms). 스트림이 2초 넘게 없으면 null */
+export function latencyNow() {
+  if (!lat.at || Date.now() - lat.at > 2000) return null
+  return { e2e: med(lat.e2e), e2r: med(lat.e2r), r2v: med(lat.r2v), n: lat.e2e.length, at: lat.at }
+}
+
 function decodeBatch(buf) {
   const dv = new DataView(buf)
   const marker = dv.getUint8(0)
   const hlen = dv.getUint32(1, true)
   const header = JSON.parse(td.decode(new Uint8Array(buf, 5, hlen)))
   const items = header.items || []
+  items.sentMs = header.sent_ms || 0
   const counts = header.counts || []
   let off = 5 + hlen
   for (let i = 0; i < items.length; i++) {
@@ -104,6 +124,7 @@ function open() {
     if (ev.data instanceof ArrayBuffer) {
       const t0 = performance.now()
       const items = decodeBatch(ev.data)
+      noteLatency(Date.now(), items.sentMs, items)
       handleItems(items)
       wsCounters.frames++; wsCounters.bytes += ev.data.byteLength; wsCounters.items += items.length; wsCounters.decodeMs += performance.now() - t0
       return

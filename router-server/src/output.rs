@@ -211,7 +211,8 @@ async fn flush_streams(
         .collect();
     let json_total: usize = buf.iter().map(|e| e.json.len() + 1).sum();
     let mut header = String::with_capacity(json_total + counts.len() * 4 + 48);
-    header.push_str("{\"type\":\"stream_batch\",\"v\":2,\"counts\":[");
+    // sent_ms = 라우터 송신 시각 — 뷰어가 라우터→뷰어 지연(수신 − sent_ms)을 계산한다 (시계 동기 전제)
+    header.push_str(&format!("{{\"type\":\"stream_batch\",\"v\":2,\"sent_ms\":{},\"counts\":[", crate::protocol::now_ms()));
     for (i, n) in counts.iter().enumerate() {
         if i > 0 {
             header.push(',');

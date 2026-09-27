@@ -1050,9 +1050,67 @@ html.alarm-muted-all .cs-tile.a-red .cs-head, html.alarm-muted-all .cs-tile.a-re
 .adm-pins-caret { display: inline-block; width: 1em; color: var(--muted); }
 
 /* 운영관리 › 보안 운영 */
-.sec-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-top: 14px; background: var(--panel); }
-.sec-card .tbl { margin-top: 6px; }
-.sec-card tr.warn-row td { background: color-mix(in srgb, var(--warn, #d97706) 10%, transparent); }
-.sec-card tr.sec-sub td { background: color-mix(in srgb, var(--line) 30%, transparent); }
-.sec-card .tbl.small th, .sec-card .tbl.small td { font-size: 12px; padding: 4px 8px; }
-.sec-card td.ctl-form { gap: 4px; }
+.sec-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.sec-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sec-search { width: 170px; }
+.sec-toast { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 10px; margin-bottom: 10px; font-size: 13px; border: 1px solid var(--line); background: var(--panel); }
+.sec-toast.ok { border-color: color-mix(in srgb, var(--ok, #16a34a) 50%, var(--line)); }
+.sec-toast.err { border-color: color-mix(in srgb, var(--err, #dc2626) 60%, var(--line)); color: var(--err, #dc2626); }
+.sec-toast button { margin-left: auto; }
+.sec-tiles { margin-bottom: 4px; }
+.sec-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 10px; margin-top: 14px; background: var(--panel); }
+.sec-card-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.sec-card-head h3 { margin: 0; font-size: 15px; }
+.sec-count { display: inline-block; min-width: 22px; padding: 0 7px; margin-left: 4px; border-radius: 999px; background: color-mix(in srgb, var(--line) 60%, transparent); font-size: 12px; font-weight: 600; text-align: center; vertical-align: middle; }
+.sec-sub { flex-basis: 100%; }
+@media (min-width: 1200px) { .sec-sub { flex-basis: auto; } }
+.sec-empty { display: flex; flex-direction: column; gap: 4px; padding: 18px 12px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 13px; text-align: center; }
+.sec-empty b { color: var(--text); font-weight: 600; }
+.sec-tbl { margin-top: 4px; width: 100%; }
+.sec-tbl th { white-space: nowrap; }
+.sec-tbl td { vertical-align: top; }
+.sec-tbl td.ip { white-space: nowrap; font-size: 13.5px; }
+.sec-tbl td.act { text-align: right; white-space: nowrap; }
+.sec-tbl td.act button { margin-left: 4px; }
+.sec-tbl tr.is-warn td { background: color-mix(in srgb, var(--warn, #d97706) 9%, transparent); }
+.sec-tbl tr.is-err td { background: color-mix(in srgb, var(--err, #dc2626) 8%, transparent); }
+.sec-tbl tr.is-open td { background: color-mix(in srgb, var(--line) 35%, transparent); }
+.sec-tbl .ellip { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sec-caret { color: var(--muted); }
+.sec-bar { position: relative; height: 18px; border-radius: 6px; background: color-mix(in srgb, var(--line) 50%, transparent); overflow: hidden; min-width: 120px; }
+.sec-bar-fill { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--warn, #d97706) 55%, transparent); }
+.sec-bar-fill.hot { background: color-mix(in srgb, var(--err, #dc2626) 60%, transparent); }
+.sec-bar span { position: relative; display: block; text-align: center; font-size: 12px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.sec-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.sec-chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); background: var(--bg); white-space: nowrap; }
+.sec-chip b { font-weight: 600; opacity: .85; }
+.sec-chip.hot { border-color: color-mix(in srgb, var(--err, #dc2626) 60%, var(--line)); color: var(--err, #dc2626); }
+.sec-detail td { padding-top: 0 !important; }
+.sec-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; padding: 6px 0 8px; }
+.sec-group { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--bg); }
+.sec-group.hot { border-color: color-mix(in srgb, var(--err, #dc2626) 55%, var(--line)); }
+.sec-group-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.sec-samples { margin: 6px 0 0; padding-left: 0; list-style: none; font-size: 12px; color: var(--muted); }
+.sec-samples li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+button.ghost:hover { border-color: var(--line); color: var(--text); }
+.sec-gear { font-size: 18px; line-height: 1; padding: 2px 8px; }
+
+/* 보안 운영 › 설정 모달 */
+.sec-modal { width: min(720px, 100%); padding: 16px 20px 14px; }
+.sec-section { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+.sec-section:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
+.sec-section h4 { margin: 0 0 10px; font-size: 14px; }
+.sec-section h4 small { font-weight: 400; margin-left: 8px; font-size: 12px; }
+.sec-form { display: grid; grid-template-columns: 96px 1fr; gap: 10px 14px; align-items: start; }
+.sec-label { color: var(--muted); font-size: 13px; padding-top: 7px; }
+.sec-field { min-width: 0; }
+.sec-help { margin-top: 4px; font-size: 12px; color: var(--muted); line-height: 1.45; }
+.sec-inline { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sec-num { text-align: right; font-variant-numeric: tabular-nums; }
+.sec-unit { color: var(--muted); font-size: 13px; }
+.sec-note { color: var(--muted); font-size: 12px; }
+.sec-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.sec-trusted { width: 100%; max-width: 420px; resize: vertical; }
+.sec-actions { margin-top: 14px; margin-bottom: 0; padding-top: 12px; border-top: 1px solid var(--line); }
+@media (max-width: 560px) { .sec-form { grid-template-columns: 1fr; } .sec-label { padding-top: 0; } }

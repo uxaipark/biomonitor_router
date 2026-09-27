@@ -68,6 +68,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/control/{svc}", post(control_set))
         .route("/api/settings/network", get(net_get).put(net_put))
         .route("/api/settings/network/test", post(net_test))
+        .route("/api/time", get(|| async { Json(serde_json::json!({ "now_ms": crate::protocol::now_ms() })) }))
         .route("/api/security", get(security_view))
         .route("/api/security/settings", put(security_settings))
         .route("/api/security/block", post(security_block))
@@ -90,8 +91,12 @@ pub fn router(state: Arc<AppState>) -> Router {
 
 // ---------------------------------------------------------------- 보안 운영 (운영관리 › 보안 운영)
 
-async fn security_view() -> impl IntoResponse {
-    Json(crate::security::SEC.view())
+async fn security_view(axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>) -> impl IntoResponse {
+    let mut v = crate::security::SEC.view();
+    if let Some(o) = v.as_object_mut() {
+        o.insert("client_ip".into(), addr.ip().to_string().into()); // 설정 모달의 '지금 접속한 IP → 신뢰 IP 에 추가'
+    }
+    Json(v)
 }
 
 async fn security_settings(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(s): Json<crate::security::Settings>) -> impl IntoResponse {
@@ -590,6 +595,10 @@ struct Stats {
     store_patches: u64,
     /// v3 게이트웨이 표 요약 (프레임/레코드/NACK/이상 카운터)
     gateways: serde_json::Value,
+    /// 전송 지연 에뮬레이터→라우터 (프레임 ts_ms 대비 수신 시각, ms): p50/p95/avg/min/max/n
+    latency: serde_json::Value,
+    /// 라우터 현재 시각 (브라우저가 자기 시계와의 차이·HTTP 편도 지연을 볼 때)
+    now_ms: u64,
 }
 
 /// (프로세스 working set, 시스템 사용, 시스템 전체) 바이트
@@ -663,6 +672,8 @@ async fn stats(State(state): State<Arc<AppState>>) -> Json<Stats> {
         wave_store_bytes: crate::patch_store::STORE_BYTES.load(Ordering::Relaxed),
         store_patches: crate::patch_store::STORE_PATCHES.load(Ordering::Relaxed),
         gateways: state.gateways.summary(),
+        latency: crate::latency::stats(),
+        now_ms: crate::protocol::now_ms(),
     })
 }
 

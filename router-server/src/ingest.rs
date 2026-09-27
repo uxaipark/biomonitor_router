@@ -233,6 +233,10 @@ fn process_frame(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>) ->
     if verdict == SeqVerdict::Dup {
         return ops; // an exact duplicate frame: already stored and forwarded
     }
+    // 전송 지연(에뮬레이터 → 라우터): 재전송·keepalive 는 제외
+    if verdict != SeqVerdict::Recovered && hdr.flags & wire::F_KEEPALIVE == 0 && hdr.ts_ms > 0 {
+        crate::latency::record(crate::protocol::now_ms() as i64 - hdr.ts_ms as i64);
+    }
     if let Some(st) = frame.gw_status {
         state.gateways.on_status(hdr.gw_id, st);
     }

@@ -2,13 +2,20 @@ import React, { useEffect, useMemo, useState } from 'react'
 import Sweep from './Sweep.jsx'
 import HistoryPanel from './History.jsx'
 import { LIMITS, BAT_LOW, VM_TH, monAlarm, alarmKey } from './central.js'
-import { latest } from '../ws.js'
+import { latest, latencyNow } from '../ws.js'
 import { api, usePoll, fmtTime } from '../api.js'
 import { alarmIndex } from '../model.js'
 
 const BELL = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /></svg>
 const Dec = ({ v }) => { const t = String(v); const i = t.indexOf('.'); return i < 0 ? t : <>{t.slice(0, i)}<span className="vm-dec">{t.slice(i)}</span></> }
 const useClock = () => { const [t, setT] = useState(''); useEffect(() => { const f = () => setT(new Date().toTimeString().slice(0, 8)); f(); const i = setInterval(f, 1000); return () => clearInterval(i) }, []); return t }
+/** 시계 아래 아주 작게: LATENCY : ??ms — 에뮬레이터 프레임 시각 → 이 브라우저 수신까지(종단 간) 최근 배치 중앙값. 툴팁에 구간별. */
+function Latency() {
+  const [l, setL] = useState(null)
+  useEffect(() => { const f = () => setL(latencyNow()); f(); const i = setInterval(f, 1000); return () => clearInterval(i) }, [])
+  const t = l ? `에뮬레이터→라우터 ${l.e2r ?? '—'} ms · 라우터→뷰어 ${l.r2v ?? '—'} ms · 종단 간 ${l.e2e} ms (최근 ${l.n} 배치 중앙값, 시계 동기 전제)` : '수신 중인 스트림 없음'
+  return <span className="vm-latency" title={t}>LATENCY : {l ? `${l.e2e}ms` : '--ms'}</span>
+}
 
 function VmTile({ k, label, unit, hi, lo, note, val, fmt, flag, alarmColor, spark }) {
   const isAlarm = flag === k
@@ -90,7 +97,7 @@ export default function BedViewer({ row, alarms, unit, onBack }) {
         </div>
         <div className="vm-right">
           {a[0] ? <span className={'vm-alarm' + (a[0] === 'yellow' ? ' is-yellow' : '')}>{a[1]}</span> : <span className="vm-quiet">{BELL}No active alarms</span>}
-          <span className="vm-clock">{clock}</span>
+          <span className="vm-clock-wrap"><span className="vm-clock">{clock}</span><Latency /></span>
           <button className={'btn btn-secondary ds-icon' + (silenced ? ' on' : '')} onClick={() => setSilenced(!silenced)} title="알람 묵음">{BELL}</button>
           <button className={'btn ' + (history ? 'btn-primary' : 'btn-secondary')} onClick={() => setHistory(!history)} title="저장된 파형 이력">History</button>
           <button className={'btn ' + (night ? 'btn-primary' : 'btn-secondary')} onClick={() => setNight(!night)}>Night</button>

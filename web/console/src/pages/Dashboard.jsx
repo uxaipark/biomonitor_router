@@ -62,6 +62,7 @@ export default function Dashboard({ alarms }) {
         {sys && <Tile label="CPU / 메모리" value={stats ? `${stats.cpu_percent.toFixed(0)}% / ${memPct}%` : '—'} sub={`라우터 ${stats?.cpu_process_percent?.toFixed(0) ?? '—'}%${stats?.cpu_mhz ? ` (${(stats.cpu_mhz / 1000).toFixed(1)} GHz · ${stats.cpu_ref_mhz / 1000} GHz 환산 ${stats.cpu_process_percent_norm.toFixed(0)}%)` : ''} · RSS ${fmtBytes(stats?.mem_process_bytes)}`} cls={stats && (stats.cpu_percent > 70 || memPct > 80) ? 'warn' : ''} />}
         {sys && <Tile label="저장소" value={fmtBytes(stats?.wave_store_bytes)} sub={`디스크 사용 ${diskPct}% · 여유 ${fmtBytes(stats?.disk_free_bytes)} · 큐 드롭 ${fmtNum(stats?.queue_dropped_wave)}`} cls={stats?.queue_dropped_wave ? 'err' : diskPct > 85 ? 'warn' : ''} />}
         {sys && <Tile label="가동 시간" value={fmtDur(stats?.uptime_s)} sub={`분석 서버 ${stats?.analysis_connected ? '연결' : '패스스루'}`} />}
+        {sys && <Tile label="전송 지연 (에뮬레이터→라우터)" value={stats?.latency?.n ? `${stats.latency.p50} ms` : '—'} sub={stats?.latency?.n ? `p95 ${stats.latency.p95} ms · 최소 ${stats.latency.min} · 최대 ${stats.latency.max} · 표본 ${fmtNum(stats.latency.n)} · 브라우저 시계 차 ${stats.now_ms ? Math.round(Date.now() - stats.now_ms) : '—'} ms` : '프레임 없음'} cls={stats?.latency?.p95 > 2000 ? 'warn' : ''} />}
       </section>
 
       <div className={sys ? 'cols' : ''}>

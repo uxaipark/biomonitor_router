@@ -220,3 +220,5 @@
 .vm-waves.vm-hx{display:flex;flex-direction:column;flex:1;min-height:0;border-right:0;padding:8px 12px}
 .vm-waves.vm-hx .hx-list{flex:1;min-height:0;overflow:auto}
 .vm.vm-history-mode .vm-bottom{display:none}
+.cs-clock-wrap,.vm-clock-wrap{display:inline-flex;flex-direction:column;align-items:flex-end;line-height:1.05}
+.cs-latency,.vm-latency{font-family:var(--font-heading);font-size:9px;font-weight:600;letter-spacing:.06em;opacity:.65;margin-top:1px;white-space:nowrap}

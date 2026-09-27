@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Sweep from './Sweep.jsx'
 import { CS_C, CS_TH, CS_PRESETS, LIMITS, BAT_LOW, csLayout, monAlarm, shortAlarm, alarmKey } from './central.js'
-import { latest } from '../ws.js'
+import { latest, latencyNow } from '../ws.js'
 import { alarmIndex } from '../model.js'
 import BedViewer from './BedViewer.jsx'
 import Dropdown from '../Dropdown.jsx'
@@ -16,6 +16,13 @@ export const Dec = ({ v, cls = 'cs-dec' }) => { const t = String(v); const i = t
 // bed / room label; an outside (MCOT) patient has no bed, so the home region stands in for the location
 export const bedOf = (row) => row.patient?.bed || row.bed || row.patient?.room || row.space || (row.patient?.home_region ? `외부 · ${row.patient.home_region}` : '')
 export const useClock = () => { const [t, setT] = useState(''); useEffect(() => { const f = () => setT(new Date().toTimeString().slice(0, 8)); f(); const i = setInterval(f, 1000); return () => clearInterval(i) }, []); return t }
+/** 시계 아래 아주 작게: LATENCY : ??ms — 에뮬레이터 프레임 시각 → 이 브라우저 수신까지(종단 간) 최근 배치 중앙값. 툴팁에 구간별. */
+export function Latency() {
+  const [l, setL] = useState(null)
+  useEffect(() => { const f = () => setL(latencyNow()); f(); const i = setInterval(f, 1000); return () => clearInterval(i) }, [])
+  const t = l ? `에뮬레이터→라우터 ${l.e2r ?? '—'} ms · 라우터→뷰어 ${l.r2v ?? '—'} ms · 종단 간 ${l.e2e} ms (최근 ${l.n} 배치 중앙값, 시계 동기 전제)` : '수신 중인 스트림 없음'
+  return <span className="cs-latency" title={t}>LATENCY : {l ? `${l.e2e}ms` : '--ms'}</span>
+}
 
 /** Tile vitals column (full / midv / grid2 forms are CSS-driven). */
 function Vitals({ row, live, flag, v }) {
@@ -145,7 +152,7 @@ export default function CentralStation({ rows, alarms, unit, onClose }) {
           </span>
           {pages > 1 && <span className="cs-pager"><button className="btn btn-secondary" onClick={() => setPage(Math.max(0, cur - 1))}>‹</button><span>{cur + 1} / {pages}</span><button className="btn btn-secondary" onClick={() => setPage(Math.min(pages - 1, cur + 1))}>›</button></span>}
           <span className={'cs-alarms' + (nAlarms ? (silenced ? ' is-muted' : '') : ' ds-none')}>{nAlarms} alarm{nAlarms === 1 ? '' : 's'}{silenced ? ' · silenced' : ''}</span>
-          <span className="cs-clock">{clock}</span>
+          <span className="cs-clock-wrap"><span className="cs-clock">{clock}</span><Latency /></span>
           <button className={'btn btn-secondary ds-icon' + (silenced ? ' on' : '')} onClick={() => setSilenced(!silenced)} title="알람 묵음 (전체) 켜기/끄기">{silenced ? BELL_OFF : BELL}</button>
           {onClose && <button className="btn btn-secondary" onClick={onClose}>Close</button>}
         </div>

@@ -30,3 +30,4 @@ pub mod emr_api;
 pub mod control;
 pub mod reset;
 pub mod security;
+pub mod latency;

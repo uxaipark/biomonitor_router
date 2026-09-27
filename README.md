@@ -84,6 +84,13 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 원격 삭제(대상별 순서대로, 실패해도 계속) → 카운터·통계·알람·표 → 다시 켬(저장→동기화→수신→스트리밍→EMR→백업). 운영 모드에서는 확인 문구 `가동 초기화` 를 그대로 입력하고 사유를 적어야 하며(개발 모드는 서비스 제어와 같이 둘 다 생략, 브라우저 확인 대화만),
 권한은 `action.backup_purge`(기본 수퍼 어드민). 진행 상태는 `/api/control/status.reset` 에 단계별로 실리고 감사 기록·이벤트에 시작/완료/일부 실패가 남는다.
 
+### 전송 지연 (travel time, 2026-09-28)
+
+시계가 세 장비(에뮬레이터·라우터·뷰어) 모두 NTP 로 맞춰져 있다는 전제로 **보정 없이 차이만** 본다.
+* 에뮬레이터→라우터: 프레임 헤더 `ts_ms` 대비 수신 시각(`src/latency.rs`, 8프레임에 1개 표본, 재전송·keepalive 제외) → `/api/stats.latency` {p50,p95,avg,min,max,n}, 대시보드 '전송 지연' 타일.
+* 라우터→뷰어: WS `stream_batch` 헤더의 `sent_ms`(라우터 송신 시각) 대비 브라우저 수신 시각. 뷰어(중앙 모니터·침상) 시계 아래 작게 **LATENCY : ??ms**(종단 간 = 수신 − ts_ms, 최근 40배치 중앙값), 툴팁에 구간별.
+* `/api/time` {now_ms} — 브라우저가 자기 시계와의 차이를 볼 때.
+
 ### 보안 운영 (운영관리 › 보안 운영, 2026-09-28)
 
 `src/security.rs`, `/api/security*`, 권한 `page.security`. 상태는 `router.db`(`sec_blocks`·`sec_login_fail`·`sec_scan`, `settings.security`).
