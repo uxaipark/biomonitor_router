@@ -61,7 +61,7 @@ const Tile = ({ label, value, sub, warn, title }) => (
   <div className={'ops-tile' + (warn ? ' warn' : '')} title={title}><small>{label}</small><b>{value}</b>{sub && <span>{sub}</span>}</div>
 )
 
-const KIND = { restart: '재시작', store_stall: '저장 스톨', queue_drop: '저장 드롭', ws_lag: 'WS 지연', disk_low: '디스크 부족', reset: '통계 초기화' }
+const KIND = { restart: '재시작', full_reset: '가동 초기화', store_stall: '저장 스톨', queue_drop: '저장 드롭', ws_lag: 'WS 지연', disk_low: '디스크 부족', reset: '통계 초기화' }
 
 export default function OpsStats() {
   const [range, setRange] = useState(() => { try { return localStorage.getItem('ops.range') || 'day' } catch { return 'day' } })

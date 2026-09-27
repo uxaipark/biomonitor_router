@@ -570,6 +570,7 @@ pub fn info(m: &Metrics, db_path: &str) -> serde_json::Value {
 
 /// Wipe the collected statistics (the page's reset button). Live counters keep running.
 pub fn reset(m: &Metrics) -> bool {
+    RECENT.lock().unwrap().clear(); // 5분 구간(메모리 링)도 비운다 — 초기화 전 표본이 남으면 '저장 증가' 가 음수로 보인다
     let Ok(db) = m.db.lock() else { return false };
     let ok = db
         .execute_batch("DELETE FROM metrics_min; DELETE FROM metrics_hour; DELETE FROM incidents;")

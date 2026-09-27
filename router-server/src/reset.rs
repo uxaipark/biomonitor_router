@@ -241,6 +241,7 @@ fn run(state: &Arc<AppState>, who: &str, reason: &str) -> Result<(), String> {
     state.backup.reset_stats();
     crate::latency::reset_offset(); // 전송 지연 시계 보정값 0
     let metrics_ok = crate::metrics::reset(&state.metrics);
+    state.metrics.incident("full_reset", &format!("가동 초기화 · {who}"), 0);
     crate::admin_api::clear_series_cache();
     state.alarms.clear();
     let ids = state.registry.channel_ids();
