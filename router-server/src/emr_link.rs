@@ -349,7 +349,9 @@ async fn run_conn(state: Arc<AppState>, id: String, stop: Arc<AtomicBool>) {
             }
             // 매칭된 환자가 생길 때까지는 '보냈음'으로 치지 않는다 — 명단이 차면 바로 첫 전송
             let has_links = state.emr.state.lock().unwrap().get(&id).map(|s| !s.links.is_empty()).unwrap_or(false);
-            if has_links && (kicks.contains(&"send") || now.saturating_sub(last_send) >= cfg.interval_s.max(15) * 1000) {
+            // 서비스 제어 › EMR 전송 중지면 전송 회차만 건너뛴다 (명단·입퇴원 수신은 계속)
+            let emr_on = crate::control::EMR_ON.load(std::sync::atomic::Ordering::Relaxed);
+            if has_links && emr_on && (kicks.contains(&"send") || now.saturating_sub(last_send) >= cfg.interval_s.max(15) * 1000) {
                 let (ok0, fail0) = state.emr.state.lock().unwrap().get(&id).map(|s| (s.sent_ok, s.sent_fail)).unwrap_or((0, 0));
                 let tried = send_all(&state, &cfg).await?;
                 last_send = now_ms();

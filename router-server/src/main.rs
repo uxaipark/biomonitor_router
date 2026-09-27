@@ -18,6 +18,8 @@ async fn main() -> anyhow::Result<()> {
     let cfg = Config::from_env();
     info!("starting router server: {:?}", cfg);
 
+    // 서비스 제어(수신·저장·스트리밍·EMR·동기화 멈춤)는 수신을 열기 전에 불러온다
+    router_core::control::load(&cfg.db_path);
     let (state, analysis_rx, db_rx, store_rx) = AppState::new(cfg.clone());
 
     // 패치별 레코드 저장 (저장 단위(기본 2시간) 파일 + 항목 CRC, 닫힌 파일 무결성 봉인(.sum: CRC-32·SHA-256)[+gzip], 상한 초과 시 오래된 것부터 삭제)
@@ -61,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
     // 에뮬레이터 링크: 상태 보고 + EMR 동기화 (ROUTER_EMULATOR_ADDR 설정 시)
     tokio::spawn(router_core::emu_link::run_reporter(state.clone(), cfg.report_every_s));
     tokio::spawn(router_core::emu_link::run_emr_sync(state.clone(), cfg.emr_sync_s));
+    tokio::spawn(router_core::control::run(state.clone()));
 
     // 입력(ingest) 리스너
     tokio::spawn(ingest::run(state.clone()));

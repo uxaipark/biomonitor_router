@@ -27,3 +27,4 @@ pub mod auth_api;
 pub mod http_client;
 pub mod emr_link;
 pub mod emr_api;
+pub mod control;

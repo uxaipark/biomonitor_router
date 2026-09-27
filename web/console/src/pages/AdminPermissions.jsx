@@ -26,7 +26,7 @@ const TREE = [
   ]],
   ['테스트', [['page.test', []], ['page.data_admin', ['action.wave_reset']]]],
   ['설정', [['page.settings_viewer', []], ['page.settings_biosignal', ['action.backup_purge']], ['page.settings_network', []], ['page.integration', []]]],
-  ['관리', [['page.admin_users', []], ['page.admin_permissions', []], ['page.admin_tenants', []], ['page.admin_audit', []]]],
+  ['관리', [['page.admin_users', []], ['page.admin_permissions', []], ['page.admin_tenants', []], ['page.admin_audit', []], ['page.service_control', []]]],
   ['데이터 (모든 화면 공통)', [['data.phi', []], ['data.biosignal', []]]],
 ]
 

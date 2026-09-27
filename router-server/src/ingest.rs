@@ -40,6 +40,11 @@ pub async fn run(state: Arc<AppState>) -> anyhow::Result<()> {
     info!("ingest (protocol v3) listening on {}", state.cfg.ingest_addr);
     loop {
         let (stream, peer) = listener.accept().await?;
+        // 서비스 제어 › 게이트웨이 수신 중지: 받자마자 닫는다 (게이트웨이는 재접속을 계속 시도)
+        if !crate::control::INGEST_ON.load(Ordering::Relaxed) {
+            drop(stream);
+            continue;
+        }
         if !source_allowed(&state, peer.ip()) {
             debug!("ingest connection from {} rejected (not in allowlist)", peer);
             continue;
@@ -94,6 +99,9 @@ async fn handle_conn(state: Arc<AppState>, stream: TcpStream, peer: std::net::So
         if !source_allowed(&state, peer_ip) {
             debug!("ingest connection {} dropped (allowlist changed)", peer_ip);
             break;
+        }
+        if !crate::control::INGEST_ON.load(Ordering::Relaxed) {
+            break; // 수신 중지: 열린 연결도 끊는다
         }
         state.total_bytes.fetch_add(n as u64, Ordering::Relaxed);
         dec.feed(&buf[..n], &mut items);
@@ -375,7 +383,9 @@ fn finish_records(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>, m
     }
     state.gateways.add_records(hdr.gw_id, frame.records.len());
     if !batch.is_empty() {
-        ops.push(StoreOp::Batch(batch));
+        if crate::control::STORE_ON.load(Ordering::Relaxed) {
+            ops.push(StoreOp::Batch(batch)); // 서비스 제어 › 파형 저장 중지면 기록만 건너뛴다
+        }
     }
     ops
 }

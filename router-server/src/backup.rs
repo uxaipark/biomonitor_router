@@ -754,6 +754,13 @@ impl Backup {
         })
     }
 
+    pub fn policy(&self) -> Policy {
+        self.policy.read().unwrap().clone()
+    }
+    pub fn paused(&self) -> bool {
+        self.policy.read().unwrap().paused
+    }
+
     pub fn set_policy(&self, mut p: Policy) -> Result<(), String> {
         if !["cap", "immediate"].contains(&p.delete_mode.as_str()) {
             return Err("delete_mode 는 cap | immediate".into());

@@ -78,6 +78,9 @@ pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
     let mut home_cache: std::collections::HashMap<u64, (std::time::Instant, String, String)> = std::collections::HashMap::new();
     loop {
         tick.tick().await;
+        if !crate::control::SYNC_ON.load(std::sync::atomic::Ordering::Relaxed) {
+            continue; // 서비스 제어 › 에뮬레이터 동기화 중지
+        }
         let Some(addr) = state.net.emulator() else { continue };
         match request(&addr, "GET", "/api/v1/emr/admissions", None).await {
             Ok((200, body)) => match serde_json::from_str::<serde_json::Value>(&body) {

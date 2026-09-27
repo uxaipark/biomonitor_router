@@ -284,7 +284,7 @@ impl AppState {
     /// Does any WS session subscribe to this patch (by channel id, its gateway, or one of its groups)?
     /// Cheap enough per record: 1–3 map lookups, no clones. Used before building a stream packet at all.
     pub fn stream_wanted(&self, channel_id: &str, gateway_id: &str) -> bool {
-        if self.sessions.is_empty() {
+        if self.sessions.is_empty() || !crate::control::STREAM_ON.load(Ordering::Relaxed) {
             return false;
         }
         self.sub_channels.contains_key(channel_id)

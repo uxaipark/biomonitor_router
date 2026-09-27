@@ -61,6 +61,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/backup/catalog/{id}/sync", post(backup_catalog_sync))
         .route("/api/backup/catalog/{id}/purge", post(backup_catalog_purge))
         .route("/api/backup/abort", post(backup_abort))
+        .route("/api/control/status", get(control_status))
+        .route("/api/control", get(control_status))
+        .route("/api/control/maintenance", post(control_maintenance))
+        .route("/api/control/{svc}", post(control_set))
         .route("/api/settings/network", get(net_get).put(net_put))
         .route("/api/settings/network/test", post(net_test))
         .merge(crate::auth_api::routes())
@@ -1113,6 +1117,19 @@ async fn backup_catalog(State(state): State<Arc<AppState>>, Path(id): Path<Strin
 
 async fn backup_catalog_sync(State(state): State<Arc<AppState>>, Path(id): Path<String>) -> impl IntoResponse {
     bk_result(state.backup.sync_catalog(&id).map(|_| serde_json::json!({ "ok": true })))
+}
+
+/// 서비스 제어 상태 (멈춘 서비스·알람 억제)
+async fn control_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(crate::control::status(&state))
+}
+
+async fn control_set(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(svc): Path<String>, Json(b): Json<crate::control::SetReq>) -> impl IntoResponse {
+    bk_result(crate::control::set(&state, &p.username, &svc, &b, false).map(|_| crate::control::status(&state)))
+}
+
+async fn control_maintenance(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(b): Json<crate::control::SetReq>) -> impl IntoResponse {
+    bk_result(crate::control::maintenance(&state, &p.username, &b).map(|_| crate::control::status(&state)))
 }
 
 /// 백업 중단: 전송 중인 파일까지 바로 끊고 일시 중지

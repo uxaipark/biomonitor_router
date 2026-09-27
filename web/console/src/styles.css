@@ -973,3 +973,37 @@ td.ok { color: var(--ok); }
 .tr-step.upcoming { color: var(--muted); }
 .tr-next { font-size: 12px; }
 .trips-tbl tr.tr-shadow td:first-child { box-shadow: inset 3px 0 var(--warn, #d97706); }
+
+/* 서비스 제어 */
+.ctl-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 7px 16px; background: color-mix(in srgb, var(--warn, #d97706) 18%, var(--panel)); border-bottom: 1px solid color-mix(in srgb, var(--warn, #d97706) 45%, transparent); font-size: 13px; }
+.ctl-banner .ctl-item { display: inline-flex; align-items: center; gap: 6px; }
+.ctl-banner .ctl-item b { color: var(--warn, #b45309); }
+.ctl-banner .ctl-item.mute b { color: var(--muted); }
+.ctl-banner button { padding: 1px 8px; font-size: 12px; }
+.ctl-banner a { margin-left: auto; }
+.ctl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 12px; }
+.ctl-head .h { margin: 0; }
+.ctl-maint { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; padding: 12px 16px; border: 1px dashed var(--line); border-radius: 12px; margin-bottom: 14px; background: var(--panel); }
+.ctl-maint.on { border-style: solid; border-color: var(--warn, #d97706); }
+.ctl-maint p { margin: 4px 0 0; }
+.ctl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
+.ctl-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--panel); display: flex; flex-direction: column; gap: 8px; }
+.ctl-card.off { border-color: var(--warn, #d97706); box-shadow: inset 4px 0 var(--warn, #d97706); }
+.ctl-card header { display: flex; align-items: center; gap: 8px; }
+.ctl-card header b { font-size: 15px; flex: 1; }
+.ctl-card p { margin: 0; }
+.ctl-ic { font-size: 18px; }
+.ctl-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ctl-form input { flex: 1; min-width: 180px; }
+.ctl-kv { display: grid; grid-template-columns: 90px 1fr; gap: 4px 10px; margin: 0; font-size: 13px; }
+.ctl-kv dt { color: var(--muted); }
+.ctl-kv dd { margin: 0; }
+.ctl .small { font-size: 12.5px; }
+.ctl-form label.chk { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 13px; }
+.ctl-form label.chk input { flex: none; min-width: 0; }
+/* 알람 알림 억제 중: 깜박임·강조 애니메이션을 멈춘다 (위험 등급은 keep_critical 이면 유지) */
+html.alarm-muted .pat-halo, html.alarm-muted .pt-halo { animation: none; opacity: .35; }
+html.alarm-muted .pat.urgent:not(.sev-critical) .pat-beacon { animation: none; fill-opacity: .15; }
+html.alarm-muted .card.sev-high, html.alarm-muted .card.sev-medium { animation: none; }
+html.alarm-muted-all .pat-beacon, html.alarm-muted-all .card.sev-critical { animation: none !important; }
+html.alarm-muted-all .cs-tile.a-red .cs-head, html.alarm-muted-all .cs-tile.a-red .cn-st, html.alarm-muted-all .vm-alarm { animation: none !important; }

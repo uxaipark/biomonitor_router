@@ -85,6 +85,11 @@ export const api = {
     password: (old, nw) => send('POST', '/api/auth/password', { old, new: nw }),
     testAccounts: () => get('/api/auth/test-accounts'),
   },
+  control: {
+    status: () => get('/api/control/status'),
+    set: (svc, body) => send('POST', `/api/control/${svc}`, body),
+    maintenance: (body) => send('POST', '/api/control/maintenance', body),
+  },
   admin: {
     users: () => get('/api/admin/users'),
     createUser: (u) => send('POST', '/api/admin/users', u),

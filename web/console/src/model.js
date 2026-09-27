@@ -53,6 +53,7 @@ export const ALARM_KIND = {
 }
 
 export const EVENT_KIND = {
+  control: '서비스 제어',
   alarm: '알람', alarm_rules: '알람 규칙', analysis_up: '분석 서버', backup_config: '백업 설정', backup_fail: '백업 실패',
   backup_unbacked_delete: '비상 삭제', bad_crc: 'CRC 오류', ingest_allow: '수신 허용', link: '연결', metrics_reset: '통계 초기화',
   network_config: '네트워크 설정', registry_prune: '레지스트리 정리', silent: '무응답', stats_reset: '카운터 초기화', wave_reset: '파형 삭제',

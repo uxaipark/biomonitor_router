@@ -7,6 +7,7 @@ import AdminUsers from './pages/AdminUsers.jsx'
 import AdminPermissions from './pages/AdminPermissions.jsx'
 import AdminTenants from './pages/AdminTenants.jsx'
 import AdminAudit from './pages/AdminAudit.jsx'
+import AdminControl from './pages/AdminControl.jsx'
 import Integration from './pages/Integration.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Patients from './pages/Patients.jsx'
@@ -48,6 +49,7 @@ const PAGES = [
   ['#/admin/permissions', '권한 설정', AdminPermissions, '관리', 'page.admin_permissions'],
   ['#/admin/tenants', '병원 (테넌트)', AdminTenants, '관리', 'page.admin_tenants'],
   ['#/admin/audit', '감사 기록', AdminAudit, '관리', 'page.admin_audit'],
+  ['#/admin/control', '서비스 제어', AdminControl, '관리', 'page.service_control'],
 ]
 const MENUS = [...new Set(PAGES.map((p) => p[3]).filter(Boolean))]
 
@@ -167,6 +169,16 @@ function Console({ me, setMe }) {
   const hash = useHash()
   const [theme, setTheme] = useTheme()
   const [health] = usePoll(api.health, 5000)
+  // 서비스 제어: 멈춘 서비스는 모든 화면 위 띠 + 머리글 표시로 알린다 (아무도 모르게 멈춰 있지 않게)
+  const [ctl, , refreshCtl] = usePoll(api.control.status, 5000)
+  useEffect(() => { const f = () => refreshCtl?.(); window.addEventListener('control-changed', f); return () => window.removeEventListener('control-changed', f) }, [refreshCtl])
+  const stoppedSvcs = (ctl?.services || []).filter((x) => !x.on)
+  const mute = stoppedSvcs.find((x) => x.service === 'alarm')
+  useEffect(() => {
+    const el = document.documentElement
+    el.classList.toggle('alarm-muted', !!mute)
+    el.classList.toggle('alarm-muted-all', !!mute && ctl?.alarm_mute?.keep_critical === false)
+  }, [mute, ctl])
   const [emu] = usePoll(api.emu.status, 5000)
   // ward count for the 멀티 뷰어 테스트 menu caption (= number of browser tabs it opens)
   const [chRows] = usePoll(() => (can(me, 'page.test') ? api.channels() : Promise.resolve(null)), 30000)
@@ -224,6 +236,7 @@ function Console({ me, setMe }) {
           ? <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" fill="currentColor" /></svg>
           : <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4.5" fill="currentColor" /><g stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8" /></g></svg>}</button>
       </header>
+      {stoppedSvcs.length > 0 && <ControlBanner items={stoppedSvcs} canEdit={can(me, 'page.service_control', 2)} />}
       <main>
         <Page alarms={alarms} hash={hash} />
       </main>
@@ -303,6 +316,28 @@ function PasswordModal({ must, onClose, onDone }) {
         {err && <p className="err">{err}</p>}
         <div className="toolbar"><span className="spacer" /><button onClick={onClose}>{must ? '나중에' : '취소'}</button><button className="primary" onClick={save}>변경</button></div>
       </div>
+    </div>
+  )
+}
+
+/** 멈춘 서비스 띠: 무엇이 · 누가 · 왜 · 언제 다시 켜지는지 (권한이 있으면 바로 다시 켜기) */
+function ControlBanner({ items, canEdit }) {
+  const [, tick] = useState(0)
+  useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(t) }, [])
+  const left = (u) => { if (!u) return ''; const s = Math.max(0, Math.round((u - Date.now()) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` }
+  const resume = async (svc) => { try { await api.control.set(svc, { on: true }); window.dispatchEvent(new Event('control-changed')) } catch (e) { window.alert(e.message) } }
+  return (
+    <div className="ctl-banner">
+      {items.map((x) => (
+        <span key={x.service} className={'ctl-item' + (x.service === 'alarm' ? ' mute' : '')}>
+          <b>{x.service === 'alarm' ? '알람 알림 억제' : `${x.label} 멈춤`}</b>
+          {x.reason && <span> — {x.reason}</span>}
+          {x.by && <small> · {x.by}</small>}
+          {x.until_ms && <small> · {x.service === 'alarm' ? '남은 시간' : '자동 재개까지'} {left(x.until_ms)}</small>}
+          {canEdit && <button onClick={() => resume(x.service)}>다시 켜기</button>}
+        </span>
+      ))}
+      {canEdit && <a href="#/admin/control">서비스 제어 →</a>}
     </div>
   )
 }
