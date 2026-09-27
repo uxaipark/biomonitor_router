@@ -4,7 +4,7 @@ import { useMe, LEVEL_LABEL } from '../auth.js'
 import Dropdown from '../Dropdown.jsx'
 
 /**
- * 관리 › 권한 설정 — 역할 × 메뉴·동작·데이터 매트릭스.
+ * 운영관리 › 권한 설정 — 역할 × 메뉴·동작·데이터 매트릭스.
  *  - 권한 설정이 '편집'이면 자기보다 아래 역할만 고친다(자기·상위 역할 열은 보이지도 않거나 보기만).
  *  - 전역 표: 플랫폼 역할(수퍼 어드민 → 시스템 관리자 → 리셀러 → 영업)이 아래 역할을 정한다.
  *  - 병원별 표: 병원 역할(IT 매니저·의사·간호사·스태프)을 병원마다 덮어쓴다 — IT 매니저는 의사·간호사·스태프, 의사는 간호사·스태프.
@@ -25,7 +25,7 @@ const TREE = [
     ['page.viewers', ['action.groups_edit']],
   ]],
   ['테스트', [['page.test', []], ['page.data_admin', ['action.wave_reset']]]],
-  ['관리', [['page.settings_network', []], ['page.service_control', []], ['page.settings_biosignal', ['action.backup_purge']], ['page.integration', []], ['page.settings_viewer', []],
+  ['운영관리', [['page.settings_network', []], ['page.settings_biosignal', ['action.backup_purge']], ['page.service_control', []], ['page.integration', []], ['page.settings_viewer', []],
     ['page.admin_users', []], ['page.admin_permissions', []], ['page.admin_tenants', []], ['page.admin_audit', []]]],
   ['데이터 (모든 화면 공통)', [['data.phi', []], ['data.biosignal', []]]],
 ]
@@ -98,7 +98,7 @@ export default function AdminPermissions() {
     .filter(([, items]) => items.length)
   const resRow = (code, depth) => {
     const res = known.get(code)
-    const label = depth ? res.label : res.label.replace(/^(테스트|설정|관리) › /, '')
+    const label = depth ? res.label : res.label.replace(/^(테스트|설정|관리|운영관리) › /, '')
     return (
       <tr key={code} className={depth ? 'perm-sub' : 'perm-top'}>
         <td className="perm-res">{depth ? <span className="perm-branch">└</span> : null}<b>{label}</b><small className="mono">{res.code}</small></td>

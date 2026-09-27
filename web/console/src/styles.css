@@ -457,7 +457,7 @@ button.danger:hover { background: var(--err); color: #fff; }
 .ops-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 .ops-legend b { color: var(--text); font-variant-numeric: tabular-nums; }
 
-/* 관리 › 생체 데이터 관리 (backup targets) */
+/* 운영관리 › 데이터 관리 (backup targets) */
 .settings.bk section { max-width: 1100px; }
 .bk-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .bk-head h3 { margin: 0; }
@@ -491,7 +491,7 @@ button.danger:hover { background: var(--err); color: #fff; }
 .tbl td.mono { font-family: ui-monospace, monospace; font-size: 12px; }
 @media (max-width: 700px) { .bk-card { grid-template-columns: 1fr; } .bk-form { grid-template-columns: 1fr; } }
 
-/* 관리 › 네트워크 설정 */
+/* 운영관리 › 네트워크 설정 */
 .net-row { display: flex; gap: 8px; align-items: center; }
 .net-row input { flex: 1 1 auto; min-width: 0; font-family: ui-monospace, monospace; }
 .settings .ok { color: var(--ok); }

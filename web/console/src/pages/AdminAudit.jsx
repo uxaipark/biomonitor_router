@@ -10,7 +10,7 @@ const ACTION = {
   emr_connection_create: 'EMR 연결 추가', emr_connection_update: 'EMR 연결 변경', emr_connection_delete: 'EMR 연결 삭제',
 }
 
-/** 관리 › 감사 기록 — 로그인·계정·권한 변경 기록 (병원 역할은 자기 병원 기록만) */
+/** 운영관리 › 감사 기록 — 로그인·계정·권한 변경 기록 (병원 역할은 자기 병원 기록만) */
 export default function AdminAudit() {
   const [rows, err] = usePoll(() => api.admin.audit(500), 10000)
   const [kind, setKind] = useState('')

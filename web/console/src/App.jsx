@@ -41,16 +41,16 @@ const PAGES = [
   ['#/live', '실시간', Live, '테스트', 'page.test'],
   ['#/test/multiviewer', '멀티 뷰어 테스트', MultiViewerTest, '테스트', 'page.test'],
   ['#/test/data', '데이터 관리', DataAdmin, '테스트', 'page.data_admin'],
-  // 관리: 운영(서비스·데이터·연동) 먼저, 그 아래 계정·보안 — 6번째 값은 드롭다운 안의 소제목
-  ['#/settings/network', '네트워크 설정', NetworkSettings, '관리', 'page.settings_network', '운영'],
-  ['#/admin/control', '서비스 제어', AdminControl, '관리', 'page.service_control', '운영'],
-  ['#/settings/biosignal', '생체 데이터 관리', BiosignalAdmin, '관리', 'page.settings_biosignal', '운영'],
-  ['#/settings/integration', 'EMR 연동', Integration, '관리', 'page.integration', '운영'],
-  ['#/settings/viewer', '뷰어 설정', ViewerSettings, '관리', 'page.settings_viewer', '운영'],
-  ['#/admin/users', '계정', AdminUsers, '관리', 'page.admin_users', '계정·보안'],
-  ['#/admin/permissions', '권한 설정', AdminPermissions, '관리', 'page.admin_permissions', '계정·보안'],
-  ['#/admin/tenants', '병원 (테넌트)', AdminTenants, '관리', 'page.admin_tenants', '계정·보안'],
-  ['#/admin/audit', '감사 기록', AdminAudit, '관리', 'page.admin_audit', '계정·보안'],
+  // 운영관리: 운영(네트워크·데이터·서비스·연동) 먼저, 그 아래 계정·보안 — 6번째 값은 드롭다운 안의 소제목
+  ['#/settings/network', '네트워크 설정', NetworkSettings, '운영관리', 'page.settings_network', '운영'],
+  ['#/settings/biosignal', '데이터 관리', BiosignalAdmin, '운영관리', 'page.settings_biosignal', '운영'],
+  ['#/admin/control', '서비스 제어', AdminControl, '운영관리', 'page.service_control', '운영'],
+  ['#/settings/integration', 'EMR 연동', Integration, '운영관리', 'page.integration', '운영'],
+  ['#/settings/viewer', '뷰어 설정', ViewerSettings, '운영관리', 'page.settings_viewer', '운영'],
+  ['#/admin/users', '계정', AdminUsers, '운영관리', 'page.admin_users', '계정·보안'],
+  ['#/admin/permissions', '권한 설정', AdminPermissions, '운영관리', 'page.admin_permissions', '계정·보안'],
+  ['#/admin/tenants', '병원 (테넌트)', AdminTenants, '운영관리', 'page.admin_tenants', '계정·보안'],
+  ['#/admin/audit', '감사 기록', AdminAudit, '운영관리', 'page.admin_audit', '계정·보안'],
 ]
 const MENUS = [...new Set(PAGES.map((p) => p[3]).filter(Boolean))]
 

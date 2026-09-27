@@ -27,7 +27,7 @@
 
 * **저장 형식** — `[ts_ms u64][gw_id u32][patient_id u32][seq u32][flags][battery][rssi][n_ch]` + 채널 블록 + `[crc32]`.
   에뮬레이터 저장소의 파이썬 초안 `router/store.py` 와 바이트 호환(`verify_file()` 로 교차 검증됨).
-  패치별 저장 단위(기본 2시간, 관리 › 생체 데이터 관리) 파일. 닫히면 무결성 봉인(`<key>.sum`: 항목 CRC 확인 + 파일 CRC-32·SHA-256)[+ gzip(`ROUTER_STORE_GZIP`)],
+  패치별 저장 단위(기본 2시간, 운영관리 › 데이터 관리) 파일. 닫히면 무결성 봉인(`<key>.sum`: 항목 CRC 확인 + 파일 CRC-32·SHA-256)[+ gzip(`ROUTER_STORE_GZIP`)],
   봉인된 파일만 백업. `ROUTER_STORE_MAX_GB` 초과 시 가장 오래된 파일부터 삭제.
 * **NACK 정책** — 게이트웨이당 0.5 s 에 1회, 같은 seq 최대 3회, 한 번에 200 프레임, 10 s 미응답 → `resend_lost`.
   CRC 불일치 프레임은 헤더 seq 로 재요청. 복구 프레임의 패치 seq 는 이상으로 세지 않음.
@@ -67,10 +67,10 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 | `ROUTER_WEB_DIR` | `../web/console/dist` | 웹 콘솔(vite build) 정적 디렉터리. `/` 로 서빙, 없으면 API 만 |
 | `ROUTER_ANALYSIS_ADDR` / `ROUTER_DB_ADDR` | `127.0.0.1:7100` / `:7601` | 레거시 분석·DB 링크 (없으면 재시도만) |
 | `ROUTER_TENANT_ID` | `H001` | 이 라우터가 데이터를 받는 병원(테넌트) ID. 처음 실행 때 `router.db` 에 기록되고 이후엔 DB 값 |
-| `ROUTER_DEV_MODE` | `1` | 개발 모드 초기값(수퍼 어드민 전체 권한, 로그인 화면에 시험용 계정 표시). 이후엔 관리 › 권한 설정의 스위치 |
+| `ROUTER_DEV_MODE` | `1` | 개발 모드 초기값(수퍼 어드민 전체 권한, 로그인 화면에 시험용 계정 표시). 이후엔 운영관리 › 권한 설정의 스위치 |
 | `ROUTER_SERVICE_TOKEN` | (없음) | 스크립트용 Bearer 토큰. 없으면 `router.db` 옆 `service_token`(0600)을 처음 실행 때 만든다 |
 
-### 서비스 제어 (관리 › 서비스 제어, 2026-09-27)
+### 서비스 제어 (운영관리 › 서비스 제어, 2026-09-27)
 
 게이트웨이 수신 · 파형 저장 · 실시간 스트리밍 · 알람 알림 · 백업 · EMR 전송 · 에뮬레이터 동기화를 한 화면에서 멈추고 켠다(`/api/control/*`, `src/control.rs`).
 멈출 때 사유 필수·자동 재개 선택, 알람은 알림 억제만(판정·기록 계속, 최대 60분, 위험 등급 유지 선택), 유지보수 모드 = 백업·EMR·알람 억제 한 번에.
@@ -95,7 +95,7 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 * API: `POST /api/auth/login`(`{tenant, username, password}`)`|logout|password`, `GET /api/auth/me|test-accounts`, `/api/admin/users[/{id}[/reset_password]]`,
   `/api/admin/tenants[/{id}]`, `GET|PUT /api/admin/permissions`, `GET /api/admin/permissions/versions`, `PUT /api/admin/dev_mode`, `GET /api/admin/audit`.
 
-### EMR 연동 (2026-09-24, 관리 › EMR 연동)
+### EMR 연동 (2026-09-24, 운영관리 › EMR 연동)
 
 패치 수치(HR·호흡수·SpO₂·체온)를 병원 EMR 에 간호 바이탈로 기록한다(`src/emr_link.rs`, `src/emr_api.rs`, `src/http_client.rs`).
 연결 하나 = 이 라우터 병원 × 외부 EMR 한 곳. 연결마다 작업 하나: 인증(SMART Backend JWT·signed JWT·client_credentials basic/post·

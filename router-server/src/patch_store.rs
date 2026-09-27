@@ -246,7 +246,7 @@ pub fn patch_dir(root: &Path, patch_id: u32) -> PathBuf {
     root.join("patches").join(format!("{patch_id:08}"))
 }
 
-/// Storage block: one file per patch per N UTC hours, N from the backup policy (생체 데이터 관리 › 저장 단위,
+/// Storage block: one file per patch per N UTC hours, N from the backup policy (데이터 관리 › 저장 단위,
 /// default 2). N divides 24 so blocks line up with UTC midnight (00–02, 02–04, …).
 pub static BLOCK_HOURS: AtomicU64 = AtomicU64::new(2);
 pub const BLOCK_CHOICES: [u32; 8] = [1, 2, 3, 4, 6, 8, 12, 24];
