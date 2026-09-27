@@ -1176,4 +1176,3 @@ button.ghost:hover { border-color: var(--line); color: var(--text); }
 .ops-limit-text { color: var(--warn, #d97706); font-weight: 500; }
 /* 권한 표 머리글은 고정(sticky) — 스위치 손잡이가 위로 지나가지 않게 층을 올린다 */
 .perm thead th { position: sticky; top: 0; z-index: 5; }
-.perm .perm-group td { position: sticky; top: 0; z-index: 4; }
