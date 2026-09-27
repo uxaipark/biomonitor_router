@@ -656,7 +656,7 @@ async fn stats(State(state): State<Arc<AppState>>) -> Json<Stats> {
         total_tx_bytes: state.total_tx_bytes.load(Ordering::Relaxed),
         total_packets: state.total_packets.load(Ordering::Relaxed),
         total_lost_packets: state.total_lost_packets.load(Ordering::Relaxed),
-        uptime_s: state.started_at.elapsed().as_secs(),
+        uptime_s: state.uptime_s(),
         downtime_ms: state.downtime_ms(),
         analysis_connected: state.analysis_up(),
         channel_count: state.registry.len(),

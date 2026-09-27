@@ -265,6 +265,7 @@ fn run(state: &Arc<AppState>, who: &str, reason: &str) -> Result<(), String> {
         }
     }
     set_step("start", if started.len() == 6 { "ok" } else { "fail" }, started.join(" · "));
+    state.restart_uptime(); // '현재 가동 시간' 0 부터 (사용자 요청 2026-09-28)
 
     if failures.is_empty() {
         Ok(())

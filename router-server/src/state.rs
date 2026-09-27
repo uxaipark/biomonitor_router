@@ -124,6 +124,8 @@ pub struct AppState {
     pub analysis_downtime_ms: AtomicU64,
     pub analysis_down_since: Mutex<Option<Instant>>,
     pub started_at: Instant,
+    /// '현재 가동 시간' 의 기준 — 프로세스 시작 또는 마지막 가동 초기화 (가동 초기화 뒤 0 부터 다시 센다)
+    pub ops_since: Mutex<Instant>,
     /// 최근 시스템 이벤트 링 (어드민 /api/events)
     pub events: Mutex<VecDeque<SystemEvent>>,
     /// 디스플레이(센트럴 모니터) ID → 그룹 ID 매핑 (displays.json 영속화)
@@ -201,6 +203,7 @@ impl AppState {
             analysis_downtime_ms: AtomicU64::new(0),
             analysis_down_since: Mutex::new(None),
             started_at: Instant::now(),
+            ops_since: Mutex::new(Instant::now()),
             events: Mutex::new(VecDeque::new()),
             displays: Mutex::new(displays),
             ingest_allow: Mutex::new(None),
@@ -213,6 +216,16 @@ impl AppState {
             emr_cache: Mutex::new(std::collections::HashMap::new()),
         });
         (state, analysis_rx, db_rx, store_rx)
+    }
+
+    /// 현재 가동 시간(초): 프로세스 시작 또는 마지막 가동 초기화 이후
+    pub fn uptime_s(&self) -> u64 {
+        self.ops_since.lock().unwrap().elapsed().as_secs()
+    }
+
+    /// 가동 초기화: 가동 시간을 0 부터 다시 센다
+    pub fn restart_uptime(&self) {
+        *self.ops_since.lock().unwrap() = Instant::now();
     }
 
     pub fn analysis_up(&self) -> bool {
@@ -266,7 +279,7 @@ impl AppState {
             "name": "biomonitor-router",
             "version": env!("CARGO_PKG_VERSION"),
             "protocol_version": crate::wire::VERSION,
-            "uptime_s": self.started_at.elapsed().as_secs(),
+            "uptime_s": self.uptime_s(),
             "ingest_connections": self.ingest_conns.load(Ordering::Relaxed),
             "rx_bytes": self.total_bytes.load(Ordering::Relaxed),
             "records": self.total_packets.load(Ordering::Relaxed),
