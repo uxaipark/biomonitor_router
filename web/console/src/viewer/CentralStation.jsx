@@ -20,7 +20,7 @@ export const useClock = () => { const [t, setT] = useState(''); useEffect(() => 
 export function Latency() {
   const [l, setL] = useState(null)
   useEffect(() => { const f = () => setL(latencyNow()); f(); const i = setInterval(f, 1000); return () => clearInterval(i) }, [])
-  const t = l ? `에뮬레이터→라우터 ${l.e2r ?? '—'} ms · 라우터→뷰어 ${l.r2v ?? '—'} ms · 종단 간 ${l.e2e} ms (최근 ${l.n} 배치 중앙값, 시계 동기 전제)` : '수신 중인 스트림 없음'
+  const t = l ? `에뮬레이터→라우터 ${l.e2r ?? '—'} ms · 라우터→뷰어 ${l.r2v ?? '—'} ms · 종단 간 ${l.e2e} ms (최근 ${l.n} 배치 중앙값)${l.offset ? ` · 라우터 시계 보정 +${l.offset} ms` : ''}${l.mine?.e2e || l.mine?.r2v ? ` · 이 브라우저 보정 +${l.mine.e2e || 0}/${l.mine.r2v || 0} ms` : ''}` : '수신 중인 스트림 없음'
   return <span className="cs-latency" title={t}>LATENCY : {l ? `${l.e2e}ms` : '--ms'}</span>
 }
 

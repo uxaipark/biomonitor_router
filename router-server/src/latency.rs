@@ -24,6 +24,9 @@ static TOTAL: AtomicU64 = AtomicU64::new(0);
 static LAST_MS: AtomicU64 = AtomicU64::new(0);
 /// 시계 보정값(ms, ≥ 0): 관측된 음수 나이의 최대 절대값
 static OFFSET_MS: AtomicI64 = AtomicI64::new(0);
+/// 마지막 리셋 시각(ms) — 뷰어가 자기 브라우저 보정값을 함께 버리는 기준(WS 헤더 `lat_epoch`)
+static RESET_MS: AtomicU64 = AtomicU64::new(0);
+const K_RESET: &str = "latency_reset_ms";
 static DB_PATH: LazyLock<Mutex<String>> = LazyLock::new(|| Mutex::new(String::new()));
 const K_OFFSET: &str = "latency_offset_ms";
 
@@ -35,6 +38,11 @@ pub fn init(db_path: &str) {
         if let Ok(v) = db.query_row("SELECT value FROM settings WHERE key = ?1", params![K_OFFSET], |r| r.get::<_, String>(0)) {
             if let Ok(n) = v.parse::<i64>() {
                 OFFSET_MS.store(n.max(0), Ordering::Relaxed);
+            }
+        }
+        if let Ok(v) = db.query_row("SELECT value FROM settings WHERE key = ?1", params![K_RESET], |r| r.get::<_, String>(0)) {
+            if let Ok(n) = v.parse::<u64>() {
+                RESET_MS.store(n, Ordering::Relaxed);
             }
         }
     }
@@ -58,10 +66,22 @@ pub fn offset_ms() -> i64 {
     OFFSET_MS.load(Ordering::Relaxed)
 }
 
+pub fn reset_epoch() -> u64 {
+    RESET_MS.load(Ordering::Relaxed)
+}
+
 /// 보정값과 표본을 0 으로 (가동 초기화 · 네트워크 설정 › 지연시간 계산 리셋)
 pub fn reset_offset() {
     OFFSET_MS.store(0, Ordering::Relaxed);
     persist_offset(0);
+    let now = crate::protocol::now_ms();
+    RESET_MS.store(now, Ordering::Relaxed);
+    let path = DB_PATH.lock().unwrap().clone();
+    if !path.is_empty() {
+        if let Ok(db) = Connection::open(&path) {
+            let _ = db.execute("INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params![K_RESET, now.to_string()]);
+        }
+    }
     reset();
     info!("latency: clock correction reset to 0");
 }
@@ -101,7 +121,7 @@ pub fn stats() -> serde_json::Value {
     serde_json::json!({
         "p50": q(0.5), "p95": q(0.95), "avg": (avg * 10.0).round() / 10.0, "min": v[0], "max": v[n - 1],
         "n": n, "frames": TOTAL.load(Ordering::Relaxed), "last_ms": LAST_MS.load(Ordering::Relaxed),
-        "offset_ms": OFFSET_MS.load(Ordering::Relaxed),
+        "offset_ms": OFFSET_MS.load(Ordering::Relaxed), "reset_epoch": RESET_MS.load(Ordering::Relaxed),
     })
 }
 

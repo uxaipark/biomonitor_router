@@ -64,6 +64,7 @@ export const api = {
     set: (b) => send('PUT', '/api/settings/network', b),
     test: (kind, addr) => send('POST', '/api/settings/network/test', { kind, addr }),
     latencyReset: () => send('POST', '/api/settings/network/latency_reset'),
+    time: () => get('/api/time'),
   },
   backup: {
     status: () => get('/api/backup'),

@@ -29,19 +29,35 @@ const setStatus = (s) => { status = s; emit('status', s) }
 const LAT_KEEP = 40
 const lat = { e2e: [], e2r: [], r2v: [], at: 0 }
 const med = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[s.length >> 1] }
-function noteLatency(recv, sentMs, items, offsetMs = 0) {
+// 이 브라우저의 시계 보정값: 라우터 보정을 더하고도 음수가 나오면(브라우저 시계가 뒤짐) 그 최대 절대값을 기억해 더한다.
+// 종단 간(e2e)과 라우터→뷰어(r2v)에 각각 하나씩. localStorage 에 두고, 라우터의 리셋 시각(lat_epoch)이 바뀌면 함께 버린다.
+const LS = 'lat.browser'
+let mine = { e2e: 0, r2v: 0, epoch: 0 }
+try { mine = { ...mine, ...(JSON.parse(localStorage.getItem(LS) || '{}')) } } catch { /* ignore */ }
+const saveMine = () => { try { localStorage.setItem(LS, JSON.stringify(mine)) } catch { /* ignore */ } }
+function noteLatency(recv, sentMs, items, offsetMs = 0, epoch = 0) {
   const ts = med(items.map((it) => it.ts_ms).filter((t) => t > 0))
   if (ts == null) return
+  if (epoch !== mine.epoch) { mine = { e2e: 0, r2v: 0, epoch }; saveMine() } // 라우터에서 '지연시간 계산 리셋' / 가동 초기화
   const push = (k, v) => { lat[k].push(v); if (lat[k].length > LAT_KEEP) lat[k].shift() }
   // offsetMs = 라우터가 관측한 에뮬레이터 시계 앞섬(음수 나이의 최대 절대값) — 에뮬레이터 시각이 들어가는 구간에 더한다
-  push('e2e', recv - ts + offsetMs)
-  if (sentMs > 0) { push('e2r', sentMs - ts + offsetMs); push('r2v', recv - sentMs) }
+  let e2e = recv - ts + offsetMs
+  if (e2e < 0 && -e2e > mine.e2e) { mine.e2e = -e2e; saveMine() }
+  push('e2e', e2e + mine.e2e)
+  if (sentMs > 0) {
+    push('e2r', sentMs - ts + offsetMs)
+    let r2v = recv - sentMs
+    if (r2v < 0 && -r2v > mine.r2v) { mine.r2v = -r2v; saveMine() }
+    push('r2v', r2v + mine.r2v)
+  }
   lat.at = recv; lat.offset = offsetMs
 }
+/** 이 브라우저의 보정값 (표시용) */
+export const browserLatencyOffset = () => ({ ...mine })
 /** 최근 40개 배치의 중앙값 (ms). 스트림이 2초 넘게 없으면 null */
 export function latencyNow() {
   if (!lat.at || Date.now() - lat.at > 2000) return null
-  return { e2e: med(lat.e2e), e2r: med(lat.e2r), r2v: med(lat.r2v), n: lat.e2e.length, at: lat.at, offset: lat.offset || 0 }
+  return { e2e: med(lat.e2e), e2r: med(lat.e2r), r2v: med(lat.r2v), n: lat.e2e.length, at: lat.at, offset: lat.offset || 0, mine: { ...mine } }
 }
 
 function decodeBatch(buf) {
@@ -52,6 +68,7 @@ function decodeBatch(buf) {
   const items = header.items || []
   items.sentMs = header.sent_ms || 0
   items.offsetMs = header.offset_ms || 0
+  items.latEpoch = header.lat_epoch || 0
   const counts = header.counts || []
   let off = 5 + hlen
   for (let i = 0; i < items.length; i++) {
@@ -126,7 +143,7 @@ function open() {
     if (ev.data instanceof ArrayBuffer) {
       const t0 = performance.now()
       const items = decodeBatch(ev.data)
-      noteLatency(Date.now(), items.sentMs, items, items.offsetMs)
+      noteLatency(Date.now(), items.sentMs, items, items.offsetMs, items.latEpoch)
       handleItems(items)
       wsCounters.frames++; wsCounters.bytes += ev.data.byteLength; wsCounters.items += items.length; wsCounters.decodeMs += performance.now() - t0
       return

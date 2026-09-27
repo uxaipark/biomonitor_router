@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { api, usePoll } from '../api.js'
+import { latencyNow } from '../ws.js'
 
 /**
  * 운영관리 › 네트워크 설정: 라우터가 접속하는 상대 주소(에뮬레이터·분석 서버·DB API)를 브라우저에서 지정한다.
@@ -30,6 +31,26 @@ function LatencyCard() {
   const [stats, , refresh] = usePoll(api.stats, 5000)
   const [msg, setMsg] = useState('')
   const l = stats?.latency || {}
+  // 라우터(웹서버) ↔ 브라우저(이 PC): HTTP 왕복(RTT)과 편도 추정(RTT/2), 시계 차 = 서버 시각 − 왕복 중간 시각. 5초마다, 최근 12회 중앙값.
+  // 사용자 디바이스는 시계 관리가 안 되는 경우가 많아 대략적인 파악 용도(사용자 결정).
+  const [http, setHttp] = useState(null)
+  const [ws, setWs] = useState(null)
+  useEffect(() => {
+    let dead = false; const rtts = [], diffs = []
+    const med = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[s.length >> 1] : null }
+    const probe = async () => {
+      const t0 = Date.now()
+      try {
+        const r = await api.time(); const t3 = Date.now()
+        rtts.push(t3 - t0); diffs.push(r.now_ms - (t0 + t3) / 2)
+        if (rtts.length > 12) { rtts.shift(); diffs.shift() }
+        if (!dead) setHttp({ rtt: med(rtts), oneWay: Math.round(med(rtts) / 2), diff: Math.round(med(diffs)), n: rtts.length })
+      } catch { /* 다음 회차 */ }
+      if (!dead) setWs(latencyNow())
+    }
+    probe(); const t = setInterval(probe, 5000)
+    return () => { dead = true; clearInterval(t) }
+  }, [])
   const reset = async () => {
     if (!window.confirm(`지연시간 계산을 리셋합니다. 시계 보정값 ${l.offset_ms ?? 0} ms 와 표본이 0 이 되고, 다음 프레임부터 다시 계산합니다. 계속할까요?`)) return
     try { await api.net.latencyReset(); setMsg('리셋했습니다.'); refresh?.() } catch (e) { setMsg('실패: ' + e.message) }
@@ -39,8 +60,11 @@ function LatencyCard() {
       <h3>전송 지연 · 시계 보정</h3>
       <div className="kv">
         <div><small>에뮬레이터 → 라우터 (보정 후)</small><span>{l.n ? <>p50 <b>{l.p50} ms</b> · p95 {l.p95} ms · 최소 {l.min} · 최대 {l.max} · 표본 {l.n.toLocaleString()}</> : '프레임 없음'}</span></div>
-        <div><small>시계 보정값</small><span><b>{l.offset_ms ?? 0} ms</b> <span className="muted">— 관측된 음수 나이의 최대 절대값(에뮬레이터 시계 앞섬). 모든 지연 표시에 더해집니다.</span></span></div>
+        <div><small>시계 보정값 (라우터)</small><span><b>{l.offset_ms ?? 0} ms</b> <span className="muted">— 관측된 음수 나이의 최대 절대값(에뮬레이터 시계 앞섬). 모든 지연 표시에 더해집니다.</span></span></div>
+        <div><small>라우터(웹서버) → 브라우저(이 PC) · HTTP</small><span>{http ? <>편도 약 <b>{http.oneWay} ms</b> · 왕복 {http.rtt} ms · 시계 차 {http.diff > 0 ? '+' : ''}{http.diff} ms <span className="muted">(라우터 − 브라우저, 왕복 중간 시각 기준, 최근 {http.n}회 중앙값)</span></> : '측정 중…'}</span></div>
+        <div><small>라우터 → 브라우저 · WS 스트림</small><span>{ws && ws.r2v != null ? <><b>{ws.r2v} ms</b> · 종단 간 {ws.e2e} ms <span className="muted">(뷰어·대시보드가 열려 스트림을 받을 때만{ws.mine?.r2v ? ` · 이 브라우저 보정 +${ws.mine.r2v} ms` : ''})</span></> : <span className="muted">수신 중인 스트림 없음 — 대시보드나 뷰어를 열어 두면 측정됩니다</span>}</span></div>
       </div>
+      <p className="muted small" style={{ margin: '8px 0 0' }}>브라우저 쪽 값은 <b>대략적인 파악 용도</b>입니다. 사용자 디바이스는 시계가 관리되지 않는 경우가 많아 편차가 큽니다. 기준 지표는 에뮬레이터→라우터 구간입니다.</p>
       <div className="toolbar" style={{ marginTop: 10, marginBottom: 0 }}>
         <button onClick={reset}>지연시간 계산 리셋</button>
         <span className="muted small">보정값과 표본을 0 으로. 가동 초기화 때도 0 이 됩니다.</span>

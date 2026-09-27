@@ -57,8 +57,8 @@ function Chart({ points, series, range, height = 130, unit = '', stack = false, 
   )
 }
 
-const Tile = ({ label, value, sub, warn }) => (
-  <div className={'ops-tile' + (warn ? ' warn' : '')}><small>{label}</small><b>{value}</b>{sub && <span>{sub}</span>}</div>
+const Tile = ({ label, value, sub, warn, title }) => (
+  <div className={'ops-tile' + (warn ? ' warn' : '')} title={title}><small>{label}</small><b>{value}</b>{sub && <span>{sub}</span>}</div>
 )
 
 const KIND = { restart: '재시작', store_stall: '저장 스톨', queue_drop: '저장 드롭', ws_lag: 'WS 지연', disk_low: '디스크 부족', reset: '통계 초기화' }
@@ -108,7 +108,7 @@ export default function OpsStats() {
       </div>
       {msg && <p className="muted">{msg}</p>}
       <div className="ops-tiles">
-        <Tile label="현재 가동 시간" value={fmtDur(stats?.uptime_s)} sub={`재시작 ${inc.restart || 0}회 (이 구간)`} />
+        <Tile label="현재 가동 시간" value={fmtDur(stats?.uptime_s)} sub={`선택 구간 안 라우터 재시작 ${inc.restart || 0}회`} title="라우터 프로세스가 다시 시작된 횟수(선택한 구간 기준). 배포·설정 반영을 위한 재시작도 포함되며, 수집 공백이 90초를 넘으면 '수집 공백'으로 표시됩니다. 아래 사건 표에서 시각을 볼 수 있습니다." />
         <Tile label="수집 커버리지" value={`${(cov.percent || 0).toFixed(1)}%`} sub={range === '5min' ? `${fmtNum(cov.sampled_samples || 0)} / ${fmtNum(cov.expected_samples || 0)} 샘플 (2초)` : `${fmtNum(cov.sampled_minutes || 0)} / ${fmtNum(cov.expected_minutes || 0)}분`} warn={(cov.percent || 0) < 99 && range !== 'hour' && range !== '5min'} />
         <Tile label="라우터 CPU" value={`${(tot.cpu_avg || 0).toFixed(1)}%`} sub={`최대 ${(tot.cpu_max || 0).toFixed(0)}% · 1코어=100`} warn={(tot.cpu_max || 0) > 150} />
         <Tile label="라우터 메모리" value={fmtBytes(tot.mem_avg || 0)} sub={`최대 ${fmtBytes(tot.mem_max || 0)}`} />
