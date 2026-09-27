@@ -16,6 +16,28 @@ const INFO = {
   emr: { stop: 'EMR 바이탈 전송을 멈춥니다. 재원 명단·입퇴원 수신은 계속됩니다.' },
   sync: { stop: '에뮬레이터 EMR 동기화(입원 목록·환자 정보)를 멈춥니다. 새 입원·전동이 반영되지 않습니다.' },
 }
+// 서버 교체 순서: 끌 때는 바깥(알림·외부 전송)부터 막고 수신·저장을 마지막에, 켤 때는 받을 준비 → 수신 → 표시 → 알림·외부 전송 순
+const ORDER = {
+  stop: [
+    ['alarm', '곧 연결이 끊기며 쏟아질 무응답·끊김 알람을 막습니다(위험 등급은 유지).'],
+    ['emr', '교체 중 비거나 중복된 바이탈이 EMR에 기록되지 않게 합니다.'],
+    ['backup', '가능하면 백업 대기 0을 확인한 뒤 멈춥니다.'],
+    ['sync', '옮기는 동안 입원 명단이 바뀌지 않게 고정합니다.'],
+    ['stream', '병동에 알린 뒤 중앙 모니터 파형을 끕니다.'],
+    ['ingest', '게이트웨이는 못 보낸 데이터를 쌓아 두고 재접속을 시도합니다.'],
+    ['store', '수신이 멈춘 뒤 마지막 기록까지 쓴 상태로 고정합니다. 이후 라우터를 끄고 data/ 를 복사합니다.'],
+  ],
+  start: [
+    ['store', '데이터가 들어오기 전에 기록할 준비를 합니다.'],
+    ['sync', '환자 이름·병실이 먼저 채워져야 들어오는 데이터가 누구인지 보입니다.'],
+    ['ingest', '게이트웨이 연결 수가 예상치까지 오르고 유실·재전송이 안정되는지 봅니다.'],
+    ['stream', '병동 한 곳에서 중앙 모니터 파형이 나오는지 확인합니다.'],
+    ['alarm', '재접속 직후의 무응답 알람이 풀린 뒤(1~2분) 억제를 끝냅니다.'],
+    ['emr', 'EMR 연동 화면에서 환자 매칭 수가 교체 전과 같은지 확인한 뒤 켭니다.'],
+    ['backup', '밀린 파일을 한꺼번에 올리므로 마지막에. 먼저 백업 대상 연결 시험.'],
+  ],
+}
+
 const AUTO = [[0, '자동 재개 없음'], [15, '15분 뒤'], [30, '30분 뒤'], [60, '1시간 뒤'], [240, '4시간 뒤']]
 const MUTE = [[10, '10분'], [15, '15분'], [30, '30분'], [45, '45분'], [60, '60분 (최대)']]
 const fmt = (ms) => (ms ? new Date(ms).toLocaleString('ko-KR', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '')
@@ -26,6 +48,7 @@ export default function AdminControl() {
   const edit = can(me, 'page.service_control', 2)
   const [st, err, refresh] = usePoll(api.control.status, 3000)
   const [msg, setMsg] = useState('')
+  const [mode, setMode] = useState('') // '' = 자동: 멈춘 게 있으면 켜는 순서, 없으면 끄는 순서
   const done = (r) => { setMsg(''); refresh?.(); window.dispatchEvent(new Event('control-changed')); return r }
   const act = async (svc, body) => {
     try { await api.control.set(svc, body); done() } catch (e) { setMsg(e.message) }
@@ -41,14 +64,29 @@ export default function AdminControl() {
       </div>
       {msg && <p className="err">{msg}</p>}
       <Maintenance st={st} edit={edit} onDone={done} setMsg={setMsg} />
-      <div className="ctl-grid">
-        {st.services.map((s) => <ServiceCard key={s.service} s={s} edit={edit} onAct={act} />)}
-      </div>
+      {(() => {
+        const m = mode || (st.stopped ? 'start' : 'stop')
+        const bySvc = new Map(st.services.map((s) => [s.service, s]))
+        return <>
+          <div className="ctl-order">
+            <span className="seg">
+              <button className={m === 'stop' ? 'active' : ''} onClick={() => setMode('stop')}>끄는 순서 (서버 교체 전)</button>
+              <button className={m === 'start' ? 'active' : ''} onClick={() => setMode('start')}>켜는 순서 (서버 교체 후)</button>
+            </span>
+            <span className="muted small">{m === 'stop'
+              ? '바깥(알림·EMR·백업)부터 막고 수신·저장을 마지막에 멈춥니다. 멈춘 상태는 router.db 에 남아 data/ 를 옮긴 새 서버도 멈춘 채로 시작합니다(알람 억제만 풀리므로 새 서버에서 다시 억제).'
+              : '받을 준비(저장·환자 정보) → 수신 → 화면 → 알림·EMR → 백업 순으로 켭니다. 단계마다 확인한 뒤 다음으로 넘어가세요.'}</span>
+          </div>
+          <div className="ctl-grid">
+            {ORDER[m].map(([svc, hint], i) => bySvc.get(svc) && <ServiceCard key={svc} s={bySvc.get(svc)} edit={edit} onAct={act} step={i + 1} hint={hint} mode={m} />)}
+          </div>
+        </>
+      })()}
     </div>
   )
 }
 
-function ServiceCard({ s, edit, onAct }) {
+function ServiceCard({ s, edit, onAct, step, hint, mode }) {
   const info = INFO[s.service] || {}
   const [reason, setReason] = useState('')
   const [auto, setAuto] = useState(s.service === 'alarm' ? 30 : 0)
@@ -61,9 +99,11 @@ function ServiceCard({ s, edit, onAct }) {
   return (
     <section className={'ctl-card' + (s.on ? '' : ' off') + (info.danger ? ' danger' : '')}>
       <header>
+        {step && <span className={'ctl-step' + ((mode === 'stop' ? !s.on : s.on) ? ' done' : '')} title={mode === 'stop' ? '끄는 순서' : '켜는 순서'}>{step}</span>}
         <b>{s.label}</b>
         <span className={'tag small ' + (s.on ? 'ok' : 'warn')}>{s.on ? '동작 중' : s.service === 'alarm' ? '억제 중' : '멈춤'}</span>
       </header>
+      {hint && <p className="ctl-hint small">{mode === 'stop' ? '끌 때' : '켤 때'}: {hint}</p>}
       {s.on ? (
         <>
           <p className="muted small">{info.stop}</p>

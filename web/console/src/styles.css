@@ -1007,3 +1007,8 @@ html.alarm-muted .pat.urgent:not(.sev-critical) .pat-beacon { animation: none; f
 html.alarm-muted .card.sev-high, html.alarm-muted .card.sev-medium { animation: none; }
 html.alarm-muted-all .pat-beacon, html.alarm-muted-all .card.sev-critical { animation: none !important; }
 html.alarm-muted-all .cs-tile.a-red .cs-head, html.alarm-muted-all .cs-tile.a-red .cn-st, html.alarm-muted-all .vm-alarm { animation: none !important; }
+
+.ctl-order { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 4px 0 10px; }
+.ctl-step { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--panel2); border: 1px solid var(--line); font-weight: 700; font-size: 13px; flex: none; }
+.ctl-step.done { background: var(--ok, #16a34a); border-color: var(--ok, #16a34a); color: #fff; }
+.ctl-hint { margin: 0; padding: 5px 8px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 8%, transparent); }
