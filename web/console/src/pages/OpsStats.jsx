@@ -113,7 +113,8 @@ export default function OpsStats() {
       <div className="ops-tiles ops-row">
         <Tile label="게이트웨이 연결" value={stats?.gateways ? `${fmtNum(stats.gateways.connected)} / ${fmtNum(stats.gateways.gateways)}` : '—'} sub={stats?.gateways ? `다운 ${stats.gateways.down || 0} · 무응답 ${stats.gateways.silent || 0} · 저하 ${stats.gateways.degraded || 0}` : ''} warn={!!(stats?.gateways?.down || stats?.gateways?.silent)} />
         <Tile label="환자 (패치)" value={fmtNum(Math.round(tot.patients_avg || 0))} sub={`최소 ${fmtNum(tot.patients_min || 0)} · 최대 ${fmtNum(tot.patients_max || 0)}`} />
-        <Tile label="수신 / 송신" value={`${fmtBytes(tot.rx || 0)} / ${fmtBytes(tot.tx || 0)}`} sub={`레코드 ${fmtNum(tot.records || 0)}`} />
+        <Tile label="수신" value={fmtBytes(tot.rx || 0)} sub={`레코드 ${fmtNum(tot.records || 0)}${spanH > 0 ? ` · ${fmtBytes((tot.rx || 0) / (spanH * 3600))}/s` : ''}`} />
+        <Tile label="송신 (WS·분석)" value={fmtBytes(tot.tx || 0)} sub={spanH > 0 ? `${fmtBytes((tot.tx || 0) / (spanH * 3600))}/s` : ''} />
         <Tile label="저장 증가" value={`${growth >= 0 ? '+' : ''}${growth.toFixed(1)} GB`} sub={spanH > 1 ? `${(growth / spanH * 24).toFixed(1)} GB/일` : ''} />
         <Tile label="유실 / 드롭" value={`${fmtNum(tot.lost || 0)} / ${fmtNum(tot.drops || 0)}`} sub={`WS 지연 ${fmtNum(tot.lag || 0)}`} warn={(tot.drops || 0) > 0} />
       </div>
