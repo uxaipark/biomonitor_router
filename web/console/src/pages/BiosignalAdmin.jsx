@@ -3,7 +3,7 @@ import { api, usePoll, fmtBytes } from '../api.js'
 import { can, useMe } from '../auth.js'
 
 /**
- * 설정 › 생체 데이터 관리: 파형 저장 단위, 무결성 봉인, 백업 대상과 정책.
+ * 관리 › 생체 데이터 관리: 파형 저장 단위, 무결성 봉인, 백업 대상과 정책.
  * 카드 순서 = 우선순위(끌어서 놓기 또는 ▲▼). 필요 사본 수만큼 위에서부터 검증 백업이 끝나야 로컬 파일을 지울 수 있다.
  */
 const KIND_LABEL = { nas: 'NAS (마운트 경로)', smb: 'SMB', ftp: 'FTP', ftps: 'FTPS', sftp: 'SFTP' }
@@ -284,7 +284,7 @@ function TargetModal({ target, onClose, onSaved }) {
 
 /** 백업 저장소별 목록: 대상 → 파일 단위(UTC 블록)별 요약 → 그 블록의 패치 파일 */
 function BackupCatalog({ targets }) {
-  const canPurge = can(useMe(), 'action.backup_purge', 2) // 권한 설정 › 설정 › 생체 데이터 관리 › 백업 파일 전체 삭제
+  const canPurge = can(useMe(), 'action.backup_purge', 2) // 권한 설정 › 관리 › 생체 데이터 관리 › 백업 파일 전체 삭제
   const [tid, setTid] = useState(targets[0]?.id)
   const id = targets.some((t) => t.id === tid) ? tid : targets[0]?.id
   const [cat, err, refresh] = usePoll(() => api.backup.catalog(id), 10000, [id])

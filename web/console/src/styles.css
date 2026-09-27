@@ -42,6 +42,8 @@ header nav .nav-menu.open .dd-caret { transform: rotate(180deg); }
 header nav .nav-sub { position: absolute; top: calc(100% + 4px); left: 0; z-index: 45; min-width: 180px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.35); padding: 5px; display: flex; flex-direction: column; gap: 1px; }
 header nav .nav-sub a { display: flex; justify-content: space-between; gap: 14px; white-space: nowrap; }
 header nav .nav-sub .hint { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+header nav .nav-sub .nav-sec { padding: 7px 10px 3px; font-size: 11px; font-weight: 600; letter-spacing: .04em; color: var(--muted); }
+header nav .nav-sub .nav-sec:not(:first-child) { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 8px; }
 /* 알람 수 배지: 폭 고정(세 자리 + '+') — 숫자가 바뀌어도 메뉴가 흔들리지 않게 */
 header nav .badge { display: inline-block; box-sizing: border-box; width: 36px; text-align: center; background: var(--crit); color: #fff; border-radius: 10px; font-size: 11px; line-height: 16px; padding: 0 2px; margin-left: 5px; font-variant-numeric: tabular-nums; vertical-align: 1px; }
 header nav .badge.empty { visibility: hidden; } /* 0건이어도 자리는 남겨 메뉴가 당겨지지 않게 */
@@ -455,7 +457,7 @@ button.danger:hover { background: var(--err); color: #fff; }
 .ops-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 .ops-legend b { color: var(--text); font-variant-numeric: tabular-nums; }
 
-/* 설정 › 생체 데이터 관리 (backup targets) */
+/* 관리 › 생체 데이터 관리 (backup targets) */
 .settings.bk section { max-width: 1100px; }
 .bk-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .bk-head h3 { margin: 0; }
@@ -489,7 +491,7 @@ button.danger:hover { background: var(--err); color: #fff; }
 .tbl td.mono { font-family: ui-monospace, monospace; font-size: 12px; }
 @media (max-width: 700px) { .bk-card { grid-template-columns: 1fr; } .bk-form { grid-template-columns: 1fr; } }
 
-/* 설정 › 네트워크 설정 */
+/* 관리 › 네트워크 설정 */
 .net-row { display: flex; gap: 8px; align-items: center; }
 .net-row input { flex: 1 1 auto; min-width: 0; font-family: ui-monospace, monospace; }
 .settings .ok { color: var(--ok); }
@@ -1012,3 +1014,24 @@ html.alarm-muted-all .cs-tile.a-red .cs-head, html.alarm-muted-all .cs-tile.a-re
 .ctl-step { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--panel2); border: 1px solid var(--line); font-weight: 700; font-size: 13px; flex: none; }
 .ctl-step.done { background: var(--ok, #16a34a); border-color: var(--ok, #16a34a); color: #fff; }
 .ctl-hint { margin: 0; padding: 5px 8px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 8%, transparent); }
+
+/* 서비스 상태 겸 스위치 */
+.ctl-switch { position: relative; display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px 0 4px; border-radius: 999px; border: 1px solid rgba(0,0,0,.18); cursor: pointer; font-weight: 700; font-size: 12.5px; white-space: nowrap; flex: none;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.28), inset 0 -1px 0 rgba(255,255,255,.25), 0 1px 0 rgba(255,255,255,.6); transition: background .15s, box-shadow .1s, transform .1s; }
+.ctl-switch .ctl-knob { width: 24px; height: 24px; border-radius: 50%; flex: none;
+  background: radial-gradient(circle at 35% 30%, #fff 0%, #f4f4f5 45%, #d4d4d8 100%);
+  box-shadow: 0 2px 4px rgba(0,0,0,.35), 0 1px 1px rgba(0,0,0,.25), inset 0 -2px 2px rgba(0,0,0,.12), inset 0 1px 1px #fff; transition: transform .15s, box-shadow .1s; }
+.ctl-switch .ctl-sw-text { text-shadow: 0 1px 1px rgba(0,0,0,.25); }
+.ctl-switch.on { background: linear-gradient(180deg, #15803d 0%, #22c55e 55%, #4ade80 100%); color: #fff; flex-direction: row-reverse; padding: 0 3px 0 12px; }
+.ctl-switch.off { background: linear-gradient(180deg, #fcd9a8 0%, #fde9c8 60%, #fff4e0 100%); color: #b45309; padding-left: 3px; }
+.ctl-switch.off .ctl-sw-text { text-shadow: 0 1px 0 rgba(255,255,255,.7); }
+.ctl-switch.off .ctl-knob { background: radial-gradient(circle at 35% 30%, #fde68a 0%, #f59e0b 50%, #b45309 100%); }
+.ctl-switch.on.pending { background: linear-gradient(180deg, #a16207 0%, #ca8a04 55%, #eab308 100%); }
+.ctl-switch:not(:disabled):hover .ctl-knob { box-shadow: 0 3px 6px rgba(0,0,0,.4), 0 1px 1px rgba(0,0,0,.25), inset 0 -2px 2px rgba(0,0,0,.12), inset 0 1px 1px #fff; }
+.ctl-switch:not(:disabled):active { transform: translateY(1px); }
+.ctl-switch:not(:disabled):active .ctl-knob { transform: scale(.94); box-shadow: 0 1px 2px rgba(0,0,0,.35), inset 0 -1px 2px rgba(0,0,0,.15); }
+:root[data-theme="dark"] .ctl-switch { border-color: rgba(0,0,0,.5); box-shadow: inset 0 2px 5px rgba(0,0,0,.55), 0 1px 0 rgba(255,255,255,.08); }
+:root[data-theme="dark"] .ctl-switch.off { background: linear-gradient(180deg, #3b2506 0%, #4a2f08 60%, #5a3a0c 100%); color: #fbbf24; }
+:root[data-theme="dark"] .ctl-switch.off .ctl-sw-text { text-shadow: 0 1px 1px rgba(0,0,0,.6); }
+.ctl-switch:disabled { cursor: default; opacity: .8; }
+.ctl-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

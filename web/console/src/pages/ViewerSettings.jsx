@@ -6,7 +6,7 @@ const DESC = {
   speed: '안티앨리어싱 선분을 이어 그리는 종전 방식. 전체 다시 그리기에서 샘플을 솎아 내고, 프레임 경계에서 선분이 겹쳐 두께가 고르지 않을 수 있습니다.',
 }
 
-/** 설정 › 뷰어 설정. Stored in the browser (localStorage) and shared with viewer tabs of the same origin. */
+/** 관리 › 뷰어 설정. Stored in the browser (localStorage) and shared with viewer tabs of the same origin. */
 export default function ViewerSettings() {
   const mode = useRenderMode()
   return (

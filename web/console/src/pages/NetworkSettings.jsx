@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { api, usePoll } from '../api.js'
 
 /**
- * 설정 › 네트워크 설정: 라우터가 접속하는 상대 주소(에뮬레이터·분석 서버·DB API)를 브라우저에서 지정한다.
+ * 관리 › 네트워크 설정: 라우터가 접속하는 상대 주소(에뮬레이터·분석 서버·DB API)를 브라우저에서 지정한다.
  * 저장하면 router.db 에 남고 재시작 없이 반영된다. 비우고 저장하면 환경변수 값으로 돌아간다.
  */
 const FIELDS = [

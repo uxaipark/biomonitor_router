@@ -5,7 +5,7 @@ import { wardText } from '../model.js'
 import Dropdown from '../Dropdown.jsx'
 
 /**
- * 설정 › EMR 연동 — 라우터가 받은 생체 수치를 병원 EMR 에 간호 바이탈로 보낸다.
+ * 관리 › EMR 연동 — 라우터가 받은 생체 수치를 병원 EMR 에 간호 바이탈로 보낸다.
  * 연결 하나 = 이 라우터 병원 × 외부 EMR 한 곳(FHIR R4/STU3 · HL7 v2 MLLP). 인증·재원 명단·환자 매칭·전송·재시도는 라우터가 한다.
  * 시험용: 에뮬레이터의 가상 EMR 20곳 카탈로그에서 골라 붙인다(환자가 서로 달라 '시험용 짝짓기'로 매칭).
  */

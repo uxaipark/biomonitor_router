@@ -1,4 +1,4 @@
-//! 설정 › EMR 연동 REST — `/api/integration/*` (권한 `page.integration`, 이 라우터 병원만)
+//! 관리 › EMR 연동 REST — `/api/integration/*` (권한 `page.integration`, 이 라우터 병원만)
 
 use crate::auth::{mask_json, Principal};
 use crate::emr_link::{from_catalog, ConnCfg};
@@ -77,7 +77,7 @@ async fn list(State(state): State<Arc<AppState>>, Extension(p): Extension<Princi
 }
 
 async fn emrsim_catalog(state: &AppState) -> Result<Value, String> {
-    let addr = state.net.emulator().ok_or("에뮬레이터 주소가 없습니다 (설정 › 네트워크 설정)")?;
+    let addr = state.net.emulator().ok_or("에뮬레이터 주소가 없습니다 (관리 › 네트워크 설정)")?;
     let (code, body) = crate::emu_link::request(&addr, "GET", "/api/v1/emrsim", None).await.map_err(|e| e.to_string())?;
     if code != 200 {
         return Err(format!("가상 EMR 카탈로그 HTTP {code}"));

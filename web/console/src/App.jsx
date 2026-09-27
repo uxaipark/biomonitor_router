@@ -41,15 +41,16 @@ const PAGES = [
   ['#/live', '실시간', Live, '테스트', 'page.test'],
   ['#/test/multiviewer', '멀티 뷰어 테스트', MultiViewerTest, '테스트', 'page.test'],
   ['#/test/data', '데이터 관리', DataAdmin, '테스트', 'page.data_admin'],
-  ['#/settings/viewer', '뷰어 설정', ViewerSettings, '설정', 'page.settings_viewer'],
-  ['#/settings/biosignal', '생체 데이터 관리', BiosignalAdmin, '설정', 'page.settings_biosignal'],
-  ['#/settings/network', '네트워크 설정', NetworkSettings, '설정', 'page.settings_network'],
-  ['#/settings/integration', 'EMR 연동', Integration, '설정', 'page.integration'],
-  ['#/admin/users', '계정', AdminUsers, '관리', 'page.admin_users'],
-  ['#/admin/permissions', '권한 설정', AdminPermissions, '관리', 'page.admin_permissions'],
-  ['#/admin/tenants', '병원 (테넌트)', AdminTenants, '관리', 'page.admin_tenants'],
-  ['#/admin/audit', '감사 기록', AdminAudit, '관리', 'page.admin_audit'],
-  ['#/admin/control', '서비스 제어', AdminControl, '관리', 'page.service_control'],
+  // 관리: 운영(서비스·데이터·연동) 먼저, 그 아래 계정·보안 — 6번째 값은 드롭다운 안의 소제목
+  ['#/settings/network', '네트워크 설정', NetworkSettings, '관리', 'page.settings_network', '운영'],
+  ['#/admin/control', '서비스 제어', AdminControl, '관리', 'page.service_control', '운영'],
+  ['#/settings/biosignal', '생체 데이터 관리', BiosignalAdmin, '관리', 'page.settings_biosignal', '운영'],
+  ['#/settings/integration', 'EMR 연동', Integration, '관리', 'page.integration', '운영'],
+  ['#/settings/viewer', '뷰어 설정', ViewerSettings, '관리', 'page.settings_viewer', '운영'],
+  ['#/admin/users', '계정', AdminUsers, '관리', 'page.admin_users', '계정·보안'],
+  ['#/admin/permissions', '권한 설정', AdminPermissions, '관리', 'page.admin_permissions', '계정·보안'],
+  ['#/admin/tenants', '병원 (테넌트)', AdminTenants, '관리', 'page.admin_tenants', '계정·보안'],
+  ['#/admin/audit', '감사 기록', AdminAudit, '관리', 'page.admin_audit', '계정·보안'],
 ]
 const MENUS = [...new Set(PAGES.map((p) => p[3]).filter(Boolean))]
 
@@ -68,7 +69,12 @@ function NavMenu({ label, items, base, hints }) {
   return (
     <span ref={ref} className={'nav-menu' + (open ? ' open' : '')}>
       <a href="#" className={active ? 'active' : ''} onClick={(e) => { e.preventDefault(); setOpen(!open) }} aria-haspopup="menu" aria-expanded={open}>{label} <i className="dd-caret" /></a>
-      {open && <div className="nav-sub" role="menu">{items.map(([h, l]) => <a key={h} href={h} role="menuitem" className={base === h ? 'active' : ''} onClick={() => setOpen(false)}>{l}{hints?.[h] != null && <span className="hint">{hints[h]}</span>}</a>)}</div>}
+      {open && <div className="nav-sub" role="menu">{items.map(([h, l, , , , sec], i) => (
+        <React.Fragment key={h}>
+          {sec && sec !== items[i - 1]?.[5] && <div className="nav-sec" role="presentation">{sec}</div>}
+          <a href={h} role="menuitem" className={base === h ? 'active' : ''} onClick={() => setOpen(false)}>{l}{hints?.[h] != null && <span className="hint">{hints[h]}</span>}</a>
+        </React.Fragment>
+      ))}</div>}
     </span>
   )
 }

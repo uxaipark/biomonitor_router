@@ -193,7 +193,7 @@ async fn emr_get(state: &Arc<AppState>, path: &str, ttl_ms: u64) -> axum::respon
     let Some(addr) = state.net.emulator() else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            "에뮬레이터 주소가 설정되지 않았습니다 — 설정 › 네트워크 설정에서 지정하거나 ROUTER_EMULATOR_ADDR 로 실행하세요",
+            "에뮬레이터 주소가 설정되지 않았습니다 — 관리 › 네트워크 설정에서 지정하거나 ROUTER_EMULATOR_ADDR 로 실행하세요",
         )
             .into_response();
     };
@@ -1040,7 +1040,7 @@ async fn delete_group(
     StatusCode::OK.into_response()
 }
 
-// ---------------------------------------------------------------- 파형 백업 (설정 › 생체 데이터 관리)
+// ---------------------------------------------------------------- 파형 백업 (관리 › 생체 데이터 관리)
 
 fn bk_result(r: Result<serde_json::Value, String>) -> axum::response::Response {
     match r {
@@ -1165,7 +1165,7 @@ async fn backup_scan(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     Json(serde_json::json!({ "ok": true }))
 }
 
-// ---------------------------------------------------------------- 네트워크 설정 (설정 › 네트워크 설정)
+// ---------------------------------------------------------------- 네트워크 설정 (관리 › 네트워크 설정)
 
 async fn net_get(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let mut v = state.net.view();

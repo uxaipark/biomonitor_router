@@ -91,42 +91,52 @@ function ServiceCard({ s, edit, onAct, step, hint, mode }) {
   const [reason, setReason] = useState('')
   const [auto, setAuto] = useState(s.service === 'alarm' ? 30 : 0)
   const [keepCrit, setKeepCrit] = useState(true)
+  const [open, setOpen] = useState(false) // 켜진 스위치를 누르면 멈춤 입력이 펼쳐진다
   const stop = () => {
     if (!reason.trim()) { window.alert('멈추는 사유를 적어 주세요'); return }
     if (info.danger && !window.confirm(`${s.label}을(를) 멈춥니다.\n\n${info.stop}\n\n계속할까요?`)) return
+    setOpen(false)
     onAct(s.service, { on: false, reason, minutes: auto || undefined, keep_critical: keepCrit })
   }
+  const flip = () => {
+    if (!edit) return
+    if (s.on) { setOpen(!open); return }
+    if (window.confirm(`${s.label}을(를) ${s.service === 'alarm' ? '다시 알리게' : '다시 켜게'} 합니다. 계속할까요?`)) onAct(s.service, { on: true })
+  }
+  const stateText = s.on ? '동작 중' : s.service === 'alarm' ? '억제 중' : '멈춤'
   return (
     <section className={'ctl-card' + (s.on ? '' : ' off') + (info.danger ? ' danger' : '')}>
       <header>
         {step && <span className={'ctl-step' + ((mode === 'stop' ? !s.on : s.on) ? ' done' : '')} title={mode === 'stop' ? '끄는 순서' : '켜는 순서'}>{step}</span>}
         <b>{s.label}</b>
-        <span className={'tag small ' + (s.on ? 'ok' : 'warn')}>{s.on ? '동작 중' : s.service === 'alarm' ? '억제 중' : '멈춤'}</span>
+        {/* 상태 표시 겸 스위치: 켜짐 → 누르면 멈춤 입력 펼침, 멈춤 → 누르면 확인 후 다시 켬 */}
+        <button role="switch" aria-checked={s.on} className={'ctl-switch' + (s.on ? ' on' : ' off') + (open ? ' pending' : '')} onClick={flip} disabled={!edit}
+          title={!edit ? '권한이 없어 바꿀 수 없습니다' : s.on ? (open ? '멈춤 입력 닫기' : '멈추기 — 사유를 적습니다') : '다시 켜기'}>
+          <span className="ctl-knob" /><span className="ctl-sw-text">{stateText}</span>
+        </button>
       </header>
       {hint && <p className="ctl-hint small">{mode === 'stop' ? '끌 때' : '켤 때'}: {hint}</p>}
       {s.on ? (
         <>
           <p className="muted small">{info.stop}</p>
-          {edit && (
+          {edit && open && (
             <div className="ctl-form">
-              <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="사유 (필수) — 예: 게이트웨이 교체 작업" />
+              <input autoFocus value={reason} onChange={(e) => setReason(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && stop()} placeholder="사유 (필수) — 예: 게이트웨이 교체 작업" />
               <select value={auto} onChange={(e) => setAuto(Number(e.target.value))}>
                 {(s.service === 'alarm' ? MUTE : AUTO).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
               {s.service === 'alarm' && <label className="chk"><input type="checkbox" checked={keepCrit} onChange={(e) => setKeepCrit(e.target.checked)} /> 위험 등급은 계속 알림</label>}
-              <button className={info.danger ? 'danger' : ''} onClick={stop}>{s.service === 'alarm' ? '알림 억제' : '멈추기'}</button>
+              <button className={info.danger ? 'danger' : 'primary'} onClick={stop}>{s.service === 'alarm' ? '알림 억제' : '멈추기'}</button>
+              <button onClick={() => setOpen(false)}>취소</button>
             </div>
           )}
         </>
       ) : (
-        <>
-          <dl className="ctl-kv">
-            <dt>사유</dt><dd>{s.reason || '—'}{s.maintenance ? ' (유지보수 모드)' : ''}</dd>
-            <dt>누가 · 언제</dt><dd>{s.by || '—'} · {fmt(s.at_ms)}</dd>
-            <dt>{s.service === 'alarm' ? '남은 시간' : '자동 재개'}</dt><dd>{s.until_ms ? `${left(s.until_ms)} 뒤 (${fmt(s.until_ms)})` : '수동으로 켤 때까지'}</dd>
-          </dl>
-          {edit && <button className="primary" onClick={() => onAct(s.service, { on: true })}>{s.service === 'alarm' ? '억제 끝내기' : '다시 켜기'}</button>}
-        </>
+        <dl className="ctl-kv">
+          <dt>사유</dt><dd>{s.reason || '—'}{s.maintenance ? ' (유지보수 모드)' : ''}</dd>
+          <dt>누가 · 언제</dt><dd>{s.by || '—'} · {fmt(s.at_ms)}</dd>
+          <dt>{s.service === 'alarm' ? '남은 시간' : '자동 재개'}</dt><dd>{s.until_ms ? `${left(s.until_ms)} 뒤 (${fmt(s.until_ms)})` : '수동으로 켤 때까지'}</dd>
+        </dl>
       )}
     </section>
   )

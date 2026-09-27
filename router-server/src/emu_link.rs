@@ -59,7 +59,7 @@ pub async fn run_reporter(state: Arc<AppState>, every: u64) {
     let mut tick = tokio::time::interval(Duration::from_secs(every.max(1)));
     loop {
         tick.tick().await;
-        // 주소는 매 주기 다시 읽는다 — 콘솔(설정 › 네트워크 설정)에서 바꾸면 재시작 없이 붙는다
+        // 주소는 매 주기 다시 읽는다 — 콘솔(관리 › 네트워크 설정)에서 바꾸면 재시작 없이 붙는다
         let Some(addr) = state.net.emulator() else { continue };
         let body = state.status_report().to_string();
         match request(&addr, "POST", "/api/v1/router/status", Some(&body)).await {
