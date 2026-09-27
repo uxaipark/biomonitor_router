@@ -176,7 +176,7 @@ function PolicyCard({ policy, nTargets, onSaved, capEnvGb, diskTotal }) {
   return (
     <section>
       <h3>저장 · 백업 정책</h3>
-      <div className="bk-form">
+      <div className="bk-form bk-policy">
         <label>파일 저장 단위</label>
         <div><Seg value={p.block_hours ?? 2} options={[1, 2, 3, 4, 6, 8, 12, 24].map((h) => [h, `${h}시간`])} onChange={(v) => set('block_hours', v)} />
           <div className="muted">
