@@ -557,7 +557,20 @@ pub fn info(m: &Metrics, db_path: &str) -> serde_json::Value {
     let g = |sql: &str| db.query_row(sql, [], |r| r.get::<_, Option<i64>>(0)).ok().flatten().unwrap_or(0);
     let bytes = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(0)
         + std::fs::metadata(format!("{db_path}-wal")).map(|m| m.len()).unwrap_or(0);
+    // 구간별 채움 비율: 그 구간을 로그가 가득 채웠는지 (화면의 '자동' 구간 선택 기준 — 다 못 채운 구간은 고르지 않는다)
+    let now = now_s();
+    let min_since = |secs: i64| g(&format!("SELECT COUNT(*) FROM metrics_min WHERE ts >= {}", now - secs)) as f64 / (secs / 60) as f64;
+    let hour_since = |secs: i64| g(&format!("SELECT COUNT(*) FROM metrics_hour WHERE ts >= {} AND samples > 0", now - secs)) as f64 / (secs / 3600) as f64;
+    let recent = RECENT.lock().unwrap().len() as f64 / RECENT_CAP as f64;
+    let fill = serde_json::json!({
+        "5min": recent.min(1.0),
+        "hour": min_since(3600).min(1.0),
+        "day": min_since(86_400).min(1.0),
+        "week": hour_since(7 * 86_400).min(1.0),
+        "month": hour_since(30 * 86_400).min(1.0),
+    });
     serde_json::json!({
+        "fill": fill,
         "first_ts": g("SELECT MIN(ts) FROM metrics_hour"),
         "first_min_ts": g("SELECT MIN(ts) FROM metrics_min"),
         "minute_rows": g("SELECT COUNT(*) FROM metrics_min"),

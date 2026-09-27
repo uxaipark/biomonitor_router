@@ -67,10 +67,12 @@ export default function OpsStats() {
   // 구간 선택: '자동' 이면 수집된 데이터 양으로 정한다 — 1시간 미만 5분, 1시간 이상 1시간, 1일 이상 1일, 1주 이상 1주, 1개월 이상이면 1개월에서 멈춤 (사용자 결정)
   const [sel, setSel] = useState(() => { try { return localStorage.getItem('ops.range') || 'auto' } catch { return 'auto' } })
   // 5분 구간은 2 s 샘플이라 5 s 마다, 나머지는 30 s 마다 새로 읽는다
-  const [info, , refreshInfo] = usePoll(api.metricsInfo, 60000)
+  const [info, , refreshInfo] = usePoll(api.metricsInfo, 30000)
+  // 자동: 쌓인 로그가 그 구간을 가득 채운(≥ 98 %) 것 중 가장 긴 구간. 1개월에서 멈춤. 아무것도 못 채우면 5분.
   const autoRange = useMemo(() => {
-    const span = info?.first_ts ? Date.now() / 1000 - info.first_ts : 0
-    return span >= 30 * 86400 ? 'month' : span >= 7 * 86400 ? 'week' : span >= 86400 ? 'day' : span >= 3600 ? 'hour' : '5min'
+    const f = info?.fill || {}
+    const full = (k) => (f[k] ?? 0) >= 0.98
+    return full('month') ? 'month' : full('week') ? 'week' : full('day') ? 'day' : full('hour') ? 'hour' : '5min'
   }, [info])
   const range = sel === 'auto' ? autoRange : sel
   // 5분 구간은 2초 샘플이라 2초마다 다시 그린다 (사용자 요청); 나머지는 30초
@@ -128,7 +130,7 @@ export default function OpsStats() {
       {/* 구간 선택·수집 정보·초기화: 수치 카드와 그래프 사이 (사용자 요청) */}
       <div className="toolbar ops-range">
         <span className="seg">
-          <button className={sel === 'auto' ? 'active' : ''} onClick={() => setR('auto')} title="수집된 데이터 양에 맞춰 구간을 고릅니다 (1시간 미만 5분 → 1시간 → 1일 → 1주 → 1개월에서 멈춤)">자동{sel === 'auto' ? ` · ${(RANGES.find(([k]) => k === range) || [])[1] || range}` : ''}</button>
+          <button className={sel === 'auto' ? 'active' : ''} onClick={() => setR('auto')} title={`쌓인 로그가 가득 채운 구간 중 가장 긴 것을 고릅니다 (1개월에서 멈춤). 채움: ${['hour', 'day', 'week', 'month'].map((k) => `${(RANGES.find(([r]) => r === k) || [])[1]} ${Math.round((info?.fill?.[k] || 0) * 100)}%`).join(' · ')}`}>자동{sel === 'auto' ? ` · ${(RANGES.find(([k]) => k === range) || [])[1] || range}` : ''}</button>
           {RANGES.map(([k, l]) => <button key={k} className={sel === k ? 'active' : ''} onClick={() => setR(k)}>{l}</button>)}
         </span>
         <span className="muted">
