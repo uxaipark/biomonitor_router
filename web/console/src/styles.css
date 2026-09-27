@@ -442,7 +442,7 @@ button.danger:hover { background: var(--err); color: #fff; }
 
 /* ops statistics page */
 .ops-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin-bottom: 14px; }
-.ops-tiles.ops-row { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 10px; }
+.ops-tiles.ops-row { grid-template-columns: repeat(8, minmax(0, 1fr)); margin-bottom: 10px; } /* 카드 폭 = 페이지 폭의 1/8 (사용자 요청) */
 @media (max-width: 1100px) { .ops-tiles.ops-row { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); } }
 .ops-row-label { font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: .02em; margin: 2px 0 6px; }
 .ops-tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 1px; }
