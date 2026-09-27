@@ -36,7 +36,15 @@ const FLUSH_EVERY: Duration = Duration::from_secs(5);
 /// On-disk index.json is only for restart recovery (the API reads LIVE_INDEX): every 10 min per patch, ≤ 10 per
 /// flush — a write+rename pair costs 20–40 ms on the SD card, so 100 per flush stalled the writer for seconds.
 const INDEX_EVERY: Duration = Duration::from_secs(600);
+/// 플러시당 최소 인덱스 쓰기 수. 실제 예산은 패치 수에 비례(패치 수 ÷ (INDEX_EVERY/FLUSH_EVERY) + 1)해서, 2,050 패치면 약 18 —
+/// 고정 10 이면 시간당 7,200회로 요구량(2,050 × 6 = 12,300회)에 못 미쳐 해시맵 뒤쪽 항목이 영영 차례를 못 받았다(2026-09-28).
 const INDEX_PER_FLUSH: usize = 10;
+/// 은퇴(15분 침묵) 패치의 버퍼를 지우기 전 인덱스는 예산과 무관하게 바로 쓴다.
+const RETIRE_AFTER: Duration = Duration::from_secs(900);
+/// 봉인 스레드 페이싱: 2시간 단위가 끝나면 2,000여 파일이 한꺼번에 닫혀 1분간 한 코어를 다 쓰던 것을, 초당 파일 수 제한 +
+/// 낮은 우선순위(nice)로 몇 분에 걸쳐 펼친다. 봉인 뒤에 백업이 시작되므로 그만큼 늦어질 뿐 결과는 같다.
+const SEAL_MAX_PER_SEC: u64 = 20;
+const SEAL_NICE: i32 = 10;
 
 /// Total bytes on disk (rec + rec.gz), maintained incrementally and rescanned every 10 minutes.
 pub static STORE_BYTES: AtomicU64 = AtomicU64::new(0);
@@ -898,9 +906,10 @@ impl PatchStore {
         for op in self.rollover.drain(..) {
             let _ = self.write_tx.send(op);
         }
-        let mut index_writes = 0usize;
         let mut gone: Vec<u32> = Vec::new();
         let mut buffered = 0u64;
+        // 인덱스 쓰기 후보: 더러워졌고 마지막 저장 뒤 INDEX_EVERY 가 지난 것 — 가장 오래된 것부터, 예산은 패치 수에 비례
+        let mut due: Vec<(Instant, u32)> = Vec::new();
         for (pid, pb) in self.patches.iter_mut() {
             if !pb.buf.is_empty() {
                 let bytes = std::mem::replace(&mut pb.buf, Vec::with_capacity(8192));
@@ -911,22 +920,37 @@ impl PatchStore {
             if pb.index_dirty {
                 LIVE_INDEX.insert(*pid, pb.index.clone());
             }
-            if pb.index_dirty && (force || (index_writes < INDEX_PER_FLUSH && now.duration_since(pb.index_written) >= INDEX_EVERY)) {
+            // a patch silent for 15 min (discharged / replaced) drops its buffer (its index is written first, below)
+            if pb.buf.is_empty() && now.duration_since(pb.last_used) > RETIRE_AFTER {
+                gone.push(*pid);
+            } else if pb.index_dirty && (force || now.duration_since(pb.index_written) >= INDEX_EVERY) {
+                due.push((pb.index_written, *pid));
+            }
+        }
+        let budget = if force { usize::MAX } else { INDEX_PER_FLUSH.max(self.patches.len() / (INDEX_EVERY.as_secs() / FLUSH_EVERY.as_secs()) as usize + 1) };
+        if due.len() > budget {
+            due.sort_by_key(|(written, _)| *written); // 가장 오래 기다린 것부터 — 굶는 항목이 없게
+            due.truncate(budget);
+        }
+        for (_, pid) in due {
+            if let Some(pb) = self.patches.get_mut(&pid) {
                 if let Ok(json) = serde_json::to_string(&pb.index) {
-                    index_writes += 1;
                     STORE_WRITER_BACKLOG.fetch_add(1, Ordering::Relaxed);
-                    let _ = self.write_tx.send(WriteOp::Index { pid: *pid, json });
+                    let _ = self.write_tx.send(WriteOp::Index { pid, json });
                     pb.index_dirty = false;
                     pb.index_written = now;
                 }
             }
-            // a patch silent for 15 min (discharged / replaced) drops its buffer; its last hour file gets compressed
-            if pb.buf.is_empty() && !pb.index_dirty && now.duration_since(pb.last_used) > Duration::from_secs(900) {
-                gone.push(*pid);
-            }
         }
         for pid in gone {
             if let Some(pb) = self.patches.remove(&pid) {
+                // 은퇴: 인덱스를 예산과 무관하게 마지막으로 쓰고, 열린 파일을 닫는다(봉인 → 백업)
+                if pb.index_dirty {
+                    if let Ok(json) = serde_json::to_string(&pb.index) {
+                        STORE_WRITER_BACKLOG.fetch_add(1, Ordering::Relaxed);
+                        let _ = self.write_tx.send(WriteOp::Index { pid, json });
+                    }
+                }
                 let _ = self.write_tx.send(WriteOp::Close { pid, hour: pb.hour });
             }
             LIVE_INDEX.remove(&pid);
@@ -1063,7 +1087,21 @@ impl PatchStore {
 
 /// Sealer: every closed block file gets its integrity check ([gzip] + CRC-32/SHA-256 seal), one at a time.
 fn gzip_worker(rx: std::sync::mpsc::Receiver<PathBuf>, level: u32) {
+    // 이 스레드만 nice 를 낮춘다 (Linux 는 스레드 단위 우선순위): 정각 봉인 버스트가 수신·저장 스레드와 코어를 다투지 않게
+    #[cfg(target_os = "linux")]
+    unsafe {
+        let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
+        libc::setpriority(libc::PRIO_PROCESS, tid, SEAL_NICE);
+    }
+    let min_gap = Duration::from_millis(1000 / SEAL_MAX_PER_SEC);
+    let mut last = Instant::now() - min_gap;
     while let Ok(path) = rx.recv() {
+        // 페이싱: 파일 사이 최소 간격 (초당 SEAL_MAX_PER_SEC 개) — 2,050 파일이면 약 100 s 에 걸쳐 봉인
+        let since = last.elapsed();
+        if since < min_gap {
+            std::thread::sleep(min_gap - since);
+        }
+        last = Instant::now();
         // the writer hands over `<key>.rec`; a previous run may have left it gzipped already
         let path = if path.exists() {
             path
