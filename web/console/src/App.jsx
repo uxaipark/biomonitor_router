@@ -22,7 +22,6 @@ import MultiViewerTest from './pages/MultiViewerTest.jsx'
 import ViewerSettings from './pages/ViewerSettings.jsx'
 import BiosignalAdmin from './pages/BiosignalAdmin.jsx'
 import NetworkSettings from './pages/NetworkSettings.jsx'
-import DataAdmin from './pages/DataAdmin.jsx'
 import OpsStats from './pages/OpsStats.jsx'
 import AdminSecurity from './pages/AdminSecurity.jsx'
 import { LiveModal } from './pages/LiveModal.jsx'
@@ -41,7 +40,6 @@ const PAGES = [
   // entries with a 4th element hang under that top-menu group (rendered as a custom nav menu)
   ['#/live', '실시간', Live, '테스트', 'page.test'],
   ['#/test/multiviewer', '멀티 뷰어 테스트', MultiViewerTest, '테스트', 'page.test'],
-  ['#/test/data', '데이터 관리', DataAdmin, '테스트', 'page.data_admin'],
   // 운영관리: 운영(네트워크·데이터·서비스·연동) 먼저, 그 아래 계정·보안 — 6번째 값은 드롭다운 안의 소제목
   ['#/settings/network', '네트워크 설정', NetworkSettings, '운영관리', 'page.settings_network', '운영'],
   ['#/settings/biosignal', '데이터 관리', BiosignalAdmin, '운영관리', 'page.settings_biosignal', '운영'],

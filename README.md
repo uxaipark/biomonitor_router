@@ -87,7 +87,7 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 ### 전송 지연 (travel time, 2026-09-28)
 
 시계가 세 장비(에뮬레이터·라우터·뷰어) 모두 NTP 로 맞춰져 있다는 전제로 **보정 없이 차이만** 본다.
-* 에뮬레이터→라우터: 프레임 헤더 `ts_ms` 대비 수신 시각(`src/latency.rs`, 8프레임에 1개 표본, 재전송·keepalive 제외) → `/api/stats.latency` {p50,p95,avg,min,max,n}, 대시보드 '전송 지연' 타일.
+* 에뮬레이터→라우터: 프레임 헤더 `ts_ms` 대비 수신 시각(`src/latency.rs`, 8프레임에 1개 표본, 재전송·keepalive 제외) → `/api/stats.latency` {p50,p95,avg,min,max,n}. 대시보드 '전송 지연' 타일은 이 브라우저 기준 **종단 간**(패치 하나를 측정용으로 구독)을 크게, 라우터 전체 p50/p95 를 부제에.
 * 라우터→뷰어: WS `stream_batch` 헤더의 `sent_ms`(라우터 송신 시각) 대비 브라우저 수신 시각. 뷰어(중앙 모니터·침상) 시계 아래 작게 **LATENCY : ??ms**(종단 간 = 수신 − ts_ms, 최근 40배치 중앙값), 툴팁에 구간별.
 * `/api/time` {now_ms} — 브라우저가 자기 시계와의 차이를 볼 때.
 

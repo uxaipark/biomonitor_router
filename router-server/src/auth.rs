@@ -59,7 +59,7 @@ pub fn is_platform(code: &str) -> bool {
 }
 
 /// (코드, 이름, 묶음, 기본값 [SA, SYS, RES, CRM, IT, DOC, NUR, STF])
-pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 28] = [
+pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 27] = [
     // 톱 메뉴 순서대로: 대시보드(첫 화면, 운영 통계) → 이벤트보드 → …
     ("page.ops", "대시보드 (운영 통계 · 첫 화면)", "메뉴", [2, 2, 1, 0, 1, 0, 0, 0]),
     ("page.dashboard", "이벤트보드", "메뉴", [2, 1, 1, 0, 1, 1, 1, 1]),
@@ -70,7 +70,6 @@ pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 28] = [
     ("page.map", "병원 지도", "메뉴", [2, 1, 0, 0, 1, 1, 1, 1]),
     ("page.viewers", "뷰어", "메뉴", [2, 1, 0, 0, 1, 2, 2, 1]),
     ("page.test", "테스트 › 실시간·멀티 뷰어", "메뉴", [2, 2, 0, 0, 1, 0, 0, 0]),
-    ("page.data_admin", "테스트 › 데이터 관리", "메뉴", [2, 1, 0, 0, 0, 0, 0, 0]),
     ("page.settings_viewer", "운영관리 › 뷰어 설정", "메뉴", [2, 2, 0, 0, 2, 1, 1, 1]),
     ("page.settings_biosignal", "운영관리 › 데이터 관리(저장·백업)", "메뉴", [2, 2, 0, 0, 2, 0, 0, 0]),
     ("page.settings_network", "운영관리 › 네트워크 설정", "메뉴", [2, 2, 0, 0, 2, 0, 0, 0]),
@@ -1492,7 +1491,7 @@ fn requirement(path: &str, method: &axum::http::Method) -> Option<(Vec<&'static 
         return r(&["page.integration"], lv);
     }
     if p == "/api/stats" || p == "/api/gateways/summary" {
-        return r(&["page.dashboard", "page.gateways", "page.ops", "page.data_admin", "page.test"], 1);
+        return r(&["page.dashboard", "page.gateways", "page.ops", "page.test"], 1);
     }
     if p.starts_with("/api/stats/") || p == "/api/channels/prune" || p.starts_with("/api/metrics/reset") {
         return r(&["page.ops"], 2);

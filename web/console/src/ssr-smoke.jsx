@@ -60,8 +60,6 @@ const BioPage = (await import('./pages/BiosignalAdmin.jsx')).default
 check('BiosignalAdmin', <BioPage />)
 const NetPage = (await import('./pages/NetworkSettings.jsx')).default
 check('NetworkSettings', <NetPage />)
-const DataAdminPage = (await import('./pages/DataAdmin.jsx')).default
-check('DataAdmin', <DataAdminPage />)
 const OpsPage = (await import('./pages/OpsStats.jsx')).default
 check('OpsStats', <OpsPage />)
 check('MultiViewerTest', <MultiViewerTest.default />)

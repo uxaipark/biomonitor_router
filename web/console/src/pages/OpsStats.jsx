@@ -97,7 +97,7 @@ export default function OpsStats() {
   return (
     <div className="page">
       <div className="toolbar">
-        <h2 className="h" style={{ margin: 0 }}>대시보드 <small className="muted">운영 통계</small></h2>
+        <h2 className="h" style={{ margin: 0 }}>대시보드 <small className="muted" style={{ marginLeft: 12, fontWeight: 400 }}>운영 통계</small></h2>
         <span className="seg">{RANGES.map(([k, l]) => <button key={k} className={range === k ? 'active' : ''} onClick={() => setR(k)}>{l}</button>)}</span>
         <span className="muted">
           {info?.first_ts ? `수집 시작 ${new Date(info.first_ts * 1000).toLocaleString('ko-KR')}` : '수집 시작 —'}
@@ -110,7 +110,7 @@ export default function OpsStats() {
       <div className="ops-tiles">
         <Tile label="현재 가동 시간" value={fmtDur(stats?.uptime_s)} sub={`재시작 ${inc.restart || 0}회 (이 구간)`} />
         <Tile label="수집 커버리지" value={`${(cov.percent || 0).toFixed(1)}%`} sub={range === '5min' ? `${fmtNum(cov.sampled_samples || 0)} / ${fmtNum(cov.expected_samples || 0)} 샘플 (2초)` : `${fmtNum(cov.sampled_minutes || 0)} / ${fmtNum(cov.expected_minutes || 0)}분`} warn={(cov.percent || 0) < 99 && range !== 'hour' && range !== '5min'} />
-        <Tile label="라우터 CPU" value={`${(tot.cpu_avg || 0).toFixed(1)}%`} sub={`최대 ${(tot.cpu_max || 0).toFixed(0)}% · 1코어=100${tot.mhz_avg ? ` · 클럭 ${(tot.mhz_avg / 1000).toFixed(1)} GHz → ${((stats?.cpu_ref_mhz || 2000) / 1000)} GHz 환산 ${(tot.cpu_norm_avg || 0).toFixed(1)}%` : ''}`} warn={(tot.cpu_max || 0) > 150} />
+        <Tile label="라우터 CPU" value={`${(tot.cpu_avg || 0).toFixed(1)}%`} sub={`최대 ${(tot.cpu_max || 0).toFixed(0)}% · 1코어=100`} warn={(tot.cpu_max || 0) > 150} />
         <Tile label="라우터 메모리" value={fmtBytes(tot.mem_avg || 0)} sub={`최대 ${fmtBytes(tot.mem_max || 0)}`} />
         <Tile label="환자 (패치)" value={fmtNum(Math.round(tot.patients_avg || 0))} sub={`최소 ${fmtNum(tot.patients_min || 0)} · 최대 ${fmtNum(tot.patients_max || 0)}`} />
         <Tile label="수신 / 송신" value={`${fmtBytes(tot.rx || 0)} / ${fmtBytes(tot.tx || 0)}`} sub={`레코드 ${fmtNum(tot.records || 0)}`} />

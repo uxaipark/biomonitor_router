@@ -1,9 +1,10 @@
-import React, { useMemo, useRef } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api, usePoll, fmtBytes, fmtNum, fmtDur, fmtTime } from '../api.js'
 import { SEV_LABEL, roomText, spaceName } from '../model.js'
 import EventList from '../EventList.jsx'
 import { openLive } from '../App.jsx'
 import { can, useMe } from '../auth.js'
+import { claimLive, releaseLive, latencyNow } from '../ws.js'
 
 const Tile = ({ label, value, sub, cls }) => (
   <div className={'tile ' + (cls || '')}><div className="tile-label">{label}</div><div className="tile-value">{value}</div>{sub && <div className="tile-sub">{sub}</div>}</div>
@@ -16,8 +17,29 @@ const ANOM_LABEL = {
   patch_seq_dup: '패치 중복', patch_seq_reorder: '패치 역전(핸드오버)', patch_seq_restart: '패치 재시작', meta_bad_json: 'META JSON 오류', ctrl_rx: '제어 프레임 수신',
 }
 
+/**
+ * 전송 지연 — 이 브라우저 기준 종단 간(에뮬레이터→뷰어). 대시보드는 파형을 그리지 않으므로 지연 측정용으로 패치 하나만
+ * 구독한다(초당 5프레임 남짓). 페이지를 떠나면 구독을 놓는다.
+ */
+function useE2eLatency(enabled) {
+  const [l, setL] = useState(null)
+  useEffect(() => {
+    if (!enabled) return
+    let dead = false
+    api.channels().then((ch) => {
+      const rows = Array.isArray(ch) ? ch : ch?.channels || []
+      const one = rows.find((c) => c.connected) || rows[0]
+      if (!dead && one) claimLive('dashboard-latency', [one.channel_id])
+    }).catch(() => {})
+    const t = setInterval(() => setL(latencyNow()), 1000)
+    return () => { dead = true; clearInterval(t); releaseLive('dashboard-latency') }
+  }, [enabled])
+  return l
+}
+
 export default function Dashboard({ alarms }) {
   const me = useMe()
+  const e2e = useE2eLatency(can(me, 'data.biosignal', 1))
   const [stats] = usePoll(api.stats, 1000)
   const [events] = usePoll(api.events, 4000)
   // Per-second rates from consecutive /api/stats snapshots. Computed only when a new snapshot arrives and
@@ -62,7 +84,11 @@ export default function Dashboard({ alarms }) {
         {sys && <Tile label="CPU / 메모리" value={stats ? `${stats.cpu_percent.toFixed(0)}% / ${memPct}%` : '—'} sub={`라우터 ${stats?.cpu_process_percent?.toFixed(0) ?? '—'}%${stats?.cpu_mhz ? ` (${(stats.cpu_mhz / 1000).toFixed(1)} GHz · ${stats.cpu_ref_mhz / 1000} GHz 환산 ${stats.cpu_process_percent_norm.toFixed(0)}%)` : ''} · RSS ${fmtBytes(stats?.mem_process_bytes)}`} cls={stats && (stats.cpu_percent > 70 || memPct > 80) ? 'warn' : ''} />}
         {sys && <Tile label="저장소" value={fmtBytes(stats?.wave_store_bytes)} sub={`디스크 사용 ${diskPct}% · 여유 ${fmtBytes(stats?.disk_free_bytes)} · 큐 드롭 ${fmtNum(stats?.queue_dropped_wave)}`} cls={stats?.queue_dropped_wave ? 'err' : diskPct > 85 ? 'warn' : ''} />}
         {sys && <Tile label="가동 시간" value={fmtDur(stats?.uptime_s)} sub={`분석 서버 ${stats?.analysis_connected ? '연결' : '패스스루'}`} />}
-        {sys && <Tile label="전송 지연 (에뮬레이터→라우터)" value={stats?.latency?.n ? `${stats.latency.p50} ms` : '—'} sub={stats?.latency?.n ? `p95 ${stats.latency.p95} ms · 최소 ${stats.latency.min} · 최대 ${stats.latency.max} · 표본 ${fmtNum(stats.latency.n)} · 브라우저 시계 차 ${stats.now_ms ? Math.round(Date.now() - stats.now_ms) : '—'} ms` : '프레임 없음'} cls={stats?.latency?.p95 > 2000 ? 'warn' : ''} />}
+        {sys && <Tile label="전송 지연" value={e2e ? `${e2e.e2e} ms` : stats?.latency?.n ? `${stats.latency.p50} ms` : '—'}
+          sub={e2e
+            ? `에뮬레이터→이 브라우저 (종단 간) · 에뮬레이터→라우터 ${e2e.e2r ?? stats?.latency?.p50 ?? '—'} ms · 라우터→브라우저 ${e2e.r2v ?? '—'} ms · 라우터 전체 p50 ${stats?.latency?.p50 ?? '—'} / p95 ${stats?.latency?.p95 ?? '—'} ms`
+            : stats?.latency?.n ? `에뮬레이터→라우터 p50 · p95 ${stats.latency.p95} ms · 표본 ${fmtNum(stats.latency.n)} · 이 브라우저 종단 간 측정 중…` : '프레임 없음'}
+          cls={(e2e?.e2e ?? stats?.latency?.p95) > 2000 ? 'warn' : ''} />}
       </section>
 
       <div className={sys ? 'cols' : ''}>

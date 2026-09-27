@@ -1114,3 +1114,43 @@ button.ghost:hover { border-color: var(--line); color: var(--text); }
 .sec-trusted { width: 100%; max-width: 420px; resize: vertical; }
 .sec-actions { margin-top: 14px; margin-bottom: 0; padding-top: 12px; border-top: 1px solid var(--line); }
 @media (max-width: 560px) { .sec-form { grid-template-columns: 1fr; } .sec-label { padding-top: 0; } }
+
+/* 감사 기록 */
+.audit-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.audit-q { width: 260px; }
+.audit-tbl td { white-space: normal; vertical-align: top; }
+.audit-tbl td.audit-detail { max-width: 720px; overflow-wrap: anywhere; }
+.audit-tbl .audit-ago { display: block; font-size: 11px; opacity: .8; }
+.audit-tbl tr.audit-day td { background: color-mix(in srgb, var(--line) 40%, transparent); color: var(--muted); font-size: 12px; font-weight: 600; padding: 4px 8px; position: sticky; top: 30px; }
+.audit-tbl tr.is-warn td { background: color-mix(in srgb, var(--warn, #d97706) 8%, transparent); }
+.audit-tbl tr.is-err td { background: color-mix(in srgb, var(--err, #dc2626) 8%, transparent); }
+.audit-act { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); background: var(--bg); cursor: pointer; white-space: nowrap; }
+.audit-act.security { border-color: color-mix(in srgb, var(--err, #dc2626) 50%, var(--line)); }
+.audit-act.warn { color: var(--warn, #d97706); }
+.audit-act.err { color: var(--err, #dc2626); }
+.audit-act:hover { border-color: var(--accent); }
+
+/* 권한 설정: 3단 스위치 (없음 · 보기 · 편집) */
+.tri { display: inline-flex; align-items: center; gap: 8px; outline: none; border-radius: 8px; padding: 2px 4px; }
+.tri:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+.tri-track { position: relative; width: 66px; height: 18px; border-radius: 999px; background: color-mix(in srgb, var(--line) 70%, transparent); display: flex; align-items: center; justify-content: space-between; padding: 0 5px; box-sizing: border-box; cursor: pointer; }
+.tri-stop { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--muted) 45%, transparent); z-index: 1; }
+.tri-stop.locked { background: transparent; border: 1px dashed color-mix(in srgb, var(--muted) 50%, transparent); width: 5px; height: 5px; cursor: not-allowed; }
+.tri-knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--panel2, #fff); box-shadow: 0 1px 2px rgba(0,0,0,.35); transition: left .15s ease, background .15s ease; z-index: 2; }
+.tri.lv1 .tri-knob { left: 26px; background: color-mix(in srgb, var(--accent) 55%, #fff); }
+.tri.lv2 .tri-knob { left: 50px; background: var(--accent); }
+.tri.lv1 .tri-track { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.tri.lv2 .tri-track { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+.tri-label { font-size: 12px; min-width: 26px; color: var(--muted); }
+.tri.lv1 .tri-label { color: var(--text); }
+.tri.lv2 .tri-label { color: var(--text); font-weight: 700; }
+.perm-cell.ed { text-align: left; }
+
+/* 계정 */
+.users-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.users-q { width: 240px; }
+.users-tbl th.sortable.on { color: var(--text); }
+.users-tbl .sort-ind { font-size: 10px; }
+.users-tbl td.act { text-align: right; white-space: nowrap; }
+.users-tbl td.act button { margin-left: 4px; }
+.users-tbl tr.is-me td { background: color-mix(in srgb, var(--ok, #16a34a) 6%, transparent); }

@@ -24,7 +24,7 @@ const TREE = [
     ['page.map', []],
     ['page.viewers', ['action.groups_edit']],
   ]],
-  ['테스트', [['page.test', []], ['page.data_admin', ['action.wave_reset']]]],
+  ['테스트', [['page.test', ['action.wave_reset']]]],
   ['운영관리', [['page.settings_network', []], ['page.settings_biosignal', ['action.backup_purge']], ['page.service_control', []], ['page.integration', []], ['page.settings_viewer', []],
     ['page.admin_users', []], ['page.admin_permissions', []], ['page.admin_tenants', []], ['page.admin_audit', []], ['page.security', []]]],
   ['데이터 (모든 화면 공통)', [['data.phi', []], ['data.biosignal', []]]],
@@ -111,9 +111,7 @@ export default function AdminPermissions() {
           return (
             <td key={role.code} className={'perm-cell' + (dirty ? ' dirty' : '') + (editable ? ' ed' : '')}>
               {editable ? (
-                <span className="lvseg">{[0, 1, 2].map((n) => (
-                  <button key={n} className={(lv === n ? 'on ' : '') + LV_CLS[n]} disabled={n > cap(res.code)} onClick={() => set(role.code, res.code, n)} title={n > cap(res.code) ? '자기 권한보다 높게 줄 수 없습니다' : LEVEL_LABEL[n]}>{LEVEL_LABEL[n]}</button>
-                ))}</span>
+                <TriSwitch value={lv} max={cap(res.code)} onChange={(n) => set(role.code, res.code, n)} />
               ) : (
                 <span className={'lvtag ' + LV_CLS[lv]} title={locked ? '개발 모드 동안 모든 권한' : '이 화면에서는 바꿀 수 없음'}>{LEVEL_LABEL[lv]}</span>
               )}
@@ -170,6 +168,27 @@ export default function AdminPermissions() {
         </table>
       </div>
     </div>
+  )
+}
+
+/**
+ * 3단 스위치: 없음 · 보기 · 편집. 손잡이를 세 칸 중 하나로 옮긴다.
+ *  - 칸을 누르면 그 단계, 손잡이를 누르면 다음 단계로 순환. ←/→ 키로도 이동.
+ *  - max 보다 높은 단계는 잠김(자기 권한보다 높게 줄 수 없음).
+ */
+function TriSwitch({ value, max = 2, onChange }) {
+  const lv = Math.min(value ?? 0, 2)
+  const pick = (n) => { if (n <= max && n !== lv) onChange(n) }
+  const cycle = () => pick(lv >= Math.min(2, max) ? 0 : lv + 1)
+  const key = (e) => { if (e.key === 'ArrowRight') { e.preventDefault(); pick(Math.min(lv + 1, max)) } else if (e.key === 'ArrowLeft') { e.preventDefault(); pick(Math.max(lv - 1, 0)) } else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); cycle() } }
+  return (
+    <span className={'tri lv' + lv + (max < 2 ? ' capped' : '')} role="slider" tabIndex={0} aria-valuemin={0} aria-valuemax={2} aria-valuenow={lv} aria-valuetext={LEVEL_LABEL[lv]} title={`${LEVEL_LABEL[lv]} — 누르거나 ←/→ 로 바꿉니다${max < 2 ? ` (최대 ${LEVEL_LABEL[max]})` : ''}`} onKeyDown={key}>
+      <span className="tri-track">
+        {[0, 1, 2].map((n) => <span key={n} className={'tri-stop' + (n > max ? ' locked' : '') + (n === lv ? ' cur' : '')} onClick={() => pick(n)} title={n > max ? '자기 권한보다 높게 줄 수 없습니다' : LEVEL_LABEL[n]} />)}
+        <span className="tri-knob" onClick={cycle} />
+      </span>
+      <span className="tri-label">{LEVEL_LABEL[lv]}</span>
+    </span>
   )
 }
 
