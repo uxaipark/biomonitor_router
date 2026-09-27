@@ -35,6 +35,19 @@
   라우터는 이를 `continuation_records` 로 세고 중복으로 취급하지 않음(저장은 그대로).
 * **게이트웨이 표** — 소켓·최근 프레임·GW_STATUS·META 위치·패치 수·NACK/복구/이상 카운터, 10 s 침묵 감지, 중복 gw_id 감지.
 
+### 설치 (Ubuntu 22.04/24.04 · Debian 12, x86_64 · aarch64)
+
+```bash
+git clone https://github.com/uxaipark/biomonitor_router.git && cd biomonitor_router
+scripts/pi-dev-setup.sh          # apt 의존성 · Rust · Node 20 · 서버 빌드/테스트 · 웹 콘솔 빌드
+ROUTER_EMULATOR_ADDR=<에뮬레이터 IP>:5445 scripts/run-router-pi.sh   # 백그라운드 실행, 로그 data/router.log
+```
+
+* 브라우저 `http://<서버 IP>:7300` — 병원 ID `H001`, 개발 모드 로그인 화면의 시험용 계정(임시 비밀번호).
+* 방화벽: TCP 9100(게이트웨이 수신)·7300(웹/API). 데이터는 `data/`(SQLite `router.db`, 파형 `data/store`).
+* 웹 콘솔은 저장소에 빌드 결과가 없다 — 소스를 바꾸면 `cd web/console && npm run build` (라우터 재시작 불필요).
+* 백업 FTP/SFTP 는 `curl`, SMB 는 `smbclient` 를 쓴다(설치 스크립트가 넣는다).
+
 ### 실행
 
 ```bash
