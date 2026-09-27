@@ -3,7 +3,12 @@
 # 로그: data/router.log. systemd 유닛(P5)이 생기기 전까지 쓴다.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-pkill -x router-server 2>/dev/null && sleep 1 || true
+pkill -x router-server 2>/dev/null || true
+# 구 프로세스가 저장소 flush(최대 10 s)를 끝내고 포트를 놓을 때까지 기다린다 (30 s 넘으면 강제 종료)
+for _ in $(seq 1 150); do pgrep -x router-server >/dev/null || break; sleep 0.2; done
+pgrep -x router-server >/dev/null && { pkill -KILL -x router-server; sleep 0.5; } || true
+# 게이트웨이 2,000대 + 저장 파일 + 웹소켓: 셸 기본 1024 로는 accept 가 EMFILE 로 실패한다
+ulimit -n 65535 2>/dev/null || ulimit -n "$(ulimit -Hn)"
 mkdir -p data/store
 export ROUTER_INGEST_ADDR=${ROUTER_INGEST_ADDR:-0.0.0.0:9100}
 export ROUTER_HTTP_ADDR=${ROUTER_HTTP_ADDR:-0.0.0.0:7300}

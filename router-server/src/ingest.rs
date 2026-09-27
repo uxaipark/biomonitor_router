@@ -39,7 +39,15 @@ pub async fn run(state: Arc<AppState>) -> anyhow::Result<()> {
     let listener = sock.listen(4096)?;
     info!("ingest (protocol v3) listening on {}", state.cfg.ingest_addr);
     loop {
-        let (stream, peer) = listener.accept().await?;
+        // accept 오류(EMFILE·ECONNABORTED 등)는 일시적일 수 있다 — 리스너를 죽이지 말고 잠깐 쉬고 다시 받는다
+        let (stream, peer) = match listener.accept().await {
+            Ok(x) => x,
+            Err(e) => {
+                warn!("ingest: accept error: {} — 100 ms 뒤 다시", e);
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                continue;
+            }
+        };
         // 서비스 제어 › 게이트웨이 수신 중지: 받자마자 닫는다 (게이트웨이는 재접속을 계속 시도)
         if !crate::control::INGEST_ON.load(Ordering::Relaxed) {
             drop(stream);
