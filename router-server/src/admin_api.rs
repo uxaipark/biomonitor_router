@@ -64,6 +64,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/control/status", get(control_status))
         .route("/api/control", get(control_status))
         .route("/api/control/maintenance", post(control_maintenance))
+        .route("/api/control/reset", post(control_reset))
         .route("/api/control/{svc}", post(control_set))
         .route("/api/settings/network", get(net_get).put(net_put))
         .route("/api/settings/network/test", post(net_test))
@@ -71,7 +72,12 @@ pub fn router(state: Arc<AppState>) -> Router {
         .merge(crate::emr_api::routes())
         // 로그인·병원 접근·경로별 권한 (모든 /api/*·/ws). CORS 는 쿠키 인증이라 같은 출처만 — permissive 제거.
         .layer(axum::middleware::from_fn_with_state(state.clone(), crate::auth::guard))
-        .fallback_service(spa(&web_dir))
+        // 콘솔은 새로 빌드하면 파일 이름(해시)이 바뀌므로 index.html 이 캐시되면 옛 화면이 남는다 — 매번 재검증(ETag 304 는 싸다)
+        .fallback_service(
+            axum::Router::new()
+                .fallback_service(spa(&web_dir))
+                .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(axum::http::header::CACHE_CONTROL, axum::http::HeaderValue::from_static("no-cache"))),
+        )
         .with_state(state)
 }
 
@@ -503,6 +509,11 @@ struct Stats {
     cpu_percent: f32,
     /// 라우터 프로세스 CPU 사용률 (1코어 = 100 %)
     cpu_process_percent: f32,
+    /// 최근 2 s 평균 CPU 클럭 (MHz, 사용 시간 가중; cpufreq 없으면 0)
+    cpu_mhz: f32,
+    /// 기준 클럭(`cpu_ref_mhz`)으로 환산한 라우터 CPU (1코어@기준클럭 = 100 %; 클럭 정보 없으면 0)
+    cpu_process_percent_norm: f32,
+    cpu_ref_mhz: u64,
     /// 스토리지 (라우터 드라이브) 전체/여유 바이트
     disk_total_bytes: u64,
     disk_free_bytes: u64,
@@ -577,6 +588,9 @@ async fn stats(State(state): State<Arc<AppState>>) -> Json<Stats> {
         mem_sys_total_bytes: mem_total,
         cpu_percent: crate::sysmon::cpu_percent(),
         cpu_process_percent: crate::sysmon::proc_cpu_percent(),
+        cpu_mhz: crate::sysmon::cpu_mhz(),
+        cpu_process_percent_norm: crate::sysmon::proc_cpu_percent_norm(),
+        cpu_ref_mhz: crate::sysmon::cpu_ref_mhz(),
         disk_total_bytes: disk_total,
         disk_free_bytes: disk_free,
         wave_store_bytes: crate::patch_store::STORE_BYTES.load(Ordering::Relaxed),
@@ -916,8 +930,10 @@ async fn metrics_series(
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     let range = q.get("range").cloned().unwrap_or_else(|| "day".into());
+    // 5분 구간은 2 s 샘플이라 캐시도 2 s (여러 탭이 같은 초에 물어도 한 번만 만든다)
+    let ttl = std::time::Duration::from_secs(if range == "5min" { 2 } else { 15 });
     if let Some((at, body)) = SERIES_CACHE.lock().unwrap().get(&range).cloned() {
-        if at.elapsed() < std::time::Duration::from_secs(15) {
+        if at.elapsed() < ttl {
             return body_with_type(body, "application/json; charset=utf-8");
         }
     }
@@ -1055,7 +1071,15 @@ async fn backup_status(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 }
 
 async fn backup_policy(State(state): State<Arc<AppState>>, Extension(who): Extension<Principal>, Json(p): Json<crate::backup::Policy>) -> impl IntoResponse {
-    let detail = format!("저장 단위 {}시간 · 사본 {} · 삭제 {} · 검증 {} · {}", p.block_hours, p.copies, p.delete_mode, p.verify, if p.paused { "일시 중지" } else { "전송 중" });
+    let detail = format!(
+        "저장 단위 {}시간 · 상한 {} · 사본 {} · 삭제 {} · 검증 {} · {}",
+        p.block_hours,
+        if p.store_max_gb > 0 { format!("{} GB", p.store_max_gb) } else { "런처 값".into() },
+        p.copies,
+        p.delete_mode,
+        p.verify,
+        if p.paused { "일시 중지" } else { "전송 중" }
+    );
     let r = state.backup.set_policy(p).map(|_| serde_json::json!({ "ok": true }));
     if r.is_ok() {
         state.auth.audit(&who.username, who.tenant_id.as_deref().unwrap_or(""), "backup_policy", &detail);
@@ -1130,6 +1154,25 @@ async fn control_set(State(state): State<Arc<AppState>>, Extension(p): Extension
 
 async fn control_maintenance(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(b): Json<crate::control::SetReq>) -> impl IntoResponse {
     bk_result(crate::control::maintenance(&state, &p.username, &b).map(|_| crate::control::status(&state)))
+}
+
+/// 가동 초기화: 모든 서비스 멈춤 → 로컬 저장소·원격 백업 파일 삭제 → 카운터·통계·알람·표 비움 → 다시 켬 (백그라운드).
+/// 확인 문구(`confirm`)가 "가동 초기화" 와 같아야 하고, 운영 모드에서는 사유가 필요하다. 권한: 백업 파일 전체 삭제.
+#[derive(serde::Deserialize)]
+struct ResetBody {
+    #[serde(default)]
+    confirm: String,
+    #[serde(default)]
+    reason: String,
+}
+async fn control_reset(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(b): Json<ResetBody>) -> impl IntoResponse {
+    let who = p.username.clone();
+    bk_result(crate::reset::start(state.clone(), &who, &b.reason, &b.confirm).map(|_| crate::control::status(&state)))
+}
+
+/// 운영 통계 조회 캐시 비우기 (통계 초기화·가동 초기화)
+pub fn clear_series_cache() {
+    SERIES_CACHE.lock().unwrap().clear();
 }
 
 /// 백업 중단: 전송 중인 파일까지 바로 끊고 일시 중지

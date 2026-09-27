@@ -201,6 +201,8 @@ pub enum StoreOp {
     Flush,
     /// Delete the whole store (admin test > storage reset) and start empty.
     Reset,
+    /// Same as `Reset`, then signal the sender (가동 초기화 waits for it). Queued ops before it are processed first.
+    ResetWait(std::sync::mpsc::Sender<()>),
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -229,7 +231,6 @@ struct PatchBuf {
 
 pub struct PatchStore {
     root: PathBuf,
-    max_bytes: u64,
     patches: HashMap<u32, PatchBuf>,
     write_tx: std::sync::mpsc::Sender<WriteOp>,
     /// Append/Close ops produced by hour rollovers between flushes (sent first, so per-patch order holds).
@@ -250,6 +251,20 @@ pub fn patch_dir(root: &Path, patch_id: u32) -> PathBuf {
 /// default 2). N divides 24 so blocks line up with UTC midnight (00–02, 02–04, …).
 pub static BLOCK_HOURS: AtomicU64 = AtomicU64::new(2);
 pub const BLOCK_CHOICES: [u32; 8] = [1, 2, 3, 4, 6, 8, 12, 24];
+
+/// 저장 상한(바이트). 런처/환경변수 `ROUTER_STORE_MAX_GB` 값은 `STORE_CAP_ENV`, 데이터 관리 › 정책의 `store_max_gb`
+/// (0 = 런처 값 사용) 는 `STORE_CAP_OVERRIDE_GB` — 정책 값이 있으면 그것이 우선. 0 = 무제한.
+pub static STORE_CAP_ENV: AtomicU64 = AtomicU64::new(0);
+pub static STORE_CAP_OVERRIDE_GB: AtomicU64 = AtomicU64::new(0);
+
+pub fn cap_bytes() -> u64 {
+    let o = STORE_CAP_OVERRIDE_GB.load(Ordering::Relaxed);
+    if o > 0 {
+        o << 30
+    } else {
+        STORE_CAP_ENV.load(Ordering::Relaxed)
+    }
+}
 
 /// File key of the block holding `ts_ms`: `YYYYMMDD-HH_<N>h` (HH = block start).
 pub fn block_key(ts_ms: u64) -> String {
@@ -724,6 +739,7 @@ impl PatchStore {
     pub fn with_gzip(root: PathBuf, max_bytes: u64, gzip_level: u32) -> Self {
         fs::create_dir_all(root.join("patches")).ok();
         fs::create_dir_all(root.join("meta")).ok();
+        STORE_CAP_ENV.store(max_bytes, Ordering::Relaxed);
         let (total, patches) = scan_bytes(&root);
         STORE_BYTES.store(total, Ordering::Relaxed);
         STORE_PATCHES.store(patches, Ordering::Relaxed);
@@ -743,7 +759,6 @@ impl PatchStore {
         // Hour files left open by a previous run are compressed now.
         let store = Self {
             root,
-            max_bytes,
             patches: HashMap::new(),
             write_tx,
             rollover: Vec::new(),
@@ -796,6 +811,10 @@ impl PatchStore {
                 self.wait_writer(); // shutdown: the file writer must have it on disk before we return
             }
             StoreOp::Reset => self.reset(),
+            StoreOp::ResetWait(tx) => {
+                self.reset();
+                let _ = tx.send(());
+            }
         }
         if self.last_flush.elapsed() >= FLUSH_EVERY {
             self.flush(false);
@@ -923,8 +942,9 @@ impl PatchStore {
             STORE_BYTES.store(total, Ordering::Relaxed);
             STORE_PATCHES.store(patches, Ordering::Relaxed);
         }
-        if self.max_bytes > 0
-            && STORE_BYTES.load(Ordering::Relaxed) > self.max_bytes
+        let cap = cap_bytes();
+        if cap > 0
+            && STORE_BYTES.load(Ordering::Relaxed) > cap
             && (crate::backup::BLOCKED_BYTES.load(Ordering::Relaxed) == 0 || self.last_prune.elapsed() >= Duration::from_secs(60))
         {
             self.last_prune = Instant::now();
@@ -942,7 +962,8 @@ impl PatchStore {
 
     /// Delete the oldest hour files (across all patches) until the store is under 90% of the cap.
     fn prune(&mut self) {
-        let target = self.max_bytes / 10 * 9;
+        let cap = cap_bytes();
+        let target = cap / 10 * 9;
         let mut files: BTreeMap<(String, u32), (PathBuf, u64)> = BTreeMap::new();
         if let Ok(rd) = fs::read_dir(self.root.join("patches")) {
             for d in rd.flatten() {
@@ -1000,7 +1021,7 @@ impl PatchStore {
         crate::backup::BLOCKED_BYTES.store(if total > target { blocked_bytes } else { 0 }, Ordering::Relaxed);
         STORE_BYTES.store(total, Ordering::Relaxed);
         if removed > 0 {
-            info!("store: pruned {} MB (cap {} MB)", removed >> 20, self.max_bytes >> 20);
+            info!("store: pruned {} MB (cap {} MB)", removed >> 20, cap >> 20);
         }
     }
 
@@ -1067,7 +1088,13 @@ fn gzip_worker(rx: std::sync::mpsc::Receiver<PathBuf>, level: u32) {
 /// Writer thread: drains the store queue; flushes every second even when idle.
 pub fn run_writer(root: PathBuf, max_bytes: u64, gzip_level: u32, mut rx: tokio::sync::mpsc::Receiver<StoreOp>) {
     let mut store = PatchStore::with_gzip(root, max_bytes, gzip_level);
-    info!("patch store: {} (cap {} GB, gzip level {})", store.root.display(), max_bytes >> 30, gzip_level);
+    info!(
+        "patch store: {} (cap {} GB{}, gzip level {})",
+        store.root.display(),
+        cap_bytes() >> 30,
+        if STORE_CAP_OVERRIDE_GB.load(Ordering::Relaxed) > 0 { " from policy" } else { " from env" },
+        gzip_level
+    );
     loop {
         match rx.blocking_recv() {
             Some(op) => store.handle(op),

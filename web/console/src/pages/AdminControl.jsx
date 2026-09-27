@@ -69,6 +69,7 @@ export default function AdminControl() {
       </div>
       {msg && <p className="err">{msg}</p>}
       <Maintenance st={st} edit={edit} dev={dev} onDone={done} setMsg={setMsg} />
+      {st.reset && <FullReset r={st.reset} me={me} dev={dev} onDone={done} setMsg={setMsg} />}
       {(() => {
         const m = mode || (st.stopped ? 'start' : 'stop')
         const bySvc = new Map(st.services.map((s) => [s.service, s]))
@@ -164,6 +165,58 @@ function ServiceCard({ s, edit, dev, onAct, step, hint, mode }) {
           <dt>{s.service === 'alarm' ? '남은 시간' : '자동 재개'}</dt><dd>{s.until_ms ? `${left(s.until_ms)} 뒤 (${fmt(s.until_ms)})` : '수동으로 켤 때까지'}</dd>
         </dl>
       )}
+    </section>
+  )
+}
+
+/**
+ * 가동 초기화: 모든 서비스를 멈춘 상태에서 로컬 파형 저장소와 원격 백업 파일을 모두 지우고, 카운터·운영 통계·알람·
+ * 패치/게이트웨이 표를 비운 뒤 서비스를 다시 켠다. 되돌릴 수 없으므로 확인 문구를 그대로 입력해야 하고,
+ * 권한은 '백업 파일 전체 삭제'(기본 수퍼 어드민)가 필요하다. 진행 상태는 3초마다 갱신된다.
+ */
+const STEP_ICON = { wait: '○', run: '◐', ok: '●', fail: '✕', skip: '–' }
+function FullReset({ r, me, dev, onDone, setMsg }) {
+  const [reason, setReason] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const allowed = can(me, 'action.backup_purge', 2)
+  const running = !!r.running
+  // 개발 모드: 서비스 제어와 같이 사유·확인 문구 없이 실행 (브라우저 확인 대화만)
+  const ready = dev || (confirm.trim() === r.confirm && reason.trim())
+  const go = async () => {
+    if (!ready || busy) return
+    const names = (r.targets || []).map((t) => `${t.name} (${t.kind}${t.enabled ? '' : ', 꺼짐'})`)
+    if (!window.confirm(`가동 초기화를 시작합니다. 되돌릴 수 없습니다.\n\n• 모든 서비스 멈춤 → 게이트웨이 연결 끊김\n• 로컬 파형 저장소 전체 삭제\n• 원격 백업 파일 전체 삭제: ${names.length ? names.join(', ') : '(대상 없음)'}\n• 카운터·운영 통계·알람·패치/게이트웨이 표 비움\n• 서비스 다시 켬\n\n계속할까요?`)) return
+    setBusy(true)
+    try { await api.control.reset({ confirm: confirm.trim(), reason: reason.trim() }); setOpen(false); setConfirm(''); onDone() } catch (e) { setMsg(e.message) } finally { setBusy(false) }
+  }
+  const last = !running && r.done_ms > 0 // 불리언으로 — 숫자 0 을 쓰면 React 가 '0' 을 그린다
+  return (
+    <section className={'ctl-maint ctl-reset' + (running ? ' on' : '')}>
+      <div style={{ flex: 1, minWidth: 260 }}>
+        <b>가동 초기화</b> {running && <span className="tag small warn">진행 중</span>}{last && !r.error && <span className="tag small ok">완료 {fmt(r.done_ms)}</span>}{last && r.error && <span className="tag small err">일부 실패 {fmt(r.done_ms)}</span>}
+        <p className="muted small">모든 서비스를 멈춘 상태에서 <b>로컬 파형 저장소</b>와 <b>원격 백업 서버의 파일</b>({(r.targets || []).length ? (r.targets || []).map((t) => t.name).join(', ') : '대상 없음'})을 모두 지우고,
+          카운터·운영 통계·알람·패치/게이트웨이 표를 비운 뒤 서비스를 다시 켭니다. 되돌릴 수 없습니다. 설정(계정·권한·백업 대상·정책·그룹)은 그대로 둡니다.</p>
+        {(running || last) && (
+          <ol className="ctl-reset-steps small">
+            {(r.steps || []).map((s) => <li key={s.key} className={s.state}><span className="ico">{STEP_ICON[s.state] || '○'}</span> {s.label}{s.detail ? <span className="muted"> — {s.detail}</span> : null}</li>)}
+          </ol>
+        )}
+        {last && <p className={'small ' + (r.error ? 'err' : 'muted')}>{r.by} · 시작 {fmt(r.started_ms)} · {r.reason || '개발 모드'}{r.error ? ` · ${r.error}` : ''}</p>}
+      </div>
+      {allowed && !running && dev && <button className="danger" disabled={busy} onClick={go} title="개발 모드: 사유·확인 문구 없이 실행 (확인 대화만)">가동 초기화 실행 (개발 모드)</button>}
+      {allowed && !running && !dev && (open
+        ? <div className="ctl-form" style={{ flexDirection: 'column', alignItems: 'stretch', minWidth: 300 }}>
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="사유 (필수) — 예: 시범 운영 종료, 실운영 시작" />
+            <input value={confirm} onChange={(e) => setConfirm(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && go()} placeholder={`확인 문구 "${r.confirm}" 입력`} />
+            <div className="ctl-form">
+              <button className="danger" disabled={!ready || busy} onClick={go}>가동 초기화 실행</button>
+              <button onClick={() => { setOpen(false); setConfirm('') }}>취소</button>
+            </div>
+          </div>
+        : <button className="danger" onClick={() => setOpen(true)}>가동 초기화…</button>)}
+      {!allowed && !running && <span className="muted small">'백업 파일 전체 삭제' 권한이 있어야 실행할 수 있습니다</span>}
     </section>
   )
 }

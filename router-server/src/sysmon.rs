@@ -19,6 +19,28 @@ pub fn proc_cpu_percent() -> f32 {
     PROC_CPU_PERMILLE.load(Ordering::Relaxed) as f32 / 10.0
 }
 
+/// 최근 2 s 창의 평균 CPU 클럭 (MHz). 코어별 클럭을 그 코어의 사용 시간으로 가중 평균 — 클럭은 일할 때만
+/// 올라가므로 단순 평균은 실제보다 낮게 나온다. Linux cpufreq 만 채워짐(없으면 0).
+pub static CPU_MHZ: AtomicU64 = AtomicU64::new(0);
+
+/// 기준 클럭(`ROUTER_CPU_REF_MHZ`, 기본 2000)으로 환산한 라우터 프로세스 CPU (퍼밀; 1코어 = 1000).
+/// = 프로세스 CPU × 평균 클럭 / 기준 클럭. CPU % 는 시간 지표라 가변 클럭이 낮게 돌수록 부풀려지는데, 클럭을
+/// 곱하면 "사이클" 에 가까운 값이 되어 장비·전원 설정이 달라도 비교할 수 있다(선형 근사).
+pub static PROC_CPU_NORM_PERMILLE: AtomicU64 = AtomicU64::new(0);
+
+pub fn cpu_mhz() -> f32 {
+    CPU_MHZ.load(Ordering::Relaxed) as f32
+}
+
+pub fn proc_cpu_percent_norm() -> f32 {
+    PROC_CPU_NORM_PERMILLE.load(Ordering::Relaxed) as f32 / 10.0
+}
+
+pub fn cpu_ref_mhz() -> u64 {
+    static REF: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *REF.get_or_init(|| std::env::var("ROUTER_CPU_REF_MHZ").ok().and_then(|v| v.parse().ok()).filter(|v| *v > 0).unwrap_or(2000))
+}
+
 #[cfg(windows)]
 fn system_times() -> Option<(u64, u64, u64)> {
     use windows_sys::Win32::Foundation::FILETIME;
@@ -264,6 +286,32 @@ mod linux {
         Some((total - idle, total))
     }
 
+    /// 코어별 busy 틱 — /proc/stat 의 cpu0.. 줄 (클럭 가중용)
+    pub fn per_core_busy() -> Vec<u64> {
+        let s = std::fs::read_to_string("/proc/stat").unwrap_or_default();
+        s.lines()
+            .filter(|l| l.starts_with("cpu") && l.as_bytes().get(3).is_some_and(|b| b.is_ascii_digit()))
+            .map(|l| {
+                let v: Vec<u64> = l.split_whitespace().skip(1).filter_map(|x| x.parse().ok()).collect();
+                let idle = v.get(3).copied().unwrap_or(0) + v.get(4).copied().unwrap_or(0);
+                v.iter().sum::<u64>().saturating_sub(idle)
+            })
+            .collect()
+    }
+
+    /// 코어별 현재 클럭 (MHz) — cpufreq `scaling_cur_freq`(kHz). intel_pstate 는 APERF/MPERF 평균, cpufreq-dt(RP5)는
+    /// 설정 클럭. cpufreq 가 없는 코어는 0.
+    pub fn per_core_mhz(n: usize) -> Vec<u64> {
+        (0..n)
+            .map(|i| {
+                std::fs::read_to_string(format!("/sys/devices/system/cpu/cpu{i}/cpufreq/scaling_cur_freq"))
+                    .ok()
+                    .and_then(|s| s.trim().parse::<u64>().ok())
+                    .map_or(0, |khz| khz / 1000)
+            })
+            .collect()
+    }
+
     /// (전체, 여유) 바이트 — 저장소 루트(`ROUTER_STORE_DIR`)가 있는 파일시스템
     pub fn disk_stats() -> (u64, u64) {
         let mut path = std::env::var("ROUTER_STORE_DIR").unwrap_or_else(|_| ".".into());
@@ -305,8 +353,29 @@ pub async fn run_cpu_sampler() {
         let mut prev = linux::cpu_ticks();
         let mut prev_proc = linux::proc_cpu_ticks();
         let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as u64;
+        let mut prev_core = linux::per_core_busy();
         loop {
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            // 클럭은 수십 ms 단위로 오르내리므로 2 s 창 안에서 250 ms 마다 코어별 (busy 틱 증가 × 클럭) 을 누적
+            let (mut w_mhz, mut w_busy, mut sum_mhz, mut n_mhz) = (0u64, 0u64, 0u64, 0u64);
+            for _ in 0..8 {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                let cur_core = linux::per_core_busy();
+                let mhz = linux::per_core_mhz(cur_core.len());
+                for (i, (&c, &p)) in cur_core.iter().zip(prev_core.iter()).enumerate() {
+                    let m = mhz.get(i).copied().unwrap_or(0);
+                    if m > 0 {
+                        let db = c.wrapping_sub(p);
+                        w_mhz += db * m;
+                        w_busy += db;
+                        sum_mhz += m;
+                        n_mhz += 1;
+                    }
+                }
+                prev_core = cur_core;
+            }
+            // busy 틱이 하나도 없으면(거의 유휴) 단순 평균으로 대신
+            let avg_mhz = if w_busy > 0 { w_mhz / w_busy } else if n_mhz > 0 { sum_mhz / n_mhz } else { 0 };
+            CPU_MHZ.store(avg_mhz, Ordering::Relaxed);
             let cur = linux::cpu_ticks();
             if let (Some((pb, pt)), Some((cb, ct))) = (prev, cur) {
                 let busy = cb.wrapping_sub(pb);
@@ -319,7 +388,11 @@ pub async fn run_cpu_sampler() {
             let cur_proc = linux::proc_cpu_ticks();
             if let (Some(p), Some(c)) = (prev_proc, cur_proc) {
                 // ticks over a 2 s window → permille of one core
-                PROC_CPU_PERMILLE.store(c.wrapping_sub(p) * 1000 / (hz * 2), Ordering::Relaxed);
+                let permille = c.wrapping_sub(p) * 1000 / (hz * 2);
+                PROC_CPU_PERMILLE.store(permille, Ordering::Relaxed);
+                // 기준 클럭 환산 (클럭 정보가 없으면 0 = 표시 안 함)
+                let norm = if avg_mhz > 0 { permille * avg_mhz / cpu_ref_mhz() } else { 0 };
+                PROC_CPU_NORM_PERMILLE.store(norm, Ordering::Relaxed);
             }
             prev_proc = cur_proc;
         }

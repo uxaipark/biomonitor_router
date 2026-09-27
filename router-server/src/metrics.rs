@@ -22,6 +22,37 @@ use tracing::{info, warn};
 
 const SAMPLE_MS: u64 = 2_000;
 const MIN_KEEP_DAYS: i64 = 14;
+/// 최근 5분(2 s 샘플 150개)은 메모리 링에 그대로 두어 `range=5min` 이 분 행이 아니라 샘플 단위로 보인다
+const RECENT_CAP: usize = 150;
+
+/// 2 s 샘플 하나 (카운터는 누계 — 조회 때 이웃과의 차분으로 속도를 만든다)
+#[derive(Clone, Copy, Default)]
+struct Sample {
+    ts_ms: u64,
+    cpu: f32,
+    cpu_sys: f32,
+    cpu_norm: f32,
+    mhz: f32,
+    mem_proc: u64,
+    mem_used: u64,
+    mem_total: u64,
+    store_bytes: u64,
+    store_q: u64,
+    connected: u64,
+    gw_connected: u64,
+    ws: u64,
+    subs: u64,
+    alarms: u64,
+    rx: u64,
+    tx: u64,
+    records: u64,
+    lost: u64,
+    lag: u64,
+    drops: u64,
+}
+
+static RECENT: std::sync::LazyLock<Mutex<std::collections::VecDeque<Sample>>> =
+    std::sync::LazyLock::new(|| Mutex::new(std::collections::VecDeque::with_capacity(RECENT_CAP)));
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS metrics_min (
@@ -32,7 +63,8 @@ CREATE TABLE IF NOT EXISTS metrics_min (
   patches INTEGER, connected INTEGER, gw_total INTEGER, gw_connected INTEGER,
   ingest_conns INTEGER, ws_sessions INTEGER, ws_subs INTEGER, alarms_active INTEGER,
   store_q_max INTEGER,
-  d_rx INTEGER, d_tx INTEGER, d_records INTEGER, d_lost INTEGER, d_lag INTEGER, d_drops INTEGER
+  d_rx INTEGER, d_tx INTEGER, d_records INTEGER, d_lost INTEGER, d_lag INTEGER, d_drops INTEGER,
+  cpu_mhz REAL, cpu_proc_norm REAL
 );
 CREATE TABLE IF NOT EXISTS metrics_hour (
   ts INTEGER PRIMARY KEY, samples INTEGER,
@@ -42,7 +74,8 @@ CREATE TABLE IF NOT EXISTS metrics_hour (
   patches INTEGER, connected INTEGER, connected_min INTEGER, gw_total INTEGER, gw_connected INTEGER,
   ingest_conns INTEGER, ws_sessions INTEGER, ws_subs INTEGER, alarms_active INTEGER,
   store_q_max INTEGER,
-  d_rx INTEGER, d_tx INTEGER, d_records INTEGER, d_lost INTEGER, d_lag INTEGER, d_drops INTEGER
+  d_rx INTEGER, d_tx INTEGER, d_records INTEGER, d_lost INTEGER, d_lag INTEGER, d_drops INTEGER,
+  cpu_mhz REAL, cpu_proc_norm REAL
 );
 CREATE TABLE IF NOT EXISTS incidents (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, kind TEXT NOT NULL,
@@ -69,6 +102,12 @@ impl Metrics {
         let _ = db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;");
         if let Err(e) = db.execute_batch(SCHEMA) {
             warn!("metrics schema: {}", e);
+        }
+        // 2026-09-27: 클럭 열 추가 — 이미 있는 DB 는 ALTER (있으면 "duplicate column" 오류, 무시)
+        for t in ["metrics_min", "metrics_hour"] {
+            for c in ["cpu_mhz REAL", "cpu_proc_norm REAL"] {
+                let _ = db.execute(&format!("ALTER TABLE {t} ADD COLUMN {c}"), []);
+            }
         }
         Self { db: Mutex::new(db) }
     }
@@ -124,6 +163,7 @@ pub fn run(state: Arc<AppState>) {
     let mut last_prune = 0i64;
     // per-minute accumulators
     let (mut n, mut cpu_sum, mut cpu_max, mut sys_sum, mut q_max) = (0u32, 0f64, 0f64, 0f64, 0i64);
+    let (mut mhz_sum, mut norm_sum) = (0f64, 0f64);
     // the stall peak is tracked separately from the per-minute maximum, which resets on the minute boundary
     let (mut stall_open, mut stall_peak) = (false, 0i64);
 
@@ -132,9 +172,43 @@ pub fn run(state: Arc<AppState>) {
         let cpu = crate::sysmon::proc_cpu_percent() as f64;
         let sys = crate::sysmon::cpu_percent() as f64;
         let q = (state.store_tx.max_capacity() - state.store_tx.capacity()) as i64;
+        {
+            let c = counters(&state);
+            let (mem_proc, mem_used, mem_total) = crate::sysmon::memory_stats_native();
+            let smp = Sample {
+                ts_ms: crate::protocol::now_ms(),
+                cpu: cpu as f32,
+                cpu_sys: sys as f32,
+                cpu_norm: crate::sysmon::proc_cpu_percent_norm(),
+                mhz: crate::sysmon::cpu_mhz(),
+                mem_proc,
+                mem_used,
+                mem_total,
+                store_bytes: crate::patch_store::STORE_BYTES.load(Ordering::Relaxed),
+                store_q: q.max(0) as u64,
+                connected: state.registry.connected_count() as u64,
+                gw_connected: state.gateways.connected_count() as u64,
+                ws: state.ws_sessions.load(Ordering::Relaxed),
+                subs: state.sub_channels.len() as u64,
+                alarms: state.alarms.summary().get("active").and_then(|v| v.as_u64()).unwrap_or(0),
+                rx: c.rx,
+                tx: c.tx,
+                records: c.records,
+                lost: c.lost,
+                lag: c.lag,
+                drops: c.drops,
+            };
+            let mut r = RECENT.lock().unwrap();
+            if r.len() >= RECENT_CAP {
+                r.pop_front();
+            }
+            r.push_back(smp);
+        }
         n += 1;
         cpu_sum += cpu;
         sys_sum += sys;
+        mhz_sum += crate::sysmon::cpu_mhz() as f64;
+        norm_sum += crate::sysmon::proc_cpu_percent_norm() as f64;
         if cpu > cpu_max {
             cpu_max = cpu;
         }
@@ -194,10 +268,12 @@ pub fn run(state: Arc<AppState>) {
             d(c.lost, prev.lost),
             d(c.lag, prev.lag),
             d(c.drops, prev.drops),
+            mhz_sum / n.max(1) as f64,
+            norm_sum / n.max(1) as f64,
         ];
         if let Ok(db) = m.db.lock() {
             if let Err(e) = db.execute(
-                "INSERT OR REPLACE INTO metrics_min VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27)",
+                "INSERT OR REPLACE INTO metrics_min VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29)",
                 row,
             ) {
                 warn!("metrics insert: {}", e);
@@ -222,6 +298,8 @@ pub fn run(state: Arc<AppState>) {
         cpu_max = 0.0;
         sys_sum = 0.0;
         q_max = 0;
+        mhz_sum = 0.0;
+        norm_sum = 0.0;
 
         let hour = ts / 3600;
         if hour != last_hour_rolled {
@@ -246,7 +324,8 @@ fn rollup(m: &Metrics, hour_ts: i64) {
                 MAX(disk_used), MAX(disk_total), MAX(store_bytes), MAX(store_patches),
                 AVG(patches), AVG(connected), MIN(connected), MAX(gw_total), AVG(gw_connected),
                 AVG(ingest_conns), AVG(ws_sessions), AVG(ws_subs), AVG(alarms_active),
-                MAX(store_q_max), SUM(d_rx), SUM(d_tx), SUM(d_records), SUM(d_lost), SUM(d_lag), SUM(d_drops)
+                MAX(store_q_max), SUM(d_rx), SUM(d_tx), SUM(d_records), SUM(d_lost), SUM(d_lag), SUM(d_drops),
+                AVG(cpu_mhz), AVG(cpu_proc_norm)
          FROM metrics_min WHERE ts >= ?1 AND ts < ?1 + 3600",
         params![hour_ts],
     );
@@ -277,8 +356,84 @@ fn range_spec(range: &str) -> (i64, bool, i64) {
     }
 }
 
+/// 최근 5분: 메모리 링의 2 s 샘플을 그대로 점으로 (카운터는 이웃 샘플과의 차분 = 2 s 동안의 양).
+/// 사건 목록만 DB 에서 읽는다. 점의 키는 분·시간 표 조회와 같아 화면이 구분하지 않아도 된다.
+fn series_recent(m: &Metrics) -> serde_json::Value {
+    let ring: Vec<Sample> = RECENT.lock().unwrap().iter().copied().collect();
+    let d = |a: u64, b: u64| a.saturating_sub(b) as f64;
+    let mut points = Vec::with_capacity(ring.len());
+    for (i, s) in ring.iter().enumerate() {
+        let p = if i > 0 { ring[i - 1] } else { *s };
+        points.push(serde_json::json!({
+            "t": (s.ts_ms / 1000) as i64,
+            "cpu": s.cpu, "cpu_max": s.cpu, "cpu_sys": s.cpu_sys, "cpu_norm": s.cpu_norm, "mhz": s.mhz,
+            "mem": s.mem_proc, "mem_max": s.mem_proc, "mem_used": s.mem_used, "mem_total": s.mem_total,
+            "disk_used": serde_json::Value::Null, "disk_total": serde_json::Value::Null, "store": s.store_bytes,
+            "patches": serde_json::Value::Null, "connected": s.connected, "connected_min": s.connected,
+            "gw": s.gw_connected, "gw_total": serde_json::Value::Null,
+            "ws": s.ws, "subs": s.subs, "alarms": s.alarms, "store_q": s.store_q,
+            "rx": d(s.rx, p.rx), "tx": d(s.tx, p.tx), "records": d(s.records, p.records),
+            "lost": d(s.lost, p.lost), "lag": d(s.lag, p.lag), "drops": d(s.drops, p.drops),
+            "samples": 1,
+        }));
+    }
+    let n = ring.len().max(1) as f64;
+    let (first, last) = (ring.first().copied().unwrap_or_default(), ring.last().copied().unwrap_or_default());
+    let avg = |f: &dyn Fn(&Sample) -> f64| ring.iter().map(f).sum::<f64>() / n;
+    let max = |f: &dyn Fn(&Sample) -> f64| ring.iter().map(f).fold(0.0, f64::max);
+    let totals = serde_json::json!({
+        "rx": d(last.rx, first.rx), "tx": d(last.tx, first.tx), "records": d(last.records, first.records),
+        "lost": d(last.lost, first.lost), "lag": d(last.lag, first.lag), "drops": d(last.drops, first.drops),
+        "rows": ring.len(),
+        "cpu_avg": avg(&|s| s.cpu as f64), "cpu_max": max(&|s| s.cpu as f64),
+        "cpu_norm_avg": avg(&|s| s.cpu_norm as f64), "mhz_avg": avg(&|s| s.mhz as f64),
+        "mem_avg": avg(&|s| s.mem_proc as f64), "mem_max": max(&|s| s.mem_proc as f64),
+        "patients_min": ring.iter().map(|s| s.connected).min().unwrap_or(0), "patients_max": ring.iter().map(|s| s.connected).max().unwrap_or(0),
+        "patients_avg": avg(&|s| s.connected as f64),
+    });
+    let from = now_s() - 300;
+    let (incidents, by_kind) = incidents_since(m, from);
+    serde_json::json!({
+        "range": "5min", "from": from, "to": now_s(), "bucket_s": 2, "source": "memory",
+        "points": points, "totals": totals,
+        "coverage": { "expected_minutes": 5, "sampled_minutes": ring.len() as f64 * SAMPLE_MS as f64 / 60_000.0,
+                      "expected_samples": RECENT_CAP, "sampled_samples": ring.len(),
+                      "percent": (ring.len() as f64 / RECENT_CAP as f64 * 100.0).min(100.0) },
+        "incidents": incidents, "incident_counts": by_kind,
+    })
+}
+
+/// 사건 목록(최근 200)과 종류별 수
+fn incidents_since(m: &Metrics, from: i64) -> (Vec<serde_json::Value>, serde_json::Map<String, serde_json::Value>) {
+    let Ok(db) = m.db.lock() else { return (Vec::new(), serde_json::Map::new()) };
+    let incidents: Vec<serde_json::Value> = db
+        .prepare("SELECT ts, kind, detail, value FROM incidents WHERE ts >= ?1 ORDER BY ts DESC LIMIT 200")
+        .and_then(|mut s| {
+            let it = s.query_map(params![from], |r| {
+                Ok(serde_json::json!({ "ts": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "detail": r.get::<_, String>(2)?, "value": r.get::<_, i64>(3)? }))
+            })?;
+            Ok(it.flatten().collect())
+        })
+        .unwrap_or_default();
+    let counts = db
+        .prepare("SELECT kind, COUNT(*) FROM incidents WHERE ts >= ?1 GROUP BY kind")
+        .and_then(|mut s| {
+            let it = s.query_map(params![from], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            Ok(it.flatten().collect::<Vec<_>>())
+        })
+        .unwrap_or_default();
+    let mut by_kind = serde_json::Map::new();
+    for (k, v) in counts {
+        by_kind.insert(k, serde_json::json!(v));
+    }
+    (incidents, by_kind)
+}
+
 /// Time series + totals for the ops page.
 pub fn series(m: &Metrics, range: &str) -> serde_json::Value {
+    if range == "5min" {
+        return series_recent(m);
+    }
     let (back, use_min, bucket) = range_spec(range);
     let from = now_s() - back;
     let table = if use_min { "metrics_min" } else { "metrics_hour" };
@@ -293,7 +448,8 @@ pub fn series(m: &Metrics, range: &str) -> serde_json::Value {
                     MAX(disk_used), MAX(disk_total), MAX(store_bytes), MAX(store_patches),
                     AVG(patches), AVG(connected), MIN(connected), MAX(gw_total), AVG(gw_connected),
                     AVG(ingest_conns), AVG(ws_sessions), AVG(ws_subs), AVG(alarms_active),
-                    MAX(store_q_max), SUM(d_rx), SUM(d_tx), SUM(d_records), SUM(d_lost), SUM(d_lag), SUM(d_drops)
+                    MAX(store_q_max), SUM(d_rx), SUM(d_tx), SUM(d_records), SUM(d_lost), SUM(d_lag), SUM(d_drops),
+                    AVG(cpu_mhz), AVG(cpu_proc_norm)
              FROM metrics_min WHERE ts >= ?1",
             params![h],
         );
@@ -306,7 +462,8 @@ pub fn series(m: &Metrics, range: &str) -> serde_json::Value {
                 AVG(mem_used), MAX(mem_total), MAX(disk_used), MAX(disk_total), MAX(store_bytes),
                 AVG(patches), AVG(connected), MIN(connected), AVG(gw_connected), MAX(gw_total),
                 AVG(ws_sessions), AVG(ws_subs), AVG(alarms_active), MAX(store_q_max),
-                SUM(d_rx), SUM(d_tx), SUM(d_records), SUM(d_lost), SUM(d_lag), SUM(d_drops), COUNT(*)
+                SUM(d_rx), SUM(d_tx), SUM(d_records), SUM(d_lost), SUM(d_lag), SUM(d_drops), COUNT(*),
+                AVG(cpu_mhz), AVG(cpu_proc_norm)
          FROM {t} WHERE ts >= ?1 GROUP BY bt ORDER BY bt",
         b = bucket,
         t = table
@@ -326,6 +483,7 @@ pub fn series(m: &Metrics, range: &str) -> serde_json::Value {
             "rx": r.get::<_, Option<f64>>(20)?, "tx": r.get::<_, Option<f64>>(21)?, "records": r.get::<_, Option<f64>>(22)?,
             "lost": r.get::<_, Option<f64>>(23)?, "lag": r.get::<_, Option<f64>>(24)?, "drops": r.get::<_, Option<f64>>(25)?,
             "samples": r.get::<_, i64>(26)?,
+            "mhz": r.get::<_, Option<f64>>(27)?, "cpu_norm": r.get::<_, Option<f64>>(28)?,
         }))
     });
     let points: Vec<serde_json::Value> = rows.map(|it| it.flatten().collect()).unwrap_or_default();
@@ -333,7 +491,8 @@ pub fn series(m: &Metrics, range: &str) -> serde_json::Value {
     // totals over the whole range, straight from the minute table when it covers it
     let tot_sql = format!(
         "SELECT SUM(d_rx), SUM(d_tx), SUM(d_records), SUM(d_lost), SUM(d_lag), SUM(d_drops), COUNT(*),
-                AVG(cpu_proc), MAX(cpu_proc_max), AVG(mem_proc), MAX(mem_proc), MIN(connected), MAX(connected), AVG(connected)
+                AVG(cpu_proc), MAX(cpu_proc_max), AVG(mem_proc), MAX(mem_proc), MIN(connected), MAX(connected), AVG(connected),
+                AVG(cpu_proc_norm), AVG(cpu_mhz)
          FROM {t} WHERE ts >= ?1",
         t = table
     );
@@ -346,6 +505,7 @@ pub fn series(m: &Metrics, range: &str) -> serde_json::Value {
                 "cpu_avg": r.get::<_, Option<f64>>(7)?, "cpu_max": r.get::<_, Option<f64>>(8)?,
                 "mem_avg": r.get::<_, Option<f64>>(9)?, "mem_max": r.get::<_, Option<f64>>(10)?,
                 "patients_min": r.get::<_, Option<f64>>(11)?, "patients_max": r.get::<_, Option<f64>>(12)?, "patients_avg": r.get::<_, Option<f64>>(13)?,
+                "cpu_norm_avg": r.get::<_, Option<f64>>(14)?, "mhz_avg": r.get::<_, Option<f64>>(15)?,
             }))
         })
         .unwrap_or(serde_json::json!({}));

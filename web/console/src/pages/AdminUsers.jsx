@@ -47,6 +47,7 @@ export default function AdminUsers() {
           <button onClick={() => { navigator.clipboard?.writeText(notice.pw) }}>복사</button><button onClick={() => setNotice(null)}>닫기</button>
         </div>
       )}
+      {me?.user?.role === 'super_admin' && <TestPins tname={tname} />}
       <table className="tbl adm-tbl">
         <thead><tr><th>아이디</th><th>이름</th><th>역할</th><th>소속 병원</th><th>담당 병원</th><th>상태</th><th>마지막 로그인</th><th /></tr></thead>
         <tbody>
@@ -116,5 +117,56 @@ function UserForm({ user, data, onClose, onSaved }) {
         <div className="toolbar"><span className="spacer" /><button onClick={onClose}>취소</button><button className="primary" onClick={save}>{isNew ? '만들기' : '저장'}</button></div>
       </div>
     </div>
+  )
+}
+
+/**
+ * 시험용 계정 PIN (수퍼 어드민만). 로그인 화면의 PIN 8자리 — 계정마다 하나씩, 비우면 기본 PIN.
+ * 수퍼 어드민 본인의 PIN 도 여기서 바꾼다. 저장하면 다음 로그인부터 적용된다.
+ */
+function TestPins({ tname }) {
+  const [open, setOpen] = useState(true) // 수퍼 어드민이 계정 화면을 열면 바로 보이게
+  const [data, , refresh] = usePoll(() => (open ? api.admin.testPins() : Promise.resolve(null)), 30000, [open])
+  const [def, setDef] = useState('')
+  const [pins, setPins] = useState({}) // id → 입력값 ('' = 기본)
+  const [msg, setMsg] = useState('')
+  const [dirty, setDirty] = useState(false)
+  const len = data?.pin_len || 8
+  React.useEffect(() => { if (data && !dirty) { setDef(data.default || ''); const m = {}; for (const a of data.accounts || []) m[a.id] = a.custom ? a.pin : ''; setPins(m) } }, [data, dirty])
+  const digits = (v) => v.replace(/\D/g, '').slice(0, len)
+  const save = async () => {
+    if (def.length !== len) { setMsg(`기본 PIN 은 숫자 ${len}자리여야 합니다`); return }
+    for (const [id, v] of Object.entries(pins)) if (v && v.length !== len) { setMsg(`계정 PIN 은 숫자 ${len}자리이거나 비워야 합니다`); return }
+    try { await api.admin.saveTestPins({ default: def, pins }); setDirty(false); setMsg('저장했습니다. 다음 로그인부터 적용됩니다.'); refresh?.() } catch (e) { setMsg('저장 실패: ' + e.message) }
+  }
+  if (!open) return <div className="adm-notice" style={{ justifyContent: 'space-between' }}><span>로그인 화면의 <b>시험용 계정 PIN</b>(8자리)을 계정마다 정할 수 있습니다. 수퍼 어드민 본인 PIN 도 여기서 바꿉니다.</span><button onClick={() => setOpen(true)}>PIN 설정 열기</button></div>
+  return (
+    <section className="adm-pins">
+      <div className="toolbar" style={{ marginBottom: 8 }}>
+        <h3 style={{ margin: 0 }}>시험용 계정 PIN <small className="muted">로그인 화면 PIN 8자리 · 계정마다 하나 · 수퍼 어드민 본인 포함</small></h3>
+        <label className="muted small">기본 PIN <input className="mono" style={{ width: 120 }} inputMode="numeric" maxLength={len} value={def} onChange={(e) => { setDef(digits(e.target.value)); setDirty(true) }} /></label>
+        <span className="muted small">계정 칸을 비우면 기본 PIN 을 씁니다. 출고값 {data?.env_default}.</span>
+        <span className="spacer" />
+        <button className="primary" disabled={!dirty} onClick={save}>PIN 저장</button>
+        {dirty && <button onClick={() => { setDirty(false); refresh?.() }}>되돌리기</button>}
+        <button onClick={() => setOpen(false)}>닫기</button>
+        {msg && <span className="muted small">{msg}</span>}
+      </div>
+      <table className="tbl adm-tbl">
+        <thead><tr><th>아이디</th><th>이름</th><th>역할</th><th>병원</th><th>PIN (비우면 기본)</th><th>적용 중</th></tr></thead>
+        <tbody>
+          {(data?.accounts || []).map((a) => (
+            <tr key={a.id}>
+              <td className="mono"><b>{a.username}</b>{a.me && <span className="tag small ok">나</span>}</td>
+              <td>{a.name}</td>
+              <td><span className={'role-tag r-' + a.role}>{a.role_label}</span></td>
+              <td>{a.tenant_id ? `${a.tenant_id} · ${a.tenant_name || tname(a.tenant_id)}` : <span className="muted">플랫폼</span>}</td>
+              <td><input className="mono" style={{ width: 130 }} inputMode="numeric" maxLength={len} placeholder={`기본 (${def || data?.default})`} value={pins[a.id] ?? ''} onChange={(e) => { setPins({ ...pins, [a.id]: digits(e.target.value) }); setDirty(true) }} /></td>
+              <td className="mono">{pins[a.id] || def || data?.default}{!(pins[a.id]) && <span className="muted small"> (기본)</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   )
 }

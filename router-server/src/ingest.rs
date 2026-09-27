@@ -265,6 +265,17 @@ fn finish_records(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>, m
     if frame.records.is_empty() {
         return ops;
     }
+    // A NACK answer closes gaps that were already added to the lost counter when they were detected (one patch-seq
+    // per patch per frame — a pace-mark continuation is a second record of the same patch, so count patches, not
+    // records). Credit them back so "lost" means "not recovered".
+    if verdict == SeqVerdict::Recovered {
+        let mut ids: Vec<u32> = frame.records.iter().map(|r| r.patch_id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        let n = ids.len() as u64;
+        state.gateways.totals.patch_seq_recovered.fetch_add(n, Ordering::Relaxed);
+        let _ = state.total_lost_packets.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| Some(v.saturating_sub(n)));
+    }
     // Nobody consumes stream packets without an analysis server or a WS session: update the registry row
     // from the raw record and skip building EcgPacket (samples, blob, JSON) for 10k records/s.
     let analysis = state.analysis_up();

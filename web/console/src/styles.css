@@ -705,9 +705,11 @@ canvas.accel-plot { width: 100%; display: block; border-radius: 6px; }
 .login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .login-brand b { display: block; font-size: 20px; }
 .login-brand small { color: var(--muted); }
-.login-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px 12px; align-items: end; }
-.login-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
-.login-form input { font-size: 15px; padding: 8px 10px; color: var(--text); }
+.login-form { display: grid; grid-template-columns: 120px 1fr 1fr auto; gap: 10px 12px; align-items: end; }
+.login-form .login-pin { letter-spacing: 2px; text-align: center; }
+.login-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); min-width: 0; }
+/* 입력란은 자기 칸에 맞춘다 — 기본 너비(약 20ch)가 120px PIN 칸을 넘쳐 아이디 칸 밑으로 깔리던 문제 */
+.login-form input { font-size: 15px; padding: 8px 10px; color: var(--text); width: 100%; min-width: 0; box-sizing: border-box; }
 .login-form button { height: 38px; padding: 0 22px; font-size: 15px; }
 .login-form .err { grid-column: 1 / -1; margin: 0; }
 @media (max-width: 700px) { .login-form { grid-template-columns: 1fr; } }
@@ -988,6 +990,14 @@ td.ok { color: var(--ok); }
 .ctl-maint { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; padding: 12px 16px; border: 1px dashed var(--line); border-radius: 12px; margin-bottom: 14px; background: var(--panel); }
 .ctl-maint.on { border-style: solid; border-color: var(--warn, #d97706); }
 .ctl-maint p { margin: 4px 0 0; }
+.ctl-reset { border-color: var(--err, #dc2626); align-items: flex-start; }
+.ctl-reset.on { border-style: solid; }
+.ctl-reset-steps { margin: 8px 0 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.ctl-reset-steps li .ico { display: inline-block; width: 1.2em; color: var(--muted); }
+.ctl-reset-steps li.run .ico { color: var(--warn, #d97706); }
+.ctl-reset-steps li.ok .ico { color: var(--ok, #16a34a); }
+.ctl-reset-steps li.fail { color: var(--err, #dc2626); }
+.ctl-reset-steps li.fail .ico { color: var(--err, #dc2626); }
 .ctl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
 .ctl-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--panel); display: flex; flex-direction: column; gap: 8px; }
 .ctl-card.off { border-color: var(--warn, #d97706); box-shadow: inset 4px 0 var(--warn, #d97706); }

@@ -57,9 +57,9 @@ export default function Dashboard({ alarms }) {
         <Tile label="패치 (환자)" value={fmtNum(stats?.channels_connected ?? stats?.channel_count)} sub={`전체 행 ${fmtNum(stats?.channel_count)} · 저장 중 ${fmtNum(stats?.store_patches)}`} />
         {sys && <Tile label="수신" value={rate ? `${fmtNum(Math.round(rate.frames))} fr/s` : '—'} sub={rate ? `${fmtNum(Math.round(rate.records))} rec/s · ${fmtBytes(rate.bytes)}/s` : ''} />}
         {sys && <Tile label="송신 (WS·분석)" value={rate ? `${fmtBytes(rate.tx)}/s` : '—'} sub={`누적 ${fmtBytes(stats?.total_tx_bytes)}`} />}
-        {sys && <Tile label="유실 레코드" value={fmtNum(stats?.total_lost_packets)} sub={`NACK ${fmtNum(g.nack_tx)} · 복구 ${fmtNum(g.recovered)} · 재전송 실패 ${fmtNum(g.resend_lost)}`} cls={g.resend_lost ? 'warn' : ''} />}
+        {sys && <Tile label="유실 레코드" value={fmtNum(stats?.total_lost_packets)} sub={`NACK ${fmtNum(g.nack_tx)} · 복구 ${fmtNum(g.recovered)}프레임${g.recovered_records != null ? `/${fmtNum(g.recovered_records)}레코드` : ''} · 재전송 실패 ${fmtNum(g.resend_lost)}`} cls={g.resend_lost ? 'warn' : ''} />}
         <Tile label="알람" value={fmtNum(s.active)} sub={`위험 ${s.critical || 0} · 높음 ${s.high || 0} · 중간 ${s.medium || 0} · 낮음 ${s.low || 0}`} cls={s.critical ? 'crit' : s.high ? 'err' : ''} />
-        {sys && <Tile label="CPU / 메모리" value={stats ? `${stats.cpu_percent.toFixed(0)}% / ${memPct}%` : '—'} sub={`라우터 RSS ${fmtBytes(stats?.mem_process_bytes)}`} cls={stats && (stats.cpu_percent > 70 || memPct > 80) ? 'warn' : ''} />}
+        {sys && <Tile label="CPU / 메모리" value={stats ? `${stats.cpu_percent.toFixed(0)}% / ${memPct}%` : '—'} sub={`라우터 ${stats?.cpu_process_percent?.toFixed(0) ?? '—'}%${stats?.cpu_mhz ? ` (${(stats.cpu_mhz / 1000).toFixed(1)} GHz · ${stats.cpu_ref_mhz / 1000} GHz 환산 ${stats.cpu_process_percent_norm.toFixed(0)}%)` : ''} · RSS ${fmtBytes(stats?.mem_process_bytes)}`} cls={stats && (stats.cpu_percent > 70 || memPct > 80) ? 'warn' : ''} />}
         {sys && <Tile label="저장소" value={fmtBytes(stats?.wave_store_bytes)} sub={`디스크 사용 ${diskPct}% · 여유 ${fmtBytes(stats?.disk_free_bytes)} · 큐 드롭 ${fmtNum(stats?.queue_dropped_wave)}`} cls={stats?.queue_dropped_wave ? 'err' : diskPct > 85 ? 'warn' : ''} />}
         {sys && <Tile label="가동 시간" value={fmtDur(stats?.uptime_s)} sub={`분석 서버 ${stats?.analysis_connected ? '연결' : '패스스루'}`} />}
       </section>

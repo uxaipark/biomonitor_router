@@ -10,6 +10,9 @@ pgrep -x router-server >/dev/null && { pkill -KILL -x router-server; sleep 0.5; 
 # 게이트웨이 2,000대 + 저장 파일 + 웹소켓: 셸 기본 1024 로는 accept 가 EMFILE 로 실패한다
 ulimit -n 65535 2>/dev/null || ulimit -n "$(ulimit -Hn)"
 mkdir -p data/store
+# 장비별 덮어쓰기(커밋 안 됨): data/router.env 에 KEY=VALUE 를 적으면 아래 기본값보다 우선한다 (예: ROUTER_STORE_MAX_GB=400)
+# shellcheck disable=SC1091
+[ -f data/router.env ] && set -a && . data/router.env && set +a
 export ROUTER_INGEST_ADDR=${ROUTER_INGEST_ADDR:-0.0.0.0:9100}
 export ROUTER_HTTP_ADDR=${ROUTER_HTTP_ADDR:-0.0.0.0:7300}
 export ROUTER_STORE_DIR=${ROUTER_STORE_DIR:-$PWD/data/store}

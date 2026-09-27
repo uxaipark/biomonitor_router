@@ -69,7 +69,7 @@ export default function BiosignalAdmin() {
             디스크 여유가 비상 기준 아래로 떨어질 때만 백업 안 된 파일을 지우고 사건으로 남깁니다.
           </p>
           <div className="tiles">
-            <div className="tile"><div className="tile-label">로컬 저장</div><div className="tile-value">{st ? fmtBytes(st.store_bytes) : '—'}</div><div className="tile-sub">디스크 {st ? `${fmtBytes(diskUsed)} / ${fmtBytes(st.disk_total)} (${diskPct}%)` : '—'}</div></div>
+            <div className={'tile' + (st?.store_cap && st.store_bytes > st.store_cap ? ' warn' : '')}><div className="tile-label">로컬 저장</div><div className="tile-value">{st ? fmtBytes(st.store_bytes) : '—'}{st?.store_cap ? <small> / 상한 {fmtBytes(st.store_cap)} ({Math.round(st.store_bytes / st.store_cap * 100)}%)</small> : st ? <small> / 상한 없음</small> : null}</div><div className="tile-sub">디스크 {st ? `${fmtBytes(diskUsed)} / ${fmtBytes(st.disk_total)} (${diskPct}%)` : '—'}</div></div>
             <div className={'tile' + (p.files > 2000 ? ' warn' : '')}><div className="tile-label">백업 대기</div><div className="tile-value">{p.files?.toLocaleString() ?? '—'}<small> 파일</small></div><div className="tile-sub">{fmtBytes(p.bytes || 0)} · 가장 오래된 {hourLabel(p.oldest)}{p.unsealed_files ? ` · 무결성 확인 중 ${p.unsealed_files.toLocaleString()}` : ''}{p.bad_sealed_files ? ` · CRC 오류 파일 ${p.bad_sealed_files}` : ''}</div></div>
             <div className="tile"><div className="tile-label">백업 완료 (삭제 가능)</div><div className="tile-value">{p.safe_files?.toLocaleString() ?? '—'}<small> 파일</small></div><div className="tile-sub">{fmtBytes(p.safe_bytes || 0)} · 로컬 전체 {p.local_files?.toLocaleString() ?? '—'}개</div></div>
             <div className={'tile' + (st?.blocked_bytes ? ' warn' : '')}><div className="tile-label">상한 초과 보존</div><div className="tile-value">{fmtBytes(st?.blocked_bytes || 0)}</div><div className="tile-sub">백업 전이라 지우지 못한 용량</div></div>
@@ -130,7 +130,7 @@ export default function BiosignalAdmin() {
           </div>
         </section>
 
-        {st && <PolicyCard policy={st.policy} nTargets={Math.max(1, enabled)} onSaved={refresh} />}
+        {st && <PolicyCard policy={st.policy} nTargets={Math.max(1, enabled)} onSaved={refresh} capEnvGb={st.store_cap_env_gb} diskTotal={st.disk_total} />}
 
         {st?.targets?.length > 0 && <BackupCatalog targets={st.targets} />}
 
@@ -162,7 +162,7 @@ function Seg({ value, options, onChange }) {
   return <span className="seg wrap">{options.map(([v, l]) => <button key={String(v)} className={value === v ? 'active' : ''} onClick={() => onChange(v)}>{l}</button>)}</span>
 }
 
-function PolicyCard({ policy, nTargets, onSaved }) {
+function PolicyCard({ policy, nTargets, onSaved, capEnvGb, diskTotal }) {
   const [p, setP] = useState(policy)
   const [msg, setMsg] = useState('')
   const [dirty, setDirty] = useState(false)
@@ -183,6 +183,11 @@ function PolicyCard({ policy, nTargets, onSaved }) {
             환자(패치) 1명당 이 시간마다 파일 하나. 파일 1개 ≈ {(3.6 * (p.block_hours ?? 2)).toFixed(1)} MB(비압축, 실측 시간당 약 3.6 MB),
             동시 2,000명이면 하루 {Math.round((2000 * 24) / (p.block_hours ?? 2)).toLocaleString()}개 · 2년 {Math.round((2000 * 24 * 730) / (p.block_hours ?? 2) / 10000) / 100}백만 개.
             길게 잡을수록 파일 수는 줄고, 봉인·백업은 그 단위가 끝난 뒤에 시작합니다. 바꾸면 다음 기록부터 적용됩니다(이미 있는 파일은 그대로).
+          </div></div>
+        <label>로컬 저장 상한</label>
+        <div>{num('store_max_gb')} GB <span className="muted">— 0 = 런처 값(<code>ROUTER_STORE_MAX_GB</code>, 지금 {capEnvGb ? `${capEnvGb} GB` : '무제한'}){diskTotal ? ` · 디스크 ${Math.round(diskTotal / 2 ** 30)} GB` : ''}</span>
+          <div className="muted">
+            {(() => { const gb = p.store_max_gb > 0 ? p.store_max_gb : capEnvGb; if (!gb) return '상한 없음 — 디스크가 찰 때까지 보존합니다.'; const h = gb / 8; return `이 상한에 닿으면 오래된 파일부터 지웁니다(백업 대상이 있으면 백업이 끝난 파일만). 환자 2,000명 전 채널(약 8 GB/h)이면 로컬에 약 ${h >= 48 ? `${(h / 24).toFixed(1)}일` : `${Math.round(h)}시간`}치가 남고, 그 구간은 백업과 이중으로 보관됩니다. 저장 즉시 적용(다음 정리 주기, 1분 안).` })()}
           </div></div>
         <label>필요 사본 수</label>
         <div><Seg value={p.copies} options={copies} onChange={(v) => set('copies', v)} />

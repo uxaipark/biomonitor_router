@@ -29,7 +29,8 @@
   에뮬레이터 저장소의 파이썬 초안 `router/store.py` 와 바이트 호환(`verify_file()` 로 교차 검증됨).
   패치별 저장 단위(기본 2시간, 운영관리 › 데이터 관리) 파일. 닫히면 무결성 봉인(`<key>.sum`: 항목 CRC 확인 + 파일 CRC-32·SHA-256)[+ gzip(`ROUTER_STORE_GZIP`)],
   봉인된 파일만 백업. `ROUTER_STORE_MAX_GB` 초과 시 가장 오래된 파일부터 삭제.
-* **NACK 정책** — 게이트웨이당 0.5 s 에 1회, 같은 seq 최대 3회, 한 번에 200 프레임, 10 s 미응답 → `resend_lost`.
+* **NACK 정책** — 게이트웨이당 0.5 s 에 1회(그 안에 생긴 갭은 버리지 않고 대기시켰다가 다음 프레임/1 Hz 하우스키핑 때 묶어서 요청), 같은 seq 최대 3회, 한 번에 200 프레임, 10 s 미응답 → `resend_lost`.
+  대시보드 '유실 레코드'(`total_lost_packets`)는 갭 감지 때 더하고 재전송 프레임이 도착하면 그만큼 되돌린다 = **복구되지 않은** 레코드(`gateways.recovered_records` 가 되돌린 양).
   CRC 불일치 프레임은 헤더 seq 로 재요청. 복구 프레임의 패치 seq 는 이상으로 세지 않음.
 * **연속 레코드** — 에뮬레이터는 페이스마크(ch 10)를 같은 패치·같은 seq 의 두 번째 레코드로 보냄.
   라우터는 이를 `continuation_records` 로 세고 중복으로 취급하지 않음(저장은 그대로).
@@ -60,7 +61,7 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 |---|---|---|
 | `ROUTER_INGEST_ADDR` | `0.0.0.0:9100` | 게이트웨이 TCP 수신 (에뮬레이터 `transport.target_port`) |
 | `ROUTER_HTTP_ADDR` | `0.0.0.0:7300` | REST + WS |
-| `ROUTER_STORE_DIR` / `ROUTER_STORE_MAX_GB` | `data/store` / `200` | 패치 저장소 루트 / 상한 (0 = 무제한) |
+| `ROUTER_STORE_DIR` / `ROUTER_STORE_MAX_GB` | `data/store` / `200` | 패치 저장소 루트 / 상한 (0 = 무제한). 상한은 운영관리 › 데이터 관리 › 정책의 "로컬 저장 상한"(`store_max_gb`, 0 = 이 값)이 우선하며 재시작 없이 적용 |
 | `ROUTER_STORE_GZIP` | `1` | 닫힌 시간 파일 gzip 수준. `0` = 압축 안 함(SD 카드: 쓰기 +50 %·정각 CPU 20 % 버스트 회피). SSD 면 1 |
 | `ROUTER_DB_PATH` | `router.db` | 라우터 로컬 SQLite(그룹 정의 등 설정). 비어 있으면 `ROUTER_GROUPS_PATH`(예전 groups.json)를 1회 가져온다. 런처 기본 `data/router.db` |
 | `ROUTER_EMULATOR_ADDR` | (없음) | 에뮬레이터 HTTP. 설정 시 5 s 상태 보고(`POST /api/v1/router/status`) + 30 s EMR 동기화 + `/api/emr/*` 프록시 |
@@ -68,6 +69,8 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 | `ROUTER_ANALYSIS_ADDR` / `ROUTER_DB_ADDR` | `127.0.0.1:7100` / `:7601` | 레거시 분석·DB 링크 (없으면 재시도만) |
 | `ROUTER_TENANT_ID` | `H001` | 이 라우터가 데이터를 받는 병원(테넌트) ID. 처음 실행 때 `router.db` 에 기록되고 이후엔 DB 값 |
 | `ROUTER_DEV_MODE` | `1` | 개발 모드 초기값(수퍼 어드민 전체 권한, 로그인 화면에 시험용 계정 표시). 이후엔 운영관리 › 권한 설정의 스위치 |
+| `ROUTER_CPU_REF_MHZ` | `2000` | CPU 환산 기준 클럭(MHz). `/api/stats.cpu_process_percent_norm` = 라우터 CPU × 최근 2 s 평균 클럭(사용 시간 가중, cpufreq) ÷ 기준 클럭. 가변 클럭 장비끼리 비교용, 원래 값(`cpu_process_percent`)은 그대로 |
+| `ROUTER_TEST_PIN` | `95305449` | 로그인 화면 PIN(8자리 숫자)의 출고 기본값. **시험용 계정**(개발 모드 임시 비밀번호 계정)은 비밀번호가 맞아도 PIN 이 같아야 로그인된다(일반 계정은 비워도 됨). 기본 PIN 과 계정별 PIN 은 수퍼 어드민이 관리 › 계정 › 'PIN 설정' 에서 바꾼다(본인 것 포함, `router.db` 에 저장, 저장값 > 환경변수 > 출고값) |
 | `ROUTER_SERVICE_TOKEN` | (없음) | 스크립트용 Bearer 토큰. 없으면 `router.db` 옆 `service_token`(0600)을 처음 실행 때 만든다 |
 
 ### 서비스 제어 (운영관리 › 서비스 제어, 2026-09-27)
@@ -75,6 +78,11 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 게이트웨이 수신 · 파형 저장 · 실시간 스트리밍 · 알람 알림 · 백업 · EMR 전송 · 에뮬레이터 동기화를 한 화면에서 멈추고 켠다(`/api/control/*`, `src/control.rs`).
 멈출 때 사유 필수·자동 재개 선택, 알람은 알림 억제만(판정·기록 계속, 최대 60분, 위험 등급 유지 선택), 유지보수 모드 = 백업·EMR·알람 억제 한 번에.
 멈춘 동안 모든 화면 위에 띠, 감사 기록, 재시작해도 유지(알람 억제만 풀림). 권한 `page.service_control`: 수퍼 어드민·시스템 관리자·병원 IT 매니저 편집.
+
+**가동 초기화**(같은 화면, `POST /api/control/reset`, `src/reset.rs`): 모든 서비스를 멈춘 상태에서 로컬 파형 저장소와 **설정된 모든 원격 백업 대상의 `patches/`** 를 지우고,
+통계를 초기화(수신·송신·유실 카운터, 게이트웨이 누계·이상 카운터, 백업 대상별 통계, 운영 통계, 알람, 패치/게이트웨이 표)한 뒤 서비스를 다시 켠다(설정·계정·백업 대상·정책·그룹은 유지). 순서: 멈춤(EMR→동기화→백업→스트리밍→수신→저장) → 연결 정리 → 로컬 삭제 →
+원격 삭제(대상별 순서대로, 실패해도 계속) → 카운터·통계·알람·표 → 다시 켬(저장→동기화→수신→스트리밍→EMR→백업). 운영 모드에서는 확인 문구 `가동 초기화` 를 그대로 입력하고 사유를 적어야 하며(개발 모드는 서비스 제어와 같이 둘 다 생략, 브라우저 확인 대화만),
+권한은 `action.backup_purge`(기본 수퍼 어드민). 진행 상태는 `/api/control/status.reset` 에 단계별로 실리고 감사 기록·이벤트에 시작/완료/일부 실패가 남는다.
 
 ### 로그인 · 권한 · 병원(테넌트) (2026-09-24)
 

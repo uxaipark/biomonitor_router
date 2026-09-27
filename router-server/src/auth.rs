@@ -189,6 +189,14 @@ const K_DEV: &str = "auth.dev_mode";
 const K_SITE: &str = "site.tenant_id";
 const GLOBAL: &str = "*";
 const SESSION_MS: u64 = 12 * 3600 * 1000;
+/// 시험용 계정 PIN 자릿수 / 기본값 (`ROUTER_TEST_PIN` 으로 변경)
+pub const TEST_PIN_LEN: usize = 8;
+pub const DEFAULT_TEST_PIN: &str = "95305449";
+const K_TEST_PIN: &str = "test_pin_default";
+
+fn valid_pin(v: &str) -> bool {
+    v.len() == TEST_PIN_LEN && v.bytes().all(|b| b.is_ascii_digit())
+}
 pub const COOKIE: &str = "bm_session";
 
 #[derive(Clone, Debug, Serialize)]
@@ -207,6 +215,9 @@ pub struct User {
     pw: String,
     #[serde(skip)]
     test_pw: Option<String>,
+    /// 시험용 계정별 PIN(8자리). None = 기본 PIN 사용
+    #[serde(skip)]
+    test_pin: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -402,7 +413,8 @@ impl Auth {
             }
         }
         let mut m = HashMap::new();
-        if let Ok(mut st) = db.prepare("SELECT id, username, name, role, tenant_id, pw, active, must_change, test_pw, created_ms, last_login_ms FROM users") {
+        let _ = db.execute("ALTER TABLE users ADD COLUMN test_pin TEXT", []); // 2026-09-27: 계정별 PIN (있으면 오류 무시)
+        if let Ok(mut st) = db.prepare("SELECT id, username, name, role, tenant_id, pw, active, must_change, test_pw, created_ms, last_login_ms, test_pin FROM users") {
             if let Ok(rows) = st.query_map([], |r| {
                 Ok(User {
                     id: r.get(0)?,
@@ -416,6 +428,7 @@ impl Auth {
                     test_pw: r.get(8)?,
                     created_ms: r.get::<_, i64>(9)? as u64,
                     last_login_ms: r.get::<_, Option<i64>>(10)?.map(|v| v as u64),
+                    test_pin: r.get::<_, Option<String>>(11)?.filter(|p| valid_pin(p)),
                     tenants: Vec::new(),
                 })
             }) {
@@ -570,7 +583,93 @@ impl Auth {
 
     /// 병원 ID + 아이디 + 비밀번호. 병원 계정은 자기 병원 ID 로만, 플랫폼 계정은 병원 ID 를 비우거나(플랫폼)
     /// 담당 병원 ID 로 들어온다(그 세션은 그 병원만). 어느 쪽이 틀렸는지는 알려 주지 않는다(계정 탐색 방지).
-    pub fn login(&self, tenant: &str, username: &str, password: &str) -> Result<(String, Principal, bool), String> {
+    /// 기본 PIN(8자리 숫자): 수퍼 어드민이 저장한 값(settings) → `ROUTER_TEST_PIN` → 95305449.
+    pub fn test_pin(&self) -> String {
+        if let Ok(db) = self.db.lock() {
+            if let Ok(v) = db.query_row("SELECT value FROM settings WHERE key = ?1", params![K_TEST_PIN], |r| r.get::<_, String>(0)) {
+                if valid_pin(&v) {
+                    return v;
+                }
+            }
+        }
+        let v = std::env::var("ROUTER_TEST_PIN").unwrap_or_default();
+        if valid_pin(&v) {
+            return v;
+        }
+        DEFAULT_TEST_PIN.to_string()
+    }
+
+    /// 이 시험용 계정에 맞는 PIN: 계정별 값이 있으면 그것, 없으면 기본 PIN
+    fn pin_for(&self, u: &User) -> String {
+        u.test_pin.clone().unwrap_or_else(|| self.test_pin())
+    }
+
+    /// 수퍼 어드민용: 기본 PIN 과 시험용 계정별 PIN 목록 (실제 PIN 값 포함 — 이 화면에서만)
+    pub fn test_pins(&self, p: &Principal) -> Result<serde_json::Value, String> {
+        if p.role != "super_admin" {
+            return Err("수퍼 어드민만 PIN 을 볼 수 있습니다".into());
+        }
+        let default = self.test_pin();
+        let tenants = self.tenants();
+        let users = self.users.read().unwrap();
+        let mut v: Vec<&User> = users.values().filter(|u| u.active && u.test_pw.is_some()).collect();
+        v.sort_by_key(|u| (role_idx(&u.role).unwrap_or(99), u.tenant_id.clone(), u.username.clone()));
+        let accounts: Vec<serde_json::Value> = v
+            .into_iter()
+            .map(|u| {
+                let tn = u.tenant_id.as_deref().and_then(|t| tenants.iter().find(|x| x.id == t)).map(|t| t.name.clone());
+                serde_json::json!({ "id": u.id, "username": u.username, "name": u.name, "role": u.role, "role_label": role_label(&u.role),
+                                    "tenant_id": u.tenant_id, "tenant_name": tn, "pin": self.pin_for(u), "custom": u.test_pin.is_some(), "me": u.id == p.user_id })
+            })
+            .collect();
+        Ok(serde_json::json!({ "default": default, "pin_len": TEST_PIN_LEN, "env_default": DEFAULT_TEST_PIN, "accounts": accounts }))
+    }
+
+    /// 수퍼 어드민용: 기본 PIN 과/또는 계정별 PIN 저장. 계정별 값이 빈 문자열이면 기본 PIN 을 쓰도록 되돌린다.
+    pub fn set_test_pins(&self, p: &Principal, default: Option<String>, pins: &std::collections::BTreeMap<i64, String>) -> Result<(), String> {
+        if p.role != "super_admin" {
+            return Err("수퍼 어드민만 PIN 을 바꿀 수 있습니다".into());
+        }
+        if let Some(d) = &default {
+            if !valid_pin(d) {
+                return Err(format!("기본 PIN 은 숫자 {TEST_PIN_LEN}자리여야 합니다"));
+            }
+        }
+        for (id, v) in pins {
+            if !v.is_empty() && !valid_pin(v) {
+                return Err(format!("계정 {id} 의 PIN 은 숫자 {TEST_PIN_LEN}자리여야 합니다 (비우면 기본 PIN)"));
+            }
+        }
+        let mut changed: Vec<String> = Vec::new();
+        {
+            let db = self.db.lock().unwrap();
+            if let Some(d) = &default {
+                db.execute("INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params![K_TEST_PIN, d])
+                    .map_err(|e| e.to_string())?;
+                changed.push("기본 PIN".into());
+            }
+            let mut users = self.users.write().unwrap();
+            for (id, v) in pins {
+                let Some(u) = users.get_mut(id) else { return Err(format!("계정 {id} 없음")) };
+                if u.test_pw.is_none() {
+                    return Err(format!("{} 은(는) 시험용 계정이 아닙니다", u.username));
+                }
+                let nv = if v.is_empty() { None } else { Some(v.clone()) };
+                if nv != u.test_pin {
+                    db.execute("UPDATE users SET test_pin = ?1 WHERE id = ?2", params![nv, id]).map_err(|e| e.to_string())?;
+                    u.test_pin = nv;
+                    changed.push(u.username.clone());
+                }
+            }
+        }
+        if !changed.is_empty() {
+            self.audit(&p.username, "", "test_pin", &format!("PIN 변경: {}", changed.join(", ")));
+        }
+        Ok(())
+    }
+
+    /// 로그인. `pin` 은 시험용 계정(임시 비밀번호가 있는 계정)에만 검사한다 — 일반 계정은 비워도 된다.
+    pub fn login(&self, tenant: &str, username: &str, password: &str, pin: &str) -> Result<(String, Principal, bool), String> {
         let tenant = tenant.trim().to_uppercase();
         let uname = username.trim().to_lowercase();
         let key = format!("{tenant}/{uname}");
@@ -598,7 +697,9 @@ impl Auth {
             let _ = verify_pw(password, &hash_pw("x")); // 계정 유무가 응답 시간으로 드러나지 않게
             false
         });
-        let Some(u) = user.filter(|u| ok && u.active) else {
+        // 시험용 계정은 비밀번호가 맞아도 고정 PIN(8자리)이 같아야 들어온다 (로그인 화면에 임시 비밀번호가 보이므로)
+        let pin_bad = ok && user.as_ref().map(|u| u.test_pw.is_some() && pin.trim() != self.pin_for(u)).unwrap_or(false);
+        let Some(u) = user.filter(|u| ok && !pin_bad && u.active) else {
             let mut f = self.fails.lock().unwrap();
             let e = f.entry(key.clone()).or_insert((0, now));
             if now - e.1 > 5 * 60_000 {
@@ -606,8 +707,8 @@ impl Auth {
             }
             e.0 += 1;
             drop(f);
-            self.audit(&uname, &tenant, "login_fail", "");
-            return Err("병원 ID·아이디·비밀번호를 확인하세요".into());
+            self.audit(&uname, &tenant, "login_fail", if pin_bad { "PIN" } else { "" });
+            return Err(if pin_bad { format!("시험용 계정은 PIN {TEST_PIN_LEN}자리가 맞아야 합니다") } else { "병원 ID·아이디·비밀번호를 확인하세요".into() });
         };
         self.fails.lock().unwrap().remove(&key);
         let ctx = if tenant.is_empty() { None } else { Some(tenant.clone()) };
@@ -1373,6 +1474,9 @@ fn requirement(path: &str, method: &axum::http::Method) -> Option<(Vec<&'static 
     if p == "/api/control/status" {
         return None; // 멈춘 서비스 띠는 모든 로그인 사용자에게
     }
+    if p == "/api/control/reset" {
+        return r(&["action.backup_purge"], 2); // 원격 백업까지 지우므로 백업 파일 전체 삭제 권한
+    }
     if p.starts_with("/api/control") {
         return r(&["page.service_control"], lv);
     }
@@ -1568,30 +1672,33 @@ mod tests {
     #[test]
     fn tenant_isolation_and_defaults() {
         let a = Auth::open(":memory:");
-        let (_, doc, _) = a.login("H002", "dr.kim", "Doctor!2026").unwrap();
+        let (_, doc, _) = a.login("H002", "dr.kim", "Doctor!2026", DEFAULT_TEST_PIN).unwrap();
         assert!(!doc.can_access("H001"), "H002 doctor must not reach H001 data");
-        let (_, sys, _) = a.login("", "sysadmin", "Sys!2026").unwrap();
+        let (_, sys, _) = a.login("", "sysadmin", "Sys!2026", DEFAULT_TEST_PIN).unwrap();
         assert!(sys.can_access("H001") && !sys.phi() && !sys.bio(), "system admin: all hospitals, masked");
-        let (_, nurse, _) = a.login("H001", "nurse.lee", "Nurse!2026").unwrap();
+        let (_, nurse, _) = a.login("H001", "nurse.lee", "Nurse!2026", DEFAULT_TEST_PIN).unwrap();
         assert!(nurse.phi() && nurse.bio() && nurse.can_access("H001") && !nurse.can_access("H002"));
-        assert!(a.login("H001", "dr.kim", "wrong").is_err());
-        assert!(a.login("", "dr.kim", "Doctor!2026").is_err(), "hospital account needs its hospital ID");
-        assert!(a.login("H009", "dr.kim", "Doctor!2026").is_err());
+        assert!(a.login("H001", "dr.kim", "wrong", DEFAULT_TEST_PIN).is_err());
+        // 시험용 계정은 비밀번호가 맞아도 PIN 이 틀리거나 비면 거부
+        assert!(a.login("H001", "dr.kim", "Doctor!2026", "00000000").is_err(), "wrong PIN");
+        assert!(a.login("H001", "dr.kim", "Doctor!2026", "").is_err(), "empty PIN");
+        assert!(a.login("", "dr.kim", "Doctor!2026", DEFAULT_TEST_PIN).is_err(), "hospital account needs its hospital ID");
+        assert!(a.login("H009", "dr.kim", "Doctor!2026", DEFAULT_TEST_PIN).is_err());
         // 플랫폼 계정이 병원을 골라 들어오면 그 병원 하나로 좁혀진다
-        let (_, r, _) = a.login("H002", "reseller1", "Resell!2026").unwrap();
+        let (_, r, _) = a.login("H002", "reseller1", "Resell!2026", DEFAULT_TEST_PIN).unwrap();
         assert!(r.can_access("H002") && !r.can_access("H001"));
-        let (_, s2, _) = a.login("H003", "sales1", "Sales!2026").unwrap();
+        let (_, s2, _) = a.login("H003", "sales1", "Sales!2026", DEFAULT_TEST_PIN).unwrap();
         assert!(s2.can_access("H003"));
-        assert!(a.login("H002", "sales1", "Sales!2026").is_err(), "sales1 is not assigned to H002");
+        assert!(a.login("H002", "sales1", "Sales!2026", DEFAULT_TEST_PIN).is_err(), "sales1 is not assigned to H002");
         // 같은 아이디가 병원마다 따로 — H001 의사와 H002 의사는 다른 계정
-        let (_, d1, _) = a.login("H001", "dr.kim", "Doctor!2026").unwrap();
+        let (_, d1, _) = a.login("H001", "dr.kim", "Doctor!2026", DEFAULT_TEST_PIN).unwrap();
         assert_ne!(d1.user_id, doc.user_id);
     }
 
     #[test]
     fn doctor_edits_only_nurse_staff_within_own_level() {
         let a = Auth::open(":memory:");
-        let (_, doc, _) = a.login("H001", "dr.kim", "Doctor!2026").unwrap();
+        let (_, doc, _) = a.login("H001", "dr.kim", "Doctor!2026", DEFAULT_TEST_PIN).unwrap();
         let mut m = Matrix::new();
         m.entry("nurse".into()).or_default().insert("page.alarms".into(), 1);
         m.entry("hospital_it".into()).or_default().insert("data.phi".into(), 2); // 무시되어야 함

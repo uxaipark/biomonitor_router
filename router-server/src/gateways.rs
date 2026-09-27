@@ -183,6 +183,9 @@ pub struct Totals {
     pub resend_lost: AtomicU64,
     pub dup_gw: AtomicU64,
     pub ctrl_rx: AtomicU64,
+    /// Records delivered by NACK answers — each one closes a patch-seq gap that was counted in `patch_seq_missing`
+    /// (and in the dashboard's lost counter) when it was detected, so the lost counter is credited back by this much.
+    pub patch_seq_recovered: AtomicU64,
 }
 
 macro_rules! inc {
@@ -220,6 +223,23 @@ impl GatewayTable {
 
     pub fn connected_count(&self) -> usize {
         self.gws.iter().filter(|g| g.connected).count()
+    }
+
+    /// 가동 초기화: 표와 누계(프레임·레코드·NACK·복구·이상 카운터 …)를 모두 비운다 (수신이 멈춘 상태에서 호출).
+    /// 지운 행 수를 돌려준다.
+    pub fn clear(&self) -> usize {
+        let n = self.gws.len();
+        self.gws.clear();
+        let t = &self.totals;
+        for a in [
+            &t.frames, &t.records, &t.keepalive, &t.meta, &t.meta_bad_json, &t.bad_crc, &t.bad_payload, &t.bad_magic,
+            &t.bad_version, &t.oversize, &t.garbage_bytes, &t.resync, &t.seq_gap, &t.seq_missing, &t.seq_dup, &t.seq_reorder,
+            &t.seq_restart, &t.patch_seq_gap, &t.patch_seq_missing, &t.patch_seq_dup, &t.patch_seq_reorder, &t.patch_seq_restart,
+            &t.patch_cont, &t.nack_tx, &t.recovered, &t.resend_lost, &t.dup_gw, &t.ctrl_rx, &t.patch_seq_recovered,
+        ] {
+            a.store(0, Ordering::Relaxed);
+        }
+        n
     }
 
     /// Record a frame header from connection `conn`. Returns the seq verdict and whether this gateway is new
@@ -266,6 +286,7 @@ impl GatewayTable {
 
     fn track_seq(&self, g: &mut GwEntry, seq: u32, new_conn: bool) -> SeqVerdict {
         let t = &self.totals;
+        self.flush_queued(g);
         if g.pending.remove(&seq).is_some() {
             g.recovered += 1;
             inc!(t, recovered);
@@ -337,12 +358,27 @@ impl GatewayTable {
                 fresh.push(q);
             }
         }
-        if fresh.is_empty() || g.last_nack.map(|t| now.duration_since(t) < NACK_MIN_GAP).unwrap_or(false) {
+        if fresh.is_empty() {
             return;
         }
-        let (a, b) = (fresh[0], *fresh.last().unwrap());
-        for q in &fresh {
+        if g.last_nack.map(|t| now.duration_since(t) < NACK_MIN_GAP).unwrap_or(false) {
+            // Inside the per-gateway 0.5 s window: don't drop the request — park the seqs as pending with 0 tries
+            // and send them, batched, on the next frame or housekeeping tick (`flush_queued`). Dropping them here
+            // left gaps that were never requested and never expired into `resend_lost` (MCOT WAN loss ≈ 1/s).
+            for q in &fresh {
+                g.pending.entry(*q).or_insert((now, 0));
+            }
+            return;
+        }
+        self.send_nack(g, &fresh, now);
+    }
+
+    /// Send one NACK covering `seqs` (min..max) and mark them as requested once more.
+    fn send_nack(&self, g: &mut GwEntry, seqs: &[u32], now: Instant) {
+        let (a, b) = (seqs[0], *seqs.last().unwrap());
+        for q in seqs {
             let e = g.pending.entry(*q).or_insert((now, 0));
+            e.0 = now; // the 10 s answer timeout counts from the request that was actually sent
             e.1 += 1;
         }
         g.last_nack = Some(now);
@@ -353,6 +389,23 @@ impl GatewayTable {
                 inc!(self.totals, nack_tx);
             }
         }
+    }
+
+    /// Seqs parked by the throttle (pending with 0 tries): request them once the 0.5 s window has passed.
+    fn flush_queued(&self, g: &mut GwEntry) {
+        let now = Instant::now();
+        if g.last_nack.map(|t| now.duration_since(t) < NACK_MIN_GAP).unwrap_or(false) {
+            return;
+        }
+        let mut queued: Vec<u32> = g.pending.iter().filter(|(_, p)| p.1 == 0).map(|(q, _)| *q).collect();
+        if queued.is_empty() {
+            return;
+        }
+        // Order by distance behind the newest seq so a wrap-around gap still forms one ascending window.
+        let head = g.last_seq.unwrap_or(0);
+        queued.sort_by_key(|q| std::cmp::Reverse(head.wrapping_sub(*q)));
+        queued.truncate(NACK_MAX_RANGE as usize);
+        self.send_nack(g, &queued, now);
     }
 
     pub fn on_status(&self, gw_id: u32, st: GwStatus) {
@@ -440,6 +493,7 @@ impl GatewayTable {
         let now = Instant::now();
         let mut newly_silent = Vec::new();
         for mut g in self.gws.iter_mut() {
+            self.flush_queued(&mut g);
             let before = g.pending.len();
             g.pending.retain(|_, (t0, _)| now.duration_since(*t0) < NACK_EXPIRE);
             let expired = (before - g.pending.len()) as u64;
@@ -553,7 +607,7 @@ impl GatewayTable {
             "down": down, "degraded": degraded, "silent": silent,
             "frames": l(&t.frames), "records": l(&t.records), "keepalive": l(&t.keepalive), "meta_blocks": l(&t.meta),
             "continuation_records": l(&t.patch_cont),
-            "nack_tx": l(&t.nack_tx), "recovered": l(&t.recovered), "resend_lost": l(&t.resend_lost),
+            "nack_tx": l(&t.nack_tx), "recovered": l(&t.recovered), "recovered_records": l(&t.patch_seq_recovered), "resend_lost": l(&t.resend_lost),
             "resend_pending": self.resend_pending(), "dup_gw_frames": l(&t.dup_gw),
             "anomalies": anomalies,
         })
@@ -566,6 +620,32 @@ mod tests {
 
     fn hdr(gw_id: u32, seq: u32) -> wire::Header {
         wire::Header { version: 1, flags: 0, gw_id, seq, ts_ms: 0, n_rec: 0, payload_len: 0 }
+    }
+
+    #[test]
+    fn gap_inside_nack_throttle_window_is_queued_not_dropped() {
+        let t = GatewayTable::new();
+        let (tx, mut rx) = mpsc::channel(64);
+        for s in 0..10 {
+            assert_eq!(t.on_frame(1, "a", &tx, &hdr(9, s)).0, SeqVerdict::Ok);
+        }
+        // First gap: NACK 10..11 goes out right away.
+        assert_eq!(t.on_frame(1, "a", &tx, &hdr(9, 12)).0, SeqVerdict::Gap(2));
+        assert_eq!(t.totals.nack_tx.load(Ordering::Relaxed), 1);
+        assert!(rx.try_recv().is_ok());
+        // Second gap within 0.5 s: no NACK yet, but 13..14 must be parked as pending (0 tries), not forgotten.
+        assert_eq!(t.on_frame(1, "a", &tx, &hdr(9, 15)).0, SeqVerdict::Gap(2));
+        assert_eq!(t.totals.nack_tx.load(Ordering::Relaxed), 1);
+        assert_eq!(t.resend_pending(), 4);
+        // Once the window has passed, the next frame flushes the parked seqs as one NACK.
+        std::thread::sleep(NACK_MIN_GAP + Duration::from_millis(20));
+        assert_eq!(t.on_frame(1, "a", &tx, &hdr(9, 16)).0, SeqVerdict::Ok);
+        assert_eq!(t.totals.nack_tx.load(Ordering::Relaxed), 2);
+        assert!(rx.try_recv().is_ok());
+        // Answers are recognised for both gaps.
+        assert_eq!(t.on_frame(1, "a", &tx, &hdr(9, 13)).0, SeqVerdict::Recovered);
+        assert_eq!(t.on_frame(1, "a", &tx, &hdr(9, 10)).0, SeqVerdict::Recovered);
+        assert_eq!(t.resend_pending(), 2);
     }
 
     #[test]

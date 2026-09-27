@@ -116,6 +116,7 @@ export default function MultiViewerTest() {
         <span className="stat"><small>표시 중인 환자 파형</small><b style={{ minWidth: '5ch' }}>{openPatients.toLocaleString()}</b><small>명</small></span>
         <span className="stat"><small>라우터 WS 세션</small><b style={{ minWidth: '3ch' }}>{stats?.ws_sessions ?? '—'}</b><small>구독 채널 {stats?.ws_subscribed_channels?.toLocaleString() ?? '—'}</small></span>
         <span className={'stat' + (stats?.cpu_process_percent > 150 ? ' warn' : '')}><small>라우터 CPU</small><b style={{ minWidth: '3ch' }}>{stats ? stats.cpu_process_percent.toFixed(0) : '—'}</b><small>% (1코어=100)</small></span>
+        {stats?.cpu_mhz > 0 && <span className="stat"><small>{stats.cpu_ref_mhz / 1000} GHz 환산</small><b style={{ minWidth: '3ch' }}>{stats.cpu_process_percent_norm.toFixed(0)}</b><small>% · 클럭 {(stats.cpu_mhz / 1000).toFixed(1)} GHz</small></span>}
         <span className={'stat' + (stats?.cpu_percent > 70 ? ' warn' : '')}><small>시스템 CPU</small><b style={{ minWidth: '3ch' }}>{stats ? stats.cpu_percent.toFixed(0) : '—'}</b><small>%</small></span>
         <span className="stat"><small>라우터 메모리</small><b style={{ minWidth: '9ch' }}>{stats ? fmtBytes(stats.mem_process_bytes) : '—'}</b></span>
         <span className={'stat' + (memPct > 80 ? ' warn' : '')}><small>시스템 메모리</small><b style={{ minWidth: '3ch' }}>{memPct ?? '—'}</b><small>% ({stats ? fmtBytes(stats.mem_sys_used_bytes) : '—'} / {stats ? fmtBytes(stats.mem_sys_total_bytes) : '—'})</small></span>

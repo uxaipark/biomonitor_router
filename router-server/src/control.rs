@@ -151,6 +151,8 @@ pub fn status(state: &AppState) -> serde_json::Value {
         "maintenance": book.values().any(|s| s.maintenance),
         // 개발 모드면 사유 없이 켜고 끌 수 있다 (운영 모드 = 사유 필수)
         "dev_mode": state.auth.dev_mode(),
+        // 가동 초기화 진행 상태 (서비스 제어 화면)
+        "reset": crate::reset::status(state),
     })
 }
 

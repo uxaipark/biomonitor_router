@@ -207,6 +207,9 @@ pub struct Policy {
     /// 파형 파일 저장 단위(시간): 패치마다 이 시간 단위로 파일 하나 (1·2·3·4·6·8·12·24). 바꾸면 다음 기록부터.
     #[serde(default = "d_block_hours")]
     pub block_hours: u32,
+    /// 로컬 파형 저장 상한(GB). 0 = 런처 값(`ROUTER_STORE_MAX_GB`) 사용. 바꾸면 다음 정리 주기부터(약 1분 안).
+    #[serde(default)]
+    pub store_max_gb: u32,
 }
 fn d_block_hours() -> u32 {
     2
@@ -638,6 +641,7 @@ impl Backup {
         let p = self.policy.read().unwrap();
         EMERGENCY_FREE_PCT.store(p.emergency_free_pct as u64, Ordering::Relaxed);
         crate::patch_store::BLOCK_HOURS.store(p.block_hours as u64, Ordering::Relaxed);
+        crate::patch_store::STORE_CAP_OVERRIDE_GB.store(p.store_max_gb as u64, Ordering::Relaxed);
         ACTIVE.store(self.targets.read().unwrap().iter().any(|t| t.enabled), Ordering::Relaxed);
     }
 
@@ -747,6 +751,8 @@ impl Backup {
             "unbacked_deleted": UNBACKED_DELETED.load(Ordering::Relaxed),
             "unbacked_deleted_bytes": UNBACKED_DELETED_BYTES.load(Ordering::Relaxed),
             "store_bytes": crate::patch_store::STORE_BYTES.load(Ordering::Relaxed),
+            "store_cap": crate::patch_store::cap_bytes(),
+            "store_cap_env_gb": crate::patch_store::STORE_CAP_ENV.load(Ordering::Relaxed) >> 30,
             "disk_total": disk_total,
             "disk_free": disk_free,
             "log": *self.log.lock().unwrap(),
@@ -776,11 +782,23 @@ impl Backup {
         if !crate::patch_store::BLOCK_CHOICES.contains(&p.block_hours) {
             return Err(format!("저장 단위는 {:?} 시간 중 하나", crate::patch_store::BLOCK_CHOICES));
         }
+        if p.store_max_gb > 0 {
+            let (vol, _) = volume_stats(&self.root);
+            let vol_gb = vol >> 30;
+            if vol_gb > 0 && p.store_max_gb as u64 > vol_gb {
+                return Err(format!("저장 상한 {} GB 가 디스크 용량 {} GB 보다 큽니다", p.store_max_gb, vol_gb));
+            }
+        }
+        let before = crate::patch_store::cap_bytes();
         if let Ok(j) = serde_json::to_string(&p) {
             let _ = self.db.lock().unwrap().execute("INSERT OR REPLACE INTO backup_kv (key, value) VALUES ('policy', ?1)", params![j]);
         }
         *self.policy.write().unwrap() = p;
         self.apply_policy_globals();
+        let after = crate::patch_store::cap_bytes();
+        if after != before {
+            info!("store cap: {} GB -> {} GB (policy)", before >> 30, after >> 30);
+        }
         self.rebuild_safe();
         self.kick();
         Ok(())
@@ -869,6 +887,25 @@ impl Backup {
         self.apply_policy_globals();
         self.rebuild_safe();
         self.kick();
+    }
+
+    /// 설정된 백업 대상 전체 (꺼진 것 포함)
+    pub fn targets(&self) -> Vec<Target> {
+        self.targets.read().unwrap().clone()
+    }
+
+    /// 가동 초기화: 대상별 통계(성공/실패 수·평균·최근 오류)와 비상 삭제 카운터·로그를 비운다 (대상 설정은 유지)
+    pub fn reset_stats(&self) {
+        self.stats.lock().unwrap().clear();
+        self.log.lock().unwrap().clear();
+        UNBACKED_DELETED.store(0, Ordering::Relaxed);
+        UNBACKED_DELETED_BYTES.store(0, Ordering::Relaxed);
+        BLOCKED_BYTES.store(0, Ordering::Relaxed);
+    }
+
+    /// 대상의 최근 목록 동기화/전체 삭제 작업 상태 (`running`, `deleted`, `error` …)
+    pub fn purge_state(&self, target: &str) -> Option<serde_json::Value> {
+        SYNC.lock().unwrap().get(target).cloned()
     }
 
     pub fn kick(&self) {

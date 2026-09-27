@@ -179,6 +179,15 @@ impl AlarmBook {
         false
     }
 
+    /// 가동 초기화: 활성·대기·이력 모두 비움 (규칙은 유지)
+    pub fn clear(&self) {
+        let mut b = self.inner.lock().unwrap();
+        b.pending.clear();
+        b.active.clear();
+        b.last_seen.clear();
+        b.history.clear();
+    }
+
     pub fn sizes(&self) -> serde_json::Value {
         let b = self.inner.lock().unwrap();
         serde_json::json!({"active": b.active.len(), "pending": b.pending.len(), "last_seen": b.last_seen.len(), "history": b.history.len()})

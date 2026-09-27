@@ -19,6 +19,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/auth/password", post(change_password))
         .route("/api/auth/test-accounts", get(test_accounts))
         .route("/api/admin/users", get(users).post(user_create))
+        .route("/api/admin/users/test-pins", get(test_pins).put(test_pins_save))
         .route("/api/admin/users/{id}", put(user_update))
         .route("/api/admin/users/{id}/reset_password", post(user_reset))
         .route("/api/admin/tenants", get(tenants).post(tenant_create))
@@ -45,12 +46,15 @@ struct LoginIn {
     tenant: String,
     username: String,
     password: String,
+    /// 시험용 계정용 고정 PIN(8자리). 일반 계정은 비워도 된다.
+    #[serde(default)]
+    pin: String,
 }
 
 async fn login(State(state): State<Arc<AppState>>, Json(b): Json<LoginIn>) -> Response {
     // PBKDF2 는 수십 ms 걸리므로 워커 스레드를 막지 않게
     let st = state.clone();
-    let r = tokio::task::spawn_blocking(move || st.auth.login(&b.tenant, &b.username, &b.password)).await;
+    let r = tokio::task::spawn_blocking(move || st.auth.login(&b.tenant, &b.username, &b.password, &b.pin)).await;
     match r {
         Ok(Ok((token, p, _must))) => {
             let body = state.auth.me(&p);
@@ -89,7 +93,9 @@ async fn change_password(State(state): State<Arc<AppState>>, Extension(p): Exten
 
 async fn test_accounts(State(state): State<Arc<AppState>>) -> Response {
     Json(serde_json::json!({ "dev_mode": state.auth.dev_mode(), "accounts": state.auth.test_accounts(),
-                             "tenants": state.auth.login_tenants(), "site": state.auth.site_tenant() }))
+                             "tenants": state.auth.login_tenants(), "site": state.auth.site_tenant(),
+                             // 시험용 계정은 PIN(8자리)이 있어야 로그인된다 — 화면이 입력란을 보여 주는 기준
+                             "pin_len": auth::TEST_PIN_LEN }))
     .into_response()
 }
 
@@ -110,6 +116,26 @@ async fn user_create(State(state): State<Arc<AppState>>, Extension(p): Extension
 
 async fn user_update(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(id): Path<i64>, Json(b): Json<UserInput>) -> Response {
     result(state.auth.save_user(&p, Some(id), b))
+}
+
+/// 수퍼 어드민: 시험용 계정 PIN 보기/바꾸기 (기본 PIN + 계정별 PIN, 본인 것 포함)
+async fn test_pins(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> Response {
+    result(state.auth.test_pins(&p))
+}
+
+#[derive(Deserialize)]
+struct PinsIn {
+    #[serde(default)]
+    default: Option<String>,
+    /// 계정 id → PIN 8자리 ("" = 기본 PIN 사용)
+    #[serde(default)]
+    pins: std::collections::BTreeMap<i64, String>,
+}
+
+async fn test_pins_save(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(b): Json<PinsIn>) -> Response {
+    let default = b.default.map(|d| d.trim().to_string()).filter(|d| !d.is_empty());
+    let pins: std::collections::BTreeMap<i64, String> = b.pins.into_iter().map(|(k, v)| (k, v.trim().to_string())).collect();
+    result(state.auth.set_test_pins(&p, default, &pins).and_then(|_| state.auth.test_pins(&p)))
 }
 
 async fn user_reset(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(id): Path<i64>) -> Response {

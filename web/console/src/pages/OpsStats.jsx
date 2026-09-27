@@ -7,12 +7,13 @@ import { api, usePoll, fmtBytes, fmtNum } from '../api.js'
  * hourly rows kept for years). This page reads the aggregated series and shows load, capacity, throughput,
  * availability and incidents over a day, week, month, quarter or year.
  */
-const RANGES = [['hour', '1시간'], ['day', '1일'], ['week', '1주'], ['month', '1개월'], ['quarter', '분기'], ['year', '1년']]
+const RANGES = [['5min', '5분'], ['hour', '1시간'], ['day', '1일'], ['week', '1주'], ['month', '1개월'], ['quarter', '분기'], ['year', '1년']]
 const MB = 1024 * 1024
 
 const fmtT = (t, range) => {
   const d = new Date(t * 1000)
   const p = (n) => String(n).padStart(2, '0')
+  if (range === '5min') return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
   if (range === 'hour' || range === 'day') return `${p(d.getHours())}:${p(d.getMinutes())}`
   if (range === 'week') return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}시`
   return `${p(d.getMonth() + 1)}/${p(d.getDate())}`
@@ -64,7 +65,8 @@ const KIND = { restart: '재시작', store_stall: '저장 스톨', queue_drop: '
 
 export default function OpsStats() {
   const [range, setRange] = useState(() => { try { return localStorage.getItem('ops.range') || 'day' } catch { return 'day' } })
-  const [data, , refresh] = usePoll(() => api.metrics(range), 30000, [range])
+  // 5분 구간은 2 s 샘플이라 5 s 마다, 나머지는 30 s 마다 새로 읽는다
+  const [data, , refresh] = usePoll(() => api.metrics(range), range === '5min' ? 5000 : 30000, [range])
   const [info, , refreshInfo] = usePoll(api.metricsInfo, 60000)
   const [stats] = usePoll(api.stats, 5000)
   const [msg, setMsg] = useState('')
@@ -107,8 +109,8 @@ export default function OpsStats() {
       {msg && <p className="muted">{msg}</p>}
       <div className="ops-tiles">
         <Tile label="현재 가동 시간" value={fmtDur(stats?.uptime_s)} sub={`재시작 ${inc.restart || 0}회 (이 구간)`} />
-        <Tile label="수집 커버리지" value={`${(cov.percent || 0).toFixed(1)}%`} sub={`${fmtNum(cov.sampled_minutes || 0)} / ${fmtNum(cov.expected_minutes || 0)}분`} warn={(cov.percent || 0) < 99 && range !== 'hour'} />
-        <Tile label="라우터 CPU" value={`${(tot.cpu_avg || 0).toFixed(1)}%`} sub={`최대 ${(tot.cpu_max || 0).toFixed(0)}% · 1코어=100`} warn={(tot.cpu_max || 0) > 150} />
+        <Tile label="수집 커버리지" value={`${(cov.percent || 0).toFixed(1)}%`} sub={range === '5min' ? `${fmtNum(cov.sampled_samples || 0)} / ${fmtNum(cov.expected_samples || 0)} 샘플 (2초)` : `${fmtNum(cov.sampled_minutes || 0)} / ${fmtNum(cov.expected_minutes || 0)}분`} warn={(cov.percent || 0) < 99 && range !== 'hour' && range !== '5min'} />
+        <Tile label="라우터 CPU" value={`${(tot.cpu_avg || 0).toFixed(1)}%`} sub={`최대 ${(tot.cpu_max || 0).toFixed(0)}% · 1코어=100${tot.mhz_avg ? ` · 클럭 ${(tot.mhz_avg / 1000).toFixed(1)} GHz → ${((stats?.cpu_ref_mhz || 2000) / 1000)} GHz 환산 ${(tot.cpu_norm_avg || 0).toFixed(1)}%` : ''}`} warn={(tot.cpu_max || 0) > 150} />
         <Tile label="라우터 메모리" value={fmtBytes(tot.mem_avg || 0)} sub={`최대 ${fmtBytes(tot.mem_max || 0)}`} />
         <Tile label="환자 (패치)" value={fmtNum(Math.round(tot.patients_avg || 0))} sub={`최소 ${fmtNum(tot.patients_min || 0)} · 최대 ${fmtNum(tot.patients_max || 0)}`} />
         <Tile label="수신 / 송신" value={`${fmtBytes(tot.rx || 0)} / ${fmtBytes(tot.tx || 0)}`} sub={`레코드 ${fmtNum(tot.records || 0)}`} />
@@ -120,6 +122,7 @@ export default function OpsStats() {
           { key: 'cpu', label: '라우터 평균', color: '#3ddc84', area: true },
           { key: 'cpu_max', label: '라우터 최대', color: '#ff9f6b' },
           { key: 'cpu_sys', label: '시스템 전체', color: '#7cc4ff' },
+          { key: 'cpu_norm', label: `라우터 ${((stats?.cpu_ref_mhz || 2000) / 1000)} GHz 환산`, color: '#c8a2ff' },
         ]} /></section>
         <section><h4>메모리</h4><Chart points={pts} range={range} series={[
           { key: 'mem_mb', label: '라우터 RSS (MB)', color: '#3ddc84', area: true },

@@ -12,6 +12,7 @@ const PLATFORM = '' // 병원 ID 없음 = 플랫폼(본사) 계정
 export default function Login({ onLogin }) {
   const [info, setInfo] = useState(null)
   const [tenant, setTenant] = useState(() => { try { return localStorage.getItem(LAST) ?? '' } catch { return '' } })
+  const [pin, setPin] = useState('') // 시험용 계정용 고정 PIN(8자리 숫자) — 일반 계정은 비워도 된다
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
@@ -27,11 +28,14 @@ export default function Login({ onLogin }) {
     if (saved == null && info.site) setTenant(info.site)
   }, [info])
 
+  const pinLen = info?.pin_len || 8
   const submit = async (t = tenant, u = username, pw = password) => {
     if (!u || !pw) { setErr('아이디와 비밀번호를 입력하세요'); return }
+    // 시험용 계정(목록에 있는 아이디)은 PIN 8자리가 있어야 한다 — 서버도 같은 검사를 한다
+    if ((info?.accounts || []).some((a) => a.username === u) && pin.length !== pinLen) { setErr(`시험용 계정은 PIN ${pinLen}자리를 먼저 입력하세요`); return }
     setBusy(true); setErr('')
     try {
-      const me = await api.auth.login(t.trim().toUpperCase(), u, pw)
+      const me = await api.auth.login(t.trim().toUpperCase(), u, pw, pin)
       try { localStorage.setItem(LAST, t.trim().toUpperCase()) } catch { /* ignore */ }
       onLogin(me)
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
@@ -86,7 +90,8 @@ export default function Login({ onLogin }) {
         </div>
 
         <form onSubmit={(e) => { e.preventDefault(); submit() }} className="login-form">
-          <label>아이디<input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus /></label>
+          <label>PIN<input className="mono login-pin" type="password" inputMode="numeric" pattern="[0-9]*" maxLength={pinLen} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, pinLen))} placeholder={'•'.repeat(pinLen)} autoComplete="off" autoFocus title={`시험용 계정은 PIN ${pinLen}자리가 필요합니다`} /></label>
+          <label>아이디<input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" /></label>
           <label>비밀번호<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></label>
           <button className="primary" disabled={busy}>{busy ? '확인 중…' : T ? `${T} 로그인` : '플랫폼 로그인'}</button>
           {err && <p className="err">{err}</p>}
