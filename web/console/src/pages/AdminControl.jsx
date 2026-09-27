@@ -55,18 +55,20 @@ export default function AdminControl() {
   }
   if (err) return <div className="page"><h2 className="h">서비스 제어</h2><p className="err">{err.message}</p></div>
   if (!st) return <div className="page"><p className="muted">불러오는 중…</p></div>
+  // 서버가 status 에 dev_mode 를 아직 주지 않으면(구 바이너리) 로그인 정보의 값을 쓴다
+  const dev = st.dev_mode ?? !!me?.dev_mode
   return (
     <div className="page ctl">
       <div className="ctl-head">
         <h2 className="h">서비스 제어</h2>
         <span className={'pill ' + (st.stopped ? 'warn' : 'ok')}>{st.stopped ? `${st.stopped}개 멈춤` : '모두 정상'}</span>
-        <span className="muted">{st.dev_mode
+        <span className="muted">{dev
           ? '개발 모드: 사유 없이 스위치 한 번으로 켜고 끕니다(기록에는 "개발 모드"로 남음). 운영 모드로 바꾸면 사유가 필수가 됩니다.'
           : '멈추면 모든 화면 위에 띠로 알리고 감사 기록에 남습니다. 라우터를 재시작해도 멈춘 상태는 유지됩니다(알람 억제만 풀림).'}</span>
-        <ModeSwitch me={me} dev={st.dev_mode} />
+        <ModeSwitch me={me} dev={dev} />
       </div>
       {msg && <p className="err">{msg}</p>}
-      <Maintenance st={st} edit={edit} dev={st.dev_mode} onDone={done} setMsg={setMsg} />
+      <Maintenance st={st} edit={edit} dev={dev} onDone={done} setMsg={setMsg} />
       {(() => {
         const m = mode || (st.stopped ? 'start' : 'stop')
         const bySvc = new Map(st.services.map((s) => [s.service, s]))
@@ -81,7 +83,7 @@ export default function AdminControl() {
               : '받을 준비(저장·환자 정보) → 수신 → 화면 → 알림·EMR → 백업 순으로 켭니다. 단계마다 확인한 뒤 다음으로 넘어가세요.'}</span>
           </div>
           <div className="ctl-grid">
-            {ORDER[m].map(([svc, hint], i) => bySvc.get(svc) && <ServiceCard key={svc} s={bySvc.get(svc)} edit={edit} dev={st.dev_mode} onAct={act} step={i + 1} hint={hint} mode={m} />)}
+            {ORDER[m].map(([svc, hint], i) => bySvc.get(svc) && <ServiceCard key={svc} s={bySvc.get(svc)} edit={edit} dev={dev} onAct={act} step={i + 1} hint={hint} mode={m} />)}
           </div>
         </>
       })()}
