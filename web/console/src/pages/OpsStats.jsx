@@ -98,13 +98,6 @@ export default function OpsStats() {
     <div className="page">
       <div className="toolbar">
         <h2 className="h" style={{ margin: 0 }}>대시보드 <small className="muted" style={{ marginLeft: 12, fontWeight: 400 }}>운영 통계</small></h2>
-        <span className="seg">{RANGES.map(([k, l]) => <button key={k} className={range === k ? 'active' : ''} onClick={() => setR(k)}>{l}</button>)}</span>
-        <span className="muted">
-          {info?.first_ts ? `수집 시작 ${new Date(info.first_ts * 1000).toLocaleString('ko-KR')}` : '수집 시작 —'}
-          {info ? ` · 분 기록 ${fmtNum(info.minute_rows)}(${info.keep_days}일 보관) · 시간 기록 ${fmtNum(info.hour_rows)} · DB ${fmtBytes(info.db_bytes)}` : ''}
-        </span>
-        <span className="spacer" />
-        <button className="danger" onClick={reset}>통계 초기화</button>
       </div>
       {msg && <p className="muted">{msg}</p>}
       <div className="ops-tiles">
@@ -116,6 +109,16 @@ export default function OpsStats() {
         <Tile label="수신 / 송신" value={`${fmtBytes(tot.rx || 0)} / ${fmtBytes(tot.tx || 0)}`} sub={`레코드 ${fmtNum(tot.records || 0)}`} />
         <Tile label="저장 증가" value={`${growth >= 0 ? '+' : ''}${growth.toFixed(1)} GB`} sub={spanH > 1 ? `${(growth / spanH * 24).toFixed(1)} GB/일` : ''} />
         <Tile label="유실 / 드롭" value={`${fmtNum(tot.lost || 0)} / ${fmtNum(tot.drops || 0)}`} sub={`WS 지연 ${fmtNum(tot.lag || 0)}`} warn={(tot.drops || 0) > 0} />
+      </div>
+      {/* 구간 선택·수집 정보·초기화: 수치 카드와 그래프 사이 (사용자 요청) */}
+      <div className="toolbar ops-range">
+        <span className="seg">{RANGES.map(([k, l]) => <button key={k} className={range === k ? 'active' : ''} onClick={() => setR(k)}>{l}</button>)}</span>
+        <span className="muted">
+          {info?.first_ts ? `수집 시작 ${new Date(info.first_ts * 1000).toLocaleString('ko-KR')}` : '수집 시작 —'}
+          {info ? ` · 분 기록 ${fmtNum(info.minute_rows)}(${info.keep_days}일 보관) · 시간 기록 ${fmtNum(info.hour_rows)} · DB ${fmtBytes(info.db_bytes)}` : ''}
+        </span>
+        <span className="spacer" />
+        <button className="danger" onClick={reset}>통계 초기화</button>
       </div>
       <div className="ops-grid2">
         <section><h4>CPU (%, 1코어 = 100 · 4코어 최대 400)</h4><Chart points={pts} range={range} unit="" fixedMax={400} series={[

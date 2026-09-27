@@ -1167,3 +1167,4 @@ button.ghost:hover { border-color: var(--line); color: var(--text); }
 .bk-policy > label, .bk-policy > div { padding: 10px 0; border-bottom: 1px solid var(--line); align-self: stretch; }
 .bk-policy > label { display: flex; align-items: center; }
 .bk-policy > label:nth-last-child(2), .bk-policy > div:last-child { border-bottom: 0; }
+.ops-range { margin: 14px 0 10px; }
