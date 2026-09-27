@@ -85,6 +85,13 @@ export const api = {
     password: (old, nw) => send('POST', '/api/auth/password', { old, new: nw }),
     testAccounts: () => get('/api/auth/test-accounts'),
   },
+  security: {
+    get: () => get('/api/security'),
+    saveSettings: (s) => send('PUT', '/api/security/settings', s),
+    block: (b) => send('POST', '/api/security/block', b),
+    unblock: (ip) => send('DELETE', `/api/security/block/${encodeURIComponent(ip)}`),
+    clear: (b) => send('POST', '/api/security/clear', b),
+  },
   control: {
     status: () => get('/api/control/status'),
     set: (svc, body) => send('POST', `/api/control/${svc}`, body),

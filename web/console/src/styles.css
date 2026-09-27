@@ -1048,3 +1048,11 @@ html.alarm-muted-all .cs-tile.a-red .cs-head, html.alarm-muted-all .cs-tile.a-re
 .adm-pins-toggle { display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 4px 0; color: var(--text); font: inherit; cursor: pointer; }
 .adm-pins-toggle b { font-size: 15px; }
 .adm-pins-caret { display: inline-block; width: 1em; color: var(--muted); }
+
+/* 운영관리 › 보안 운영 */
+.sec-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-top: 14px; background: var(--panel); }
+.sec-card .tbl { margin-top: 6px; }
+.sec-card tr.warn-row td { background: color-mix(in srgb, var(--warn, #d97706) 10%, transparent); }
+.sec-card tr.sec-sub td { background: color-mix(in srgb, var(--line) 30%, transparent); }
+.sec-card .tbl.small th, .sec-card .tbl.small td { font-size: 12px; padding: 4px 8px; }
+.sec-card td.ctl-form { gap: 4px; }

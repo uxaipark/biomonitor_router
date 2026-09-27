@@ -51,16 +51,31 @@ struct LoginIn {
     pin: String,
 }
 
-async fn login(State(state): State<Arc<AppState>>, Json(b): Json<LoginIn>) -> Response {
+async fn login(State(state): State<Arc<AppState>>, axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>, Json(b): Json<LoginIn>) -> Response {
     // PBKDF2 는 수십 ms 걸리므로 워커 스레드를 막지 않게
     let st = state.clone();
+    let (tenant, username) = (b.tenant.trim().to_uppercase(), b.username.trim().to_lowercase());
     let r = tokio::task::spawn_blocking(move || st.auth.login(&b.tenant, &b.username, &b.password, &b.pin)).await;
+    let ip = addr.ip();
     match r {
         Ok(Ok((token, p, _must))) => {
+            // 성공 한 번이면 이 IP 의 실패 목록은 모두 지운다 (보안 운영)
+            crate::security::SEC.login_ok(ip);
             let body = state.auth.me(&p);
             ([(header::SET_COOKIE, auth::session_cookie(&token, false))], Json(body)).into_response()
         }
-        Ok(Err(e)) => err(StatusCode::UNAUTHORIZED, e),
+        Ok(Err(e)) => {
+            // PIN·비밀번호·계정 불일치 모두 실패 1건 — 같은 IP 에서 기간 안 한도에 닿으면 차단
+            let kind = if e.contains("PIN") { "pin" } else if e.contains("잠겼") { "locked" } else { "credential" };
+            let (n, blocked) = crate::security::SEC.login_failed(ip, &tenant, &username, kind);
+            if let Some(bl) = blocked {
+                state.auth.audit("system", "", "security_block", &format!("{} — {} ({})", bl.ip, bl.reason, bl.detail));
+                state.push_event("security", None, format!("IP 차단: {} — {}", bl.ip, bl.reason));
+            } else if n >= 3 {
+                state.push_event("security", None, format!("로그인 실패 {n}회: {ip} ({tenant}/{username})"));
+            }
+            err(StatusCode::UNAUTHORIZED, e)
+        }
         Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, "login failed"),
     }
 }

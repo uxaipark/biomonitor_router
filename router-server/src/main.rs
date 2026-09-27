@@ -20,6 +20,8 @@ async fn main() -> anyhow::Result<()> {
 
     // 서비스 제어(수신·저장·스트리밍·EMR·동기화 멈춤)는 수신을 열기 전에 불러온다
     router_core::control::load(&cfg.db_path);
+    // 보안 운영: 차단 IP·로그인 실패·스캐닝 기록 (router.db)
+    router_core::security::init(&cfg.db_path);
     let (state, analysis_rx, db_rx, store_rx) = AppState::new(cfg.clone());
 
     // 패치별 레코드 저장 (저장 단위(기본 2시간) 파일 + 항목 CRC, 닫힌 파일 무결성 봉인(.sum: CRC-32·SHA-256)[+gzip], 상한 초과 시 오래된 것부터 삭제)
@@ -100,7 +102,8 @@ async fn main() -> anyhow::Result<()> {
     // store batcher's buffer (up to 5 s of records for every patch) and left index.json stale. On SIGTERM /
     // Ctrl-C we stop accepting, flush the store and wait for the file writer before exiting.
     let store_tx = state.store_tx.clone();
-    axum::serve(listener, app)
+    // 클라이언트 IP(ConnectInfo)는 보안 운영(차단·로그인 실패·스캐닝 기록)에 쓴다
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
         .with_graceful_shutdown(async move {
             shutdown_signal().await;
             info!("shutdown: flushing patch store");

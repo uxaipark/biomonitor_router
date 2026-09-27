@@ -53,6 +53,10 @@ pub async fn run(state: Arc<AppState>) -> anyhow::Result<()> {
             drop(stream);
             continue;
         }
+        if crate::security::is_blocked(peer.ip()).is_some() {
+            drop(stream); // 보안 운영에서 차단한 IP
+            continue;
+        }
         if !source_allowed(&state, peer.ip()) {
             debug!("ingest connection from {} rejected (not in allowlist)", peer);
             continue;
@@ -97,6 +101,7 @@ async fn handle_conn(state: Arc<AppState>, stream: TcpStream, peer: std::net::So
 
     let mut dec = wire::Decoder::new();
     let mut items = VecDeque::new();
+    let mut ok_frames: u64 = 0;
     // Frames are 1–2 KB (bundles ≤ ~40 KB); 16 KB keeps 1,800 sockets at ~28 MB instead of 113 MB.
     let mut buf = vec![0u8; 16 * 1024];
     loop {
@@ -121,6 +126,7 @@ async fn handle_conn(state: Arc<AppState>, stream: TcpStream, peer: std::net::So
                 }
                 Item::Frame(hdr, payload) => match wire::parse_payload(hdr, &payload) {
                     Ok(frame) => {
+                        ok_frames += 1;
                         let ops = process_frame(&state, &conn, &frame);
                         for op in ops {
                             state.send_store_wait(op).await;
@@ -145,6 +151,13 @@ async fn handle_conn(state: Arc<AppState>, stream: TcpStream, peer: std::net::So
     t.oversize.fetch_add(dec.oversize, Ordering::Relaxed);
     t.garbage_bytes.fetch_add(dec.garbage_bytes, Ordering::Relaxed);
     t.resync.fetch_add(dec.resync, Ordering::Relaxed);
+    // 프레임을 하나도 못 만들고 엉뚱한 바이트만 보낸 연결 = 게이트웨이 포트 탐색 (보안 운영, 한도형)
+    if ok_frames == 0 && (dec.bad_magic > 0 || dec.garbage_bytes > 0) {
+        if let Some(b) = crate::security::SEC.scan_event(peer_ip, "TCP", &format!("9100 잘못된 바이트 {}B", dec.garbage_bytes), 0, "게이트웨이 포트 탐색") {
+            state.auth.audit("system", "", "security_block", &format!("{} — {} ({})", b.ip, b.reason, b.detail));
+            state.push_event("security", None, format!("IP 차단: {} — {}", b.ip, b.reason));
+        }
+    }
 
     writer.abort();
     state.ingest_conns.fetch_sub(1, Ordering::Relaxed);

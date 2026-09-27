@@ -29,3 +29,4 @@ pub mod emr_link;
 pub mod emr_api;
 pub mod control;
 pub mod reset;
+pub mod security;

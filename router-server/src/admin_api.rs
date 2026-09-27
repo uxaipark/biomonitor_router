@@ -68,6 +68,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/control/{svc}", post(control_set))
         .route("/api/settings/network", get(net_get).put(net_put))
         .route("/api/settings/network/test", post(net_test))
+        .route("/api/security", get(security_view))
+        .route("/api/security/settings", put(security_settings))
+        .route("/api/security/block", post(security_block))
+        .route("/api/security/block/{ip}", delete(security_unblock))
+        .route("/api/security/clear", post(security_clear))
         .merge(crate::auth_api::routes())
         .merge(crate::emr_api::routes())
         // 로그인·병원 접근·경로별 권한 (모든 /api/*·/ws). CORS 는 쿠키 인증이라 같은 출처만 — permissive 제거.
@@ -78,7 +83,69 @@ pub fn router(state: Arc<AppState>) -> Router {
                 .fallback_service(spa(&web_dir))
                 .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(axum::http::header::CACHE_CONTROL, axum::http::HeaderValue::from_static("no-cache"))),
         )
+        // 보안 운영: 차단 IP 는 어떤 경로든 403, 나머지는 응답 뒤 스캐닝 분류 — 가장 바깥(정적 파일 포함)
+        .layer(axum::middleware::from_fn_with_state(state.clone(), crate::security::guard))
         .with_state(state)
+}
+
+// ---------------------------------------------------------------- 보안 운영 (운영관리 › 보안 운영)
+
+async fn security_view() -> impl IntoResponse {
+    Json(crate::security::SEC.view())
+}
+
+async fn security_settings(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(s): Json<crate::security::Settings>) -> impl IntoResponse {
+    let r = crate::security::SEC.set_settings(s).map(|_| crate::security::SEC.view());
+    if r.is_ok() {
+        state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "security_settings", "보안 운영 설정 변경");
+    }
+    bk_result(r)
+}
+
+#[derive(serde::Deserialize)]
+struct BlockBody {
+    ip: String,
+    #[serde(default)]
+    reason: String,
+    /// 시간 (0 = 수동 해제까지)
+    #[serde(default)]
+    hours: u32,
+}
+async fn security_block(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(b): Json<BlockBody>) -> impl IntoResponse {
+    let Ok(ip) = b.ip.trim().parse::<std::net::IpAddr>() else { return bk_result(Err("IP 형식이 아닙니다".into())) };
+    let reason = if b.reason.trim().is_empty() { "수동 차단".to_string() } else { b.reason.trim().to_string() };
+    let r = crate::security::SEC.block(ip, "manual", &reason, "", b.hours, &p.username).map(|_| crate::security::SEC.view());
+    if r.is_ok() {
+        state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "security_block", &format!("{ip} — {reason} (수동)"));
+        state.push_event("security", None, format!("IP 차단(수동): {ip} — {reason} · {}", p.username));
+    }
+    bk_result(r)
+}
+
+async fn security_unblock(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(ip): Path<String>) -> impl IntoResponse {
+    let Ok(ip) = ip.trim().parse::<std::net::IpAddr>() else { return bk_result(Err("IP 형식이 아닙니다".into())) };
+    let had = crate::security::SEC.unblock(ip);
+    state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "security_unblock", &ip.to_string());
+    state.push_event("security", None, format!("IP 차단 해제: {ip} · {}", p.username));
+    bk_result(Ok(serde_json::json!({ "ok": true, "had": had })))
+}
+
+#[derive(serde::Deserialize)]
+struct ClearBody {
+    #[serde(default)]
+    ip: String,
+    /// scan | login | all
+    #[serde(default = "d_all")]
+    what: String,
+}
+fn d_all() -> String {
+    "all".into()
+}
+async fn security_clear(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(b): Json<ClearBody>) -> impl IntoResponse {
+    let ip = if b.ip.trim().is_empty() { None } else { match b.ip.trim().parse::<std::net::IpAddr>() { Ok(i) => Some(i), Err(_) => return bk_result(Err("IP 형식이 아닙니다".into())) } };
+    crate::security::SEC.clear(ip, &b.what);
+    state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "security_clear", &format!("{} {}", ip.map(|i| i.to_string()).unwrap_or_else(|| "전체".into()), b.what));
+    bk_result(Ok(crate::security::SEC.view()))
 }
 
 /// 웹 콘솔(vite build 산출물) 서빙. 해시 라우팅이라 모르는 경로는 index.html 로.

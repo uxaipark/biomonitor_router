@@ -59,7 +59,7 @@ pub fn is_platform(code: &str) -> bool {
 }
 
 /// (코드, 이름, 묶음, 기본값 [SA, SYS, RES, CRM, IT, DOC, NUR, STF])
-pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 27] = [
+pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 28] = [
     // 톱 메뉴 순서대로: 대시보드(첫 화면, 운영 통계) → 이벤트보드 → …
     ("page.ops", "대시보드 (운영 통계 · 첫 화면)", "메뉴", [2, 2, 1, 0, 1, 0, 0, 0]),
     ("page.dashboard", "이벤트보드", "메뉴", [2, 1, 1, 0, 1, 1, 1, 1]),
@@ -82,6 +82,8 @@ pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 27] = [
     ("page.admin_audit", "운영관리 › 감사 기록", "메뉴", [2, 2, 0, 0, 1, 0, 0, 0]),
     // 수신·저장·스트리밍·알람 알림·백업·EMR·동기화를 멈추고 켜기 (병원 IT 매니저도 켜고 끔)
     ("page.service_control", "운영관리 › 서비스 제어", "메뉴", [2, 2, 0, 0, 2, 0, 0, 0]),
+    // 무단 스캐닝·로그인 실패 IP 차단 (병원 IT 매니저도 편집)
+    ("page.security", "운영관리 › 보안 운영", "메뉴", [2, 2, 0, 0, 2, 0, 0, 0]),
     ("action.alarm_ack", "알람 확인", "동작", [2, 0, 0, 0, 0, 2, 2, 0]),
     ("action.alarm_rules", "알람 규칙 변경", "동작", [2, 0, 0, 0, 0, 2, 1, 0]),
     ("action.groups_edit", "그룹 편집", "동작", [2, 1, 0, 0, 1, 2, 2, 0]),
@@ -1479,6 +1481,9 @@ fn requirement(path: &str, method: &axum::http::Method) -> Option<(Vec<&'static 
     }
     if p.starts_with("/api/control") {
         return r(&["page.service_control"], lv);
+    }
+    if p.starts_with("/api/security") {
+        return r(&["page.security"], lv);
     }
     if p.starts_with("/api/admin/audit") {
         return r(&["page.admin_audit"], 1);

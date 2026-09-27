@@ -24,6 +24,7 @@ import BiosignalAdmin from './pages/BiosignalAdmin.jsx'
 import NetworkSettings from './pages/NetworkSettings.jsx'
 import DataAdmin from './pages/DataAdmin.jsx'
 import OpsStats from './pages/OpsStats.jsx'
+import AdminSecurity from './pages/AdminSecurity.jsx'
 import { LiveModal } from './pages/LiveModal.jsx'
 
 // [hash, 메뉴 이름, 페이지, 묶음 메뉴(선택), 권한 자원]
@@ -51,6 +52,8 @@ const PAGES = [
   ['#/admin/permissions', '권한 설정', AdminPermissions, '운영관리', 'page.admin_permissions', '계정·보안'],
   ['#/admin/tenants', '병원 (테넌트)', AdminTenants, '운영관리', 'page.admin_tenants', '계정·보안'],
   ['#/admin/audit', '감사 기록', AdminAudit, '운영관리', 'page.admin_audit', '계정·보안'],
+  // 보안 운영은 운영관리 메뉴 맨 끝
+  ['#/admin/security', '보안 운영', AdminSecurity, '운영관리', 'page.security', '계정·보안'],
 ]
 const MENUS = [...new Set(PAGES.map((p) => p[3]).filter(Boolean))]
 
