@@ -100,11 +100,18 @@ export default function OpsStats() {
         <h2 className="h" style={{ margin: 0 }}>대시보드 <small className="muted" style={{ marginLeft: 12, fontWeight: 400 }}>운영 통계</small></h2>
       </div>
       {msg && <p className="muted">{msg}</p>}
-      <div className="ops-tiles">
+      {/* 수치 카드 두 줄: 1줄 = 라우터 서버, 2줄 = 게이트웨이·패치·데이터 (사용자 요청) */}
+      <div className="ops-row-label">라우터 서버</div>
+      <div className="ops-tiles ops-row">
         <Tile label="현재 가동 시간" value={fmtDur(stats?.uptime_s)} sub={`선택 구간 안 라우터 재시작 ${inc.restart || 0}회`} title="라우터 프로세스가 다시 시작된 횟수(선택한 구간 기준). 배포·설정 반영을 위한 재시작도 포함되며, 수집 공백이 90초를 넘으면 '수집 공백'으로 표시됩니다. 아래 사건 표에서 시각을 볼 수 있습니다." />
         <Tile label="수집 커버리지" value={`${(cov.percent || 0).toFixed(1)}%`} sub={range === '5min' ? `${fmtNum(cov.sampled_samples || 0)} / ${fmtNum(cov.expected_samples || 0)} 샘플 (2초)` : `${fmtNum(cov.sampled_minutes || 0)} / ${fmtNum(cov.expected_minutes || 0)}분`} warn={(cov.percent || 0) < 99 && range !== 'hour' && range !== '5min'} />
         <Tile label="라우터 CPU" value={`${(tot.cpu_avg || 0).toFixed(1)}%`} sub={`최대 ${(tot.cpu_max || 0).toFixed(0)}% · 1코어=100`} warn={(tot.cpu_max || 0) > 150} />
         <Tile label="라우터 메모리" value={fmtBytes(tot.mem_avg || 0)} sub={`최대 ${fmtBytes(tot.mem_max || 0)}`} />
+        <Tile label="전송 지연 (에뮬레이터→라우터)" value={stats?.latency?.n ? `${stats.latency.p50} ms` : '—'} sub={stats?.latency?.n ? `p95 ${stats.latency.p95} ms${stats.latency.offset_ms ? ` · 시계 보정 +${stats.latency.offset_ms} ms` : ''}` : '프레임 없음'} warn={(stats?.latency?.p95 || 0) > 2000} />
+      </div>
+      <div className="ops-row-label">게이트웨이 · 패치 · 데이터</div>
+      <div className="ops-tiles ops-row">
+        <Tile label="게이트웨이 연결" value={stats?.gateways ? `${fmtNum(stats.gateways.connected)} / ${fmtNum(stats.gateways.gateways)}` : '—'} sub={stats?.gateways ? `다운 ${stats.gateways.down || 0} · 무응답 ${stats.gateways.silent || 0} · 저하 ${stats.gateways.degraded || 0}` : ''} warn={!!(stats?.gateways?.down || stats?.gateways?.silent)} />
         <Tile label="환자 (패치)" value={fmtNum(Math.round(tot.patients_avg || 0))} sub={`최소 ${fmtNum(tot.patients_min || 0)} · 최대 ${fmtNum(tot.patients_max || 0)}`} />
         <Tile label="수신 / 송신" value={`${fmtBytes(tot.rx || 0)} / ${fmtBytes(tot.tx || 0)}`} sub={`레코드 ${fmtNum(tot.records || 0)}`} />
         <Tile label="저장 증가" value={`${growth >= 0 ? '+' : ''}${growth.toFixed(1)} GB`} sub={spanH > 1 ? `${(growth / spanH * 24).toFixed(1)} GB/일` : ''} />

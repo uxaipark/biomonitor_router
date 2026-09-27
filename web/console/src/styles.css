@@ -442,6 +442,9 @@ button.danger:hover { background: var(--err); color: #fff; }
 
 /* ops statistics page */
 .ops-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.ops-tiles.ops-row { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 10px; }
+@media (max-width: 1100px) { .ops-tiles.ops-row { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); } }
+.ops-row-label { font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: .02em; margin: 2px 0 6px; }
 .ops-tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 1px; }
 .ops-tile small { color: var(--muted); font-size: 11.5px; }
 .ops-tile b { font-size: 20px; font-variant-numeric: tabular-nums; }
