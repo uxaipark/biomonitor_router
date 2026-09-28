@@ -327,7 +327,7 @@ export default function Viewers({ alarms }) {
             {!shown.length && <div className="vw-empty muted">환자가 없습니다.</div>}
           </div>
           <div className="vw-foot">
-            <span className="muted">선택 <b>{selIds.length}</b>명</span>
+            <span className="muted vw-selcnt">선택 <b>{selIds.length}</b>명</span>
             {selIds.length && selIds.length === shownIds.length
               ? <button className="ghost small" onClick={() => setSel(new Set())} title="선택 해제">해제</button>
               : <button className="ghost small" onClick={() => setSel(new Set(shownIds))} disabled={!shown.length} title="목록 전체 선택">모두 선택</button>}
