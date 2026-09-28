@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { api, usePoll, fmtBytes } from '../api.js'
-import { can, useMe, ReadOnly } from '../auth.js'
+import { can, useMe } from '../auth.js'
+import { ReadOnly } from '../ReadOnly.jsx'
 
 /**
  * 운영관리 › 데이터 관리: 파형 저장 단위, 무결성 봉인, 백업 대상과 정책.

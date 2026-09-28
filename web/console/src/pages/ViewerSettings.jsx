@@ -1,6 +1,7 @@
 import React from 'react'
 import { RENDER_MODES, setRenderMode, useRenderMode } from '../settings.js'
-import { can, useMe, ReadOnly } from '../auth.js'
+import { can, useMe } from '../auth.js'
+import { ReadOnly } from '../ReadOnly.jsx'
 
 const DESC = {
   quality: '디바이스 픽셀 열마다 파형의 최소·최대를 채우는 병상 모니터 방식. 선 두께가 균일하고, R파처럼 뾰족한 봉우리가 화면보다 촘촘한 샘플에서도 사라지지 않습니다. 프레임마다 채우기 1회.',

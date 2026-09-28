@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { can, useMe, ReadOnly } from '../auth.js'
+import { can, useMe } from '../auth.js'
+import { ReadOnly } from '../ReadOnly.jsx'
 import { api, usePoll, fmtTime, fmtAgo } from '../api.js'
 import { SEV_LABEL, ALARM_KIND, roomText, wardText, sortBy, spaceName } from '../model.js'
 import Dropdown from '../Dropdown.jsx'

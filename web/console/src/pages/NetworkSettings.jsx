@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { latencyNow } from '../ws.js'
-import { can, useMe, ReadOnly } from '../auth.js'
+import { can, useMe } from '../auth.js'
+import { ReadOnly } from '../ReadOnly.jsx'
 
 /**
  * 운영관리 › 네트워크 설정: 라우터가 접속하는 상대 주소(에뮬레이터·분석 서버·DB API)를 브라우저에서 지정한다.
