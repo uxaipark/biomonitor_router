@@ -222,6 +222,8 @@ export default function Viewers({ alarms, hash }) {
   // ---- 저장된 그룹 · 그룹 만들기 ----
   const groupMembers = (g) => { const s = new Set(live.filter((r) => (r.groups || []).includes(g.id)).map((r) => String(r.channel_id))); for (const id of g.include || []) s.add(String(id)); return [...s] }
   const groupCount = (g) => (g.id === 'all' ? live.length : groupMembers(g).length)
+  // 트리 가지(건물·층)의 인원: 전광판 그룹들은 서로 겹치므로(간호사실=병동, 복도=층, 로비=건물) 합계가 아니라 합집합
+  const unionCount = (gs) => { const s = new Set(); for (const g of gs) for (const id of groupMembers(g)) s.add(id); return s.size }
   const defaultName = `새 그룹 ${(groups || []).length + 1}`
   const nameShown = name == null ? defaultName : name
   const modeLabel = editing ? `편집 중 · ${editing.name}` : '새 그룹'
@@ -401,13 +403,13 @@ export default function Viewers({ alarms, hash }) {
                       const bk = `b:${B.b}`, bAll = B.floors.flatMap((F) => F.rows), bo = isOpen(bk, bAll)
                       return (
                         <div key={bk} className="vw-tree">
-                          <button className={'vw-node' + (bo ? ' open' : '')} onClick={() => toggleKey(bk)}><span className="vw-caret">{bo ? '▾' : '▸'}</span><b>{B.b}</b><small className="muted">{B.floors.length}개 층 · {B.n}개</small><span className="spacer" /><b className="vw-cnt mono">{bAll.reduce((s, g) => s + groupCount(g), 0).toLocaleString()}명</b></button>
+                          <button className={'vw-node' + (bo ? ' open' : '')} onClick={() => toggleKey(bk)}><span className="vw-caret">{bo ? '▾' : '▸'}</span><b>{B.b}</b><small className="muted">{B.floors.length}개 층 · {B.n}개</small><span className="spacer" /><b className="vw-cnt mono" title="이 건물 전광판들의 환자 (겹치는 환자는 한 번만)">{unionCount(bAll).toLocaleString()}명</b></button>
                           {bo && B.floors.map((F) => {
                             const fk = `${bk}/${F.f}`, fo = isOpen(fk, F.rows)
                             const rows = [...F.rows].sort((a, b) => (kindOrder[BOARD_KIND(a)] - kindOrder[BOARD_KIND(b)]) || a.name.localeCompare(b.name, 'ko'))
                             return (
                               <div key={fk} className="vw-tree sub">
-                                <button className={'vw-node' + (fo ? ' open' : '')} onClick={() => toggleKey(fk)}><span className="vw-caret">{fo ? '▾' : '▸'}</span><b>{F.f}F</b><small className="muted">{rows.map(BOARD_KIND).filter((k, i, a) => a.indexOf(k) === i).join(' · ')} {rows.length}개</small><span className="spacer" /><b className="vw-cnt mono">{rows.reduce((s, g) => s + groupCount(g), 0).toLocaleString()}명</b></button>
+                                <button className={'vw-node' + (fo ? ' open' : '')} onClick={() => toggleKey(fk)}><span className="vw-caret">{fo ? '▾' : '▸'}</span><b>{F.f}F</b><small className="muted">{rows.map(BOARD_KIND).filter((k, i, a) => a.indexOf(k) === i).join(' · ')} {rows.length}개</small><span className="spacer" /><b className="vw-cnt mono" title="이 층 전광판들의 환자 (겹치는 환자는 한 번만)">{unionCount(rows).toLocaleString()}명</b></button>
                                 {fo && rows.map((g, i) => <Row key={g.id} g={g} i={i + F.f * 3} />)}
                               </div>
                             )
