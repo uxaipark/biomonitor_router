@@ -38,6 +38,7 @@ export default function McotMap({ alarms }) {
   const [pick, setPick] = useState(null) // { patient, back } | { region }
   const [hx, setHx] = useState(null)
   const [offline, setOffline] = useState(false)
+  const [loadErr, setLoadErr] = useState('') // Leaflet 청크 로드·초기화 실패 (배포 뒤 옛 탭 등)
   const [, tick] = useState(0)
   const aidx = useMemo(() => alarmIndex(alarms?.alarms), [alarms])
   const mobile = useMemo(() => new Set((gws || []).filter(isMobileGw).map((g) => String(g.gw_id))), [gws])
@@ -74,7 +75,8 @@ export default function McotMap({ alarms }) {
       // 세계를 한 번만: 타일 반복(noWrap) 없이, 최소 줌은 컨테이너 폭에 세계 한 바퀴가 딱 맞는 값(0.25 단위) — 세계 버튼과
       // 처음 '전체 맞춤'이 같은 배율이 되고, 미국이 양쪽에 두 번 보이는 과도한 줌아웃이 없다
       const minZoomFor = (w) => Math.max(1, Math.ceil(Math.log2(Math.max(256, w) / 256) * 4) / 4)
-      const map = L.map(elRef.current, { worldCopyJump: false, zoomSnap: 0.25, zoomDelta: 0.5, minZoom: minZoomFor(elRef.current.clientWidth), maxBounds: [[-85, -180], [85, 180]], maxBoundsViscosity: 1, zoomControl: true }).setView(KOREA.center, KOREA.zoom)
+      let map
+      try { const map = L.map(elRef.current, { worldCopyJump: false, zoomSnap: 0.25, zoomDelta: 0.5, minZoom: minZoomFor(elRef.current.clientWidth), maxBounds: [[-85, -180], [85, 180]], maxBoundsViscosity: 1, zoomControl: true }).setView(KOREA.center, KOREA.zoom) } catch (e) { console.error('mcot map init', e); setLoadErr(String(e?.message || e)); return }
       const tiles = L.tileLayer(TILES, { maxZoom: 19, noWrap: true, bounds: [[-85, -180], [85, 180]], attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' })
       let errs = 0, oks = 0
       tiles.on('tileerror', () => { errs++; if (errs >= 4 && !oks) setOffline(true) })
@@ -82,10 +84,10 @@ export default function McotMap({ alarms }) {
       tiles.addTo(map)
       layerRef.current = L.layerGroup().addTo(map)
       mapRef.current = map
-      setTimeout(() => map.invalidateSize(), 50)
+      for (const ms of [50, 300, 1200]) setTimeout(() => { if (mapRef.current === map) map.invalidateSize() }, ms) // 레이아웃이 늦게 잡혀도 크기를 다시 잰다
       ro = new ResizeObserver(() => { map.invalidateSize(); map.setMinZoom(minZoomFor(elRef.current?.clientWidth || 256)) }); ro.observe(elRef.current)
       setReady(true)
-    })
+    }).catch((e) => { console.error('leaflet load', e); if (!dead) setLoadErr(String(e?.message || e)) })
     return () => { dead = true; ro?.disconnect(); mapRef.current?.remove(); mapRef.current = null; markers.current.clear() }
   }, [])
   // 핀 갱신: 목록·알람이 바뀔 때마다 (위치는 주소 기준이라 거의 고정, 색·라벨만 바뀐다)
@@ -141,7 +143,8 @@ export default function McotMap({ alarms }) {
       <div className="map-cols">
         <div className="mm-map">
           <div ref={elRef} style={{ height: '100%' }} />
-          {offline && <div className="mm-offline">지도 타일(OpenStreetMap)을 불러오지 못했습니다.<br />이 브라우저에서 인터넷이 막혀 있으면 핀만 표시됩니다.</div>}
+          {loadErr && <div className="mm-offline">지도 모듈을 불러오지 못했습니다 ({loadErr}).<br />콘솔이 새로 배포된 뒤에도 열려 있던 탭이면 새로고침하면 됩니다.<br /><button className="primary" style={{ pointerEvents: 'auto', marginTop: 8 }} onClick={() => location.reload()}>새로고침</button></div>}
+          {offline && !loadErr && <div className="mm-offline">지도 타일(OpenStreetMap)을 불러오지 못했습니다.<br />이 브라우저에서 인터넷이 막혀 있으면 핀만 표시됩니다.</div>}
           <div className="mm-note">핀 위치: {nApprox ? '집주소(시군구) 기준 근사' : '위치 정보'}{nApprox && shown.length - nApprox - nNoGeo > 0 ? ` · 좌표 있는 환자 ${shown.length - nApprox - nNoGeo}` : ''} — 점선 핀은 시도·국가만 아는 경우</div>
         </div>
         {pick?.patient ? (
