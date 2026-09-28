@@ -1,21 +1,24 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api, usePoll, fmtAgo } from '../api.js'
 import Dropdown from '../Dropdown.jsx'
 import { EVENT_KIND, SEV_LABEL } from '../model.js'
 import { openLive } from '../App.jsx'
-import { useQuery, go, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, PatientLink, GwLink, Timeline, Kbd } from '../ListKit.jsx'
+import { useQuery, go, FilterBar, ListLayout, DetailPanel, KV, Pager, PatientLink, GwLink, Timeline, Kbd } from '../ListKit.jsx'
 import './Events.css'
 
 // 요약 칩 = 이벤트 묶음
 const GROUPS = [
   ['alarm', '알람', (k) => k === 'alarm', 'c-err'],
-  ['link', '게이트웨이·연결', (k) => /^(link|silent|bad_crc|gateway|gw_|ingest)/.test(k), 'c-warn'],
+  ['link', '게이트웨이 연결', (k) => /^(link|silent|bad_crc|gateway|gw_|ingest)/.test(k), 'c-warn'],
   ['security', '보안', (k) => /^(security|latency_reset)$/.test(k) || /^security/.test(k), 'c-sev-critical'],
   ['control', '제어', (k) => /^(control|metrics_reset|stats_reset|wave_reset)$/.test(k), ''],
   ['store', '저장·백업', (k) => /^(backup|wave|store)/.test(k), ''],
   ['config', '설정·관리', (k) => /(_config|_rules|registry_prune)$/.test(k) || /^(alarm_rules)$/.test(k), ''],
 ]
 const groupOf = (k) => GROUPS.find(([, , f]) => f(k))?.[0] || 'etc'
+/** 칩 앞 점 색과 히스토그램 막대 색 (분류 = 색) */
+const GROUP_COLOR = { alarm: 'var(--sev-critical)', link: 'var(--accent)', security: 'var(--err)', control: 'var(--warn)', store: 'var(--ok)', config: 'var(--muted)', etc: 'var(--muted)' }
+const MINUTES = 60
 const PERIODS = [['', '전체'], ['10', '최근 10분'], ['60', '최근 1시간']]
 const SEV_OF = { Critical: 'critical', High: 'high', Medium: 'medium', Low: 'low' }
 const SEV_TONE = { critical: 'crit', high: 'high', medium: 'med', low: 'low' }
@@ -46,6 +49,9 @@ export default function Events() {
   const [expanded, setExpanded] = useState(() => new Set())
   // 자동 스크롤을 끄면 그 순간의 목록을 붙잡아 둔다 (새 이벤트는 다시 켤 때 한꺼번에)
   const [frozen, setFrozen] = useState(null)
+  // 시간대별 발생 히스토그램에서 끌어 고른 분 범위 [from, to] (지금 기준 −분, from ≤ to); null = 전체
+  const [range, setRange] = useState(null)
+  const dragRef = useRef(null)
   useEffect(() => { if (follow) setFrozen(null); else if (!frozen && live) setFrozen(live) }, [follow, live]) // eslint-disable-line react-hooks/exhaustive-deps
   const events = follow ? live : frozen || live
   const pendingNew = !follow && frozen && live ? Math.max(0, live.length - frozen.length) : 0
@@ -53,8 +59,34 @@ export default function Events() {
   const all = useMemo(() => (events || []).map((e, i) => ({ ...e, key: `${e.ts_ms}-${i}`, grp: groupOf(e.kind), ...parse(e) })).reverse(), [events])
   const scoped = useMemo(() => {
     const since = period ? Date.now() - Number(period) * 60000 : 0
-    return all.filter((e) => e.ts_ms >= since && (!kind || e.kind === kind))
-  }, [all, period, kind])
+    const now = Date.now()
+    return all.filter((e) => e.ts_ms >= since && (!kind || e.kind === kind)
+      && (!range || (now - e.ts_ms >= range[0] * 60000 && now - e.ts_ms < (range[1] + 1) * 60000)))
+  }, [all, period, kind, range])
+  // 시간대별 발생: 최근 60분을 분 단위 60칸으로, 칸마다 건수와 가장 많은 분류 (검색·칩 전 단계 = 종류·기간 필터만 반영)
+  const bars = useMemo(() => {
+    const now = Date.now()
+    const b = Array.from({ length: MINUTES }, () => ({ n: 0, by: {} }))
+    for (const e of all) {
+      if (kind && e.kind !== kind) continue
+      const m = Math.floor((now - e.ts_ms) / 60000)
+      if (m < 0 || m >= MINUTES) continue
+      const slot = b[MINUTES - 1 - m]
+      slot.n++; slot.by[e.grp] = (slot.by[e.grp] || 0) + 1
+    }
+    const max = Math.max(1, ...b.map((x) => x.n))
+    return b.map((x, i) => ({ ...x, i, ago: MINUTES - 1 - i, h: x.n ? Math.max(2, Math.round((x.n / max) * 44)) : 2, top: Object.entries(x.by).sort((a, c) => c[1] - a[1])[0]?.[0] }))
+  }, [all, kind])
+  // 끌어서 범위 선택: pointerdown 으로 시작, move 로 넓히고, up 으로 확정 (한 칸만 눌러도 그 1분)
+  const barAgo = (el) => Number(el?.dataset?.ago)
+  const onBarDown = (e) => { const a = barAgo(e.target); if (Number.isNaN(a)) return; dragRef.current = a; setRange([a, a]); e.currentTarget.setPointerCapture?.(e.pointerId) }
+  const onBarMove = (e) => {
+    if (dragRef.current == null) return
+    const el = document.elementFromPoint(e.clientX, e.clientY); const a = barAgo(el)
+    if (Number.isNaN(a)) return
+    const s0 = dragRef.current; setRange([Math.min(s0, a), Math.max(s0, a)]); setPage(0)
+  }
+  const onBarUp = () => { dragRef.current = null }
   const chips = useMemo(() => [
     { key: 'all', label: '전체', count: scoped.length },
     ...GROUPS.map(([k, l, , cls]) => ({ key: k, label: l, count: scoped.filter((e) => e.grp === k).length, cls })).filter((c) => c.count || c.key === 'alarm' || c.key === 'link'),
@@ -91,6 +123,7 @@ export default function Events() {
     period && { key: 'period', label: PERIODS.find(([k]) => k === period)?.[1], clear: () => setQs({ period: '' }) },
     chip && { key: 'f', label: chips.find((c) => c.key === chip)?.label || chip, clear: () => setQs({ f: '' }) },
     q && { key: 'q', label: `검색: ${q}`, clear: () => setQs({ q: '' }) },
+    range && { key: 'range', label: range[0] === range[1] ? `${range[0]}분 전 (1분)` : `${range[1]}분 전 ~ ${range[0] ? `${range[0]}분 전` : '지금'}`, clear: () => setRange(null) },
   ].filter(Boolean)
   const toggleFold = (v) => { setFold(v); lsSet('events.fold', v); setExpanded(new Set()); setPage(0) }
   const toggleFollow = () => { const v = !follow; setFollow(v); lsSet('events.follow', v) }
@@ -122,30 +155,83 @@ export default function Events() {
       })
     }
   }
+  const total = (live || []).length
   return (
     <div className="page lk events">
-      <SummaryChips items={chips} value={chip || 'all'} onChange={(k) => { setQs({ f: k === 'all' ? '' : k }); setPage(0) }} unit="건" />
-      <FilterBar applied={applied} onReset={() => setQs({ q: '', kind: '', f: '', period: '' })}
-        right={<>
-          <button className={'ghost-toggle' + (follow ? ' on' : '')} onClick={toggleFollow} title={follow ? '새 이벤트가 위에 쌓입니다. 끄면 목록이 고정됩니다.' : '목록이 고정되어 있습니다. 켜면 새 이벤트를 반영합니다.'}>
-            <i className={'lk-dot ' + (follow ? 'ok' : 'off')} />자동 스크롤{pendingNew ? ` · 새 ${pendingNew}건` : ''}
-          </button>
-          <span className="muted">{shown.length.toLocaleString()}건{fold && rows.length !== shown.length ? ` → ${rows.length.toLocaleString()}줄` : ''} · 라우터 메모리의 최근 {(live || []).length.toLocaleString()}건</span>
-          <Pager page={cur} pages={pages} onPage={setPage} />
-        </>}>
-        <input placeholder="검색: 패치 · 환자 · 게이트웨이 · 내용" value={q} onChange={(e) => { setQs({ q: e.target.value }); setPage(0) }} />
-        <Dropdown value={kind} options={kinds} onChange={(v) => { setQs({ kind: v }); setPage(0) }} placeholder="모든 종류" countUnit="건" width={200} />
-        <span className="seg">{PERIODS.map(([k, l]) => <button key={k} className={period === k ? 'active' : ''} onClick={() => { setQs({ period: k }); setPage(0) }}>{l}</button>)}</span>
-        <span className="seg" title="같은 종류 · 같은 대상이 연달아 오면 한 줄로 접습니다">
-          <button className={fold ? 'active' : ''} onClick={() => toggleFold(true)}>묶어 보기</button>
+      {/* 제목 줄: 이름 · 부제 · (오른쪽) 자동 스크롤 · 건수 */}
+      <div className="ev-head">
+        <h2 className="h">이벤트 로그</h2>
+        <span className="muted">패치 · 환자 · 게이트웨이에서 일어난 모든 기록</span>
+        <span className="spacer" />
+        <label className="ev-follow" title={follow ? '새 이벤트가 위에 쌓입니다. 끄면 목록이 고정됩니다.' : '목록이 고정되어 있습니다. 켜면 새 이벤트를 반영합니다.'}>
+          <input type="checkbox" checked={follow} onChange={toggleFollow} /> 새 이벤트 자동 스크롤{pendingNew ? <b className="ev-new"> · 새 {pendingNew}건</b> : null}
+        </label>
+        <span className="muted mono">{shown.length.toLocaleString()}건 · 라우터 메모리 최근 {total.toLocaleString()}건</span>
+      </div>
+
+      {/* 필터 카드: 검색 · 분류 칩(점 색 = 분류) · 기간 · 보기 방식 */}
+      <div className="ev-card ev-filter">
+        <input placeholder="패치 · 환자 · 게이트웨이 · 내용" value={q} onChange={(e) => { setQs({ q: e.target.value }); setPage(0) }} aria-label="이벤트 검색" />
+        <div className="ev-chips" role="group" aria-label="분류">
+          {chips.map((c) => (
+            <button key={c.key} className={'ev-chip' + ((chip || 'all') === c.key ? ' on' : '') + (!c.count && c.key !== 'all' ? ' zero' : '')} onClick={() => { setQs({ f: c.key === 'all' ? '' : c.key }); setPage(0) }}>
+              {c.key !== 'all' && <i style={{ background: GROUP_COLOR[c.key] || 'var(--muted)' }} />}{c.label} <b className="mono">{c.count.toLocaleString()}</b>
+            </button>
+          ))}
+        </div>
+        <Dropdown value={kind} options={kinds} onChange={(v) => { setQs({ kind: v }); setPage(0) }} placeholder="모든 종류" countUnit="건" width={190} />
+        <span className="spacer" />
+        <span className="seg" role="group" aria-label="기간">{PERIODS.map(([k, l]) => <button key={k} className={period === k ? 'active' : ''} onClick={() => { setQs({ period: k }); setRange(null); setPage(0) }}>{l}</button>)}</span>
+        <span className="seg" role="group" aria-label="보기 방식" title="같은 종류 · 같은 대상이 연달아 오면 한 줄로 접습니다">
+          <button className={fold ? 'active' : ''} onClick={() => toggleFold(true)}>대상별 묶기</button>
           <button className={!fold ? 'active' : ''} onClick={() => toggleFold(false)}>모두 펼침</button>
         </span>
-      </FilterBar>
-      <ListLayout detail={selE ? <EventDetail e={selE} onClose={() => setQs({ sel: '' })} /> : null}>
-        <Timeline items={items} />
+      </div>
+      {applied.length > 0 && <FilterBar applied={applied} onReset={() => { setQs({ q: '', kind: '', f: '', period: '' }); setRange(null) }} />}
+
+      {/* 시간대별 발생: 최근 60분 · 분 단위 막대 · 끌어서 범위 선택 */}
+      <div className="ev-card ev-hist">
+        <div className="ev-hist-head">
+          <b>시간대별 발생</b>
+          <span className="muted">막대를 끌어 기간 선택 · 색 = 그 분의 가장 많은 분류</span>
+          {range && <a className="lk-link" onClick={() => setRange(null)}>선택 해제</a>}
+          <span className="spacer" />
+          <span className="muted mono">최근 60분 {bars.reduce((a, b) => a + b.n, 0).toLocaleString()}건</span>
+        </div>
+        <div className="ev-bars" onPointerDown={onBarDown} onPointerMove={onBarMove} onPointerUp={onBarUp} onPointerCancel={onBarUp}>
+          {bars.map((b) => (
+            <div key={b.i} data-ago={b.ago} className={'ev-bar' + (range && b.ago >= range[0] && b.ago <= range[1] ? ' sel' : '') + (b.n ? '' : ' empty')}
+              style={{ height: b.h, background: b.n ? GROUP_COLOR[b.top] || 'var(--muted)' : undefined }}
+              title={`${b.ago ? `${b.ago}분 전` : '지금'} · ${b.n}건${b.top ? ` · ${chips.find((c) => c.key === b.top)?.label || b.top}` : ''}`} />
+          ))}
+        </div>
+        <div className="ev-ticks mono"><span>−60분</span><span>−45</span><span>−30</span><span>−15</span><span>지금</span></div>
+      </div>
+
+      <ListLayout detail={selE ? <EventDetail e={selE} onClose={() => setQs({ sel: '' })} /> : <EventDetailEmpty />}>
+        <div className="ev-list-head mono"><span>시각</span><span>분류</span><span>대상 · 내용 · 값</span><span className="spacer" /><Pager page={cur} pages={pages} onPage={setPage} /></div>
+        {items.length ? <Timeline items={items} /> : (
+          <div className="ev-empty">
+            <b>{total ? '조건에 맞는 기록이 없습니다' : '기록이 없습니다'}</b>
+            <span>{total ? '검색·분류·기간·시간대 선택을 지우면 전체 기록이 보입니다.' : '라우터가 재시작되면 메모리 기록이 비워지고, 이벤트가 생기는 대로 다시 쌓입니다.'}</span>
+          </div>
+        )}
         <p className="lk-legend">보안·제어·연결 이벤트만 색이 있고 나머지는 회색입니다. 대상을 누르면 환자·게이트웨이 목록으로, 줄을 누르면 오른쪽에 상세. <Kbd>Esc</Kbd> 상세 닫기</p>
       </ListLayout>
     </div>
+  )
+}
+
+/** 아무 줄도 고르지 않았을 때의 오른쪽 안내 */
+function EventDetailEmpty() {
+  return (
+    <aside className="lk-detail ev-detail-empty" aria-label="이벤트 상세">
+      <header><div className="lk-dh"><h3>상세</h3></div></header>
+      <div className="lk-dbody">
+        <p className="muted">행을 누르면 여기에 열립니다. 대상 환자·게이트웨이로 바로 이동하고, 같은 대상의 앞뒤 이벤트를 함께 보여 줍니다. <Kbd>Esc</Kbd> 로 닫기.</p>
+        <div className="ev-sk"><i style={{ width: '60%', height: 14 }} /><i style={{ width: '90%' }} /><i style={{ width: '80%' }} /><i style={{ width: '40%' }} /></div>
+      </div>
+    </aside>
   )
 }
 

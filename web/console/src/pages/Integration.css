@@ -1,0 +1,31 @@
+/* EMR 연동 — 카운터 · 병원 미지정 안내 · 4단계 연결 추가 마법사 */
+.integ-counters { display: inline-flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--muted); }
+.integ-counters b { font-size: 16px; color: var(--text); font-variant-numeric: tabular-nums; }
+.integ-counters b.ok { color: var(--ok); }
+.integ-counters .sep { opacity: .5; }
+.integ-nosite { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 10px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); background: color-mix(in srgb, var(--warn) 10%, var(--panel)); font-size: 13px; }
+.integ-nosite b { color: var(--warn); }
+.integ-nosite a { margin-left: auto; font-weight: 600; }
+.integ-empty { display: flex; flex-direction: column; gap: 4px; padding: 18px 12px; text-align: center; color: var(--muted); font-size: 13px; }
+.integ-empty b { color: var(--text); font-weight: 600; }
+.integ-wiz { width: min(820px, 100%); }
+.wiz-steps { display: flex; gap: 6px; list-style: none; margin: 0 0 14px; padding: 0; }
+.wiz-steps li { flex: 1; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+.wiz-steps li.cur { border-color: var(--accent); color: var(--text); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.wiz-steps li.done { color: var(--text); }
+.wiz-n { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; background: var(--panel2); flex: none; }
+.wiz-steps li.cur .wiz-n { background: var(--accent); color: #fff; }
+.wiz-steps li.done .wiz-n { background: var(--ok); color: #fff; }
+.wiz-body { min-height: 180px; }
+.fmt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.fmt-card { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); text-align: left; cursor: pointer; }
+.fmt-card b { font-size: 14px; } .fmt-card span { font-size: 12px; color: var(--muted); }
+.fmt-card.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+.wiz-form { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.wiz-form > label { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 4px 12px; font-size: 13px; }
+.wiz-form > label > span:first-child { color: var(--muted); }
+.wiz-form > label > small { grid-column: 2; }
+.wiz-sum { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 8px 0 12px; font-size: 13px; }
+.wiz-sum dt { color: var(--muted); } .wiz-sum dd { margin: 0; }
+.wiz-nav { margin-top: 12px; margin-bottom: 0; padding-top: 10px; border-top: 1px solid var(--line); }
+@media (max-width: 640px) { .wiz-steps { flex-wrap: wrap; } .wiz-steps li span:last-child { display: none; } .wiz-steps li.cur span:last-child { display: inline; } .wiz-form > label { grid-template-columns: 1fr; } }

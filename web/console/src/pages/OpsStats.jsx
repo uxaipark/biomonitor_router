@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { api, usePoll, fmtBytes, fmtNum } from '../api.js'
 import { can, useMe } from '../auth.js'
+import './OpsStats.css'
 
 /**
  * 대시보드 (운영 통계) — long-term (24/7/365) operating statistics.
@@ -69,6 +70,60 @@ const Tile = ({ label, value, sub, warn, title }) => (
 
 const KIND = { restart: '재시작', full_reset: '가동 초기화', store_stall: '저장 스톨', queue_drop: '저장 드롭', ws_lag: 'WS 지연', disk_low: '디스크 부족', reset: '통계 초기화' }
 
+/**
+ * 데이터 파이프라인 — 패치 → 게이트웨이 → 라우터 서버 → 웹 뷰어·분석 송신. 어느 구간이 끊겼는지 한눈에.
+ * 각 단계의 톤(ok / warn / err)은 그 단계 숫자로 정한다: 게이트웨이 다운·드롭 = err, 지연 p95 > 2 s·무응답·저하·유실 = warn.
+ */
+function Pipeline({ stats, tot, cov, inc, range }) {
+  const g = stats?.gateways
+  const lat = stats?.latency
+  const alive = !!stats
+  const covPct = cov.percent || 0
+  const stages = [
+    {
+      key: 'patch', title: '패치 (환자)',
+      tone: !alive ? 'err' : covPct < 99 && range !== 'hour' && range !== '5min' ? 'warn' : 'ok',
+      big: alive ? `${fmtNum(stats.channels_connected ?? Math.round(tot.patients_avg || 0))}명` : '수신 없음',
+      rows: [`수집 커버리지 ${covPct.toFixed(1)}%`, `최소–최대 ${fmtNum(tot.patients_min || 0)}–${fmtNum(tot.patients_max || 0)}`],
+    },
+    {
+      key: 'gw', title: '게이트웨이',
+      tone: !g ? 'err' : g.down ? 'err' : (g.silent || g.degraded) ? 'warn' : 'ok',
+      big: g ? `${fmtNum(g.connected)} / ${fmtNum(g.gateways)} 연결` : '확인 불가',
+      rows: [`수신 ${fmtBytes(tot.rx || 0)}`, `레코드 ${fmtNum(tot.records || 0)}`, g && (g.down || g.silent || g.degraded) ? `다운 ${g.down || 0} · 무응답 ${g.silent || 0} · 저하 ${g.degraded || 0}` : null],
+    },
+    {
+      key: 'router', title: '라우터 서버',
+      tone: !alive ? 'err' : (lat?.p95 || 0) > 2000 || (tot.cpu_max || 0) > 300 ? 'warn' : 'ok',
+      big: alive ? '정상' : '연결 끊김',
+      rows: [`가동 ${fmtDur(stats?.uptime_s)}`, `재시작 ${inc.restart || 0}회`, lat?.n ? `전송 지연 p50 ${lat.p50} · p95 ${lat.p95} ms` : '전송 지연 —'],
+    },
+    {
+      key: 'out', title: '웹 뷰어 · 분석 송신',
+      tone: !alive ? 'err' : (tot.drops || 0) > 0 ? 'err' : (tot.lost || 0) > 0 || (tot.lag || 0) > 0 ? 'warn' : 'ok',
+      big: alive ? `세션 ${fmtNum(stats.ws_sessions)} · 회선 ${fmtNum(stats.ws_subscribed_channels)}` : '대기',
+      rows: [`송신 ${fmtBytes(tot.tx || 0)}`, `유실/드롭 ${fmtNum(tot.lost || 0)} / ${fmtNum(tot.drops || 0)}`, (tot.lag || 0) > 0 ? `WS 지연 건너뜀 ${fmtNum(tot.lag)}` : null],
+    },
+  ]
+  return (
+    <section className="ops-pipe" aria-label="데이터 파이프라인">
+      <div className="ops-pipe-head"><b>데이터 파이프라인</b><span className="muted">어느 구간에서 끊겼는지 한눈에</span></div>
+      <div className="ops-pipe-row">
+        {stages.map((st, i) => (
+          <React.Fragment key={st.key}>
+            {i > 0 && <span className={'ops-pipe-arrow ' + (stages[i - 1].tone === 'err' ? 'err' : '')} aria-hidden="true">→</span>}
+            <div className={'ops-stage ' + st.tone}>
+              <div className="ops-stage-t"><i className="dot" />{st.title}</div>
+              <div className="ops-stage-big">{st.big}</div>
+              <div className="ops-stage-rows">{st.rows.filter(Boolean).map((r, k) => <span key={k}>{r}</span>)}</div>
+            </div>
+          </React.Fragment>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export default function OpsStats() {
   // 구간 선택: '자동' 이면 수집된 데이터 양으로 정한다 — 1시간 미만 5분, 1시간 이상 1시간, 1일 이상 1일, 1주 이상 1주, 1개월 이상이면 1개월에서 멈춤 (사용자 결정)
   const [sel, setSel] = useState(() => { try { return localStorage.getItem('ops.range') || 'auto' } catch { return 'auto' } })
@@ -112,9 +167,10 @@ export default function OpsStats() {
   return (
     <div className="page">
       <div className="toolbar">
-        <h2 className="h" style={{ margin: 0 }}>대시보드 <small className="muted" style={{ marginLeft: 12, fontWeight: 400 }}>운영 통계</small></h2>
+        <h2 className="h" style={{ margin: 0 }}>운영 통계 <small className="muted" style={{ marginLeft: 12, fontWeight: 400 }}>패치 → 게이트웨이 → 라우터 → 뷰어 전 구간의 상태와 리소스 추이</small></h2>
       </div>
       {msg && <p className="muted">{msg}</p>}
+      <Pipeline stats={stats} tot={tot} cov={cov} inc={inc} range={range} />
       {/* 수치 카드 두 줄: 1줄 = 라우터 서버, 2줄 = 게이트웨이·패치·데이터 (사용자 요청) */}
       <div className="ops-row-label">라우터 서버</div>
       <div className="ops-tiles ops-row">
@@ -122,12 +178,10 @@ export default function OpsStats() {
         <Tile label="수집 커버리지" value={`${(cov.percent || 0).toFixed(1)}%`} sub={range === '5min' ? `${fmtNum(cov.sampled_samples || 0)} / ${fmtNum(cov.expected_samples || 0)} 샘플 (2초)` : `${fmtNum(cov.sampled_minutes || 0)} / ${fmtNum(cov.expected_minutes || 0)}분`} warn={(cov.percent || 0) < 99 && range !== 'hour' && range !== '5min'} />
         <Tile label="라우터 CPU (Max 400%)" value={`${(tot.cpu_avg || 0).toFixed(1)}%`} sub={`최대 ${(tot.cpu_max || 0).toFixed(0)}% · 1코어=100`} warn={(tot.cpu_max || 0) > 300} />
         <Tile label="라우터 메모리" value={fmtBytes(tot.mem_avg || 0)} sub={`최대 ${fmtBytes(tot.mem_max || 0)}`} />
-        <Tile label="웹 뷰어 / 전송 회선" value={stats ? `${fmtNum(stats.ws_sessions)} / ${fmtNum(stats.ws_subscribed_channels)}` : '—'} sub="웹 뷰어 = 세션 · 전송 회선 = 패치" />
         <Tile label="전송 지연 (에뮬레이터→라우터)" value={stats?.latency?.n ? `${stats.latency.p50} ms` : '—'} sub={stats?.latency?.n ? `p95 ${stats.latency.p95} ms${stats.latency.offset_ms ? ` · 시계 보정 +${stats.latency.offset_ms} ms` : ''}` : '프레임 없음'} warn={(stats?.latency?.p95 || 0) > 2000} />
       </div>
       <div className="ops-row-label">게이트웨이 · 패치 · 데이터</div>
       <div className="ops-tiles ops-row">
-        <Tile label="게이트웨이 연결" value={stats?.gateways ? `${fmtNum(stats.gateways.connected)} / ${fmtNum(stats.gateways.gateways)}` : '—'} sub={stats?.gateways ? `다운 ${stats.gateways.down || 0} · 무응답 ${stats.gateways.silent || 0} · 저하 ${stats.gateways.degraded || 0}` : ''} warn={!!(stats?.gateways?.down || stats?.gateways?.silent)} />
         <Tile label="환자 (패치)" value={fmtNum(Math.round(tot.patients_avg || 0))} sub={`최소 ${fmtNum(tot.patients_min || 0)} · 최대 ${fmtNum(tot.patients_max || 0)}`} />
         <Tile label="송신 (WS·분석)" value={fmtBytes(tot.tx || 0)} sub={spanH > 0 ? `${fmtBytes((tot.tx || 0) / (spanH * 3600))}/s` : ''} />
         <Tile label="수신" value={fmtBytes(tot.rx || 0)} sub={`레코드 ${fmtNum(tot.records || 0)}${spanH > 0 ? ` · ${fmtBytes((tot.rx || 0) / (spanH * 3600))}/s` : ''}`} />
@@ -162,24 +216,23 @@ export default function OpsStats() {
           { key: 'store_gb', label: '파형 저장 (GB)', color: '#7cc4ff', area: true },
           { key: 'disk_pct', label: '디스크 사용 (%)', color: '#ff6b6b' },
         ]} /></section>
-        <section><h4>환자 · 구독</h4><Chart points={pts} range={range} series={[
+        <section><h4>세션 · 구독 <small className="muted">개</small></h4><Chart points={pts} range={range} series={[
           { key: 'connected', label: '수신 중 패치', color: '#3ddc84', area: true },
           { key: 'subs', label: '구독 채널', color: '#7cc4ff' },
-          { key: 'ws', label: 'WS 세션', color: '#f5d442' },
+          { key: 'ws', label: '웹 뷰어 (탭) · WS 세션', color: '#f5d442' },
         ]} /></section>
-        <section><h4>웹 뷰어 · 전송 회선</h4><Chart points={pts} range={range} series={[
-          { key: 'ws', label: '웹 뷰어 (WS 세션, 탭 단위)', color: '#f5d442', area: true },
-          { key: 'subs', label: '전송 회선 (구독 패치)', color: '#7cc4ff' },
-        ]} /></section>
-        <section><h4>전송 지연 (ms)</h4><Chart points={pts} range={range} series={[
-          { key: 'lat_browser', label: '브라우저 최대 (종단 간)', color: '#ff9f6b', area: true },
-          { key: 'lat_p95', label: '에뮬레이터→라우터 p95', color: '#c8a2ff' },
-          { key: 'lat_p50', label: '에뮬레이터→라우터 p50', color: '#3ddc84' },
-        ]} /></section>
-        <section><h4>전송량</h4><Chart points={pts} range={range} series={[
-          { key: 'rx_mb_h', label: '수신 MB/h', color: '#3ddc84', area: true },
-          { key: 'tx_mb_h', label: '송신 MB/h', color: '#ff9f6b' },
-        ]} /></section>
+        {/* 전송량(MB/h)과 지연(ms)은 단위가 달라 한 축에 못 그린다 — 한 제목 아래 두 그래프·두 범례 */}
+        <section className="ops-dual"><h4>전송량 · 지연 <small className="muted">MB/h · ms</small></h4>
+          <Chart points={pts} range={range} height={96} series={[
+            { key: 'rx_mb_h', label: '수신 MB/h', color: '#3ddc84', area: true },
+            { key: 'tx_mb_h', label: '송신 MB/h', color: '#ff9f6b' },
+          ]} />
+          <Chart points={pts} range={range} height={96} series={[
+            { key: 'lat_p95', label: '에뮬→라우터 p95 (ms)', color: '#c8a2ff' },
+            { key: 'lat_p50', label: '에뮬→라우터 p50 (ms)', color: '#3ddc84' },
+            { key: 'lat_browser', label: '브라우저 최대 (ms)', color: '#f5d442', area: true },
+          ]} />
+        </section>
         <section><h4>지연 · 장애</h4><Chart points={pts} range={range} series={[
           { key: 'lag', label: 'WS 지연 건너뜀', color: '#ff6b6b', area: true },
           { key: 'store_q', label: '저장 큐 최대', color: '#f5d442' },
@@ -187,8 +240,9 @@ export default function OpsStats() {
           { key: 'drops', label: '저장 드롭', color: '#ff2d55' },
         ]} /></section>
       </div>
-      <h3 className="h">사건 기록</h3>
-      <div className="toolbar">
+      <div className="toolbar ops-inc-head">
+        <h3 className="h" style={{ margin: 0 }}>사건 기록</h3>
+        <span className="pill">전체 {fmtNum(Object.values(inc).reduce((a, n) => a + (n || 0), 0))}</span>
         {Object.entries(KIND).map(([k, l]) => <span key={k} className={'pill' + (inc[k] ? (k === 'queue_drop' || k === 'disk_low' ? ' err' : ' warn') : '')}>{l} {inc[k] || 0}</span>)}
       </div>
       <table className="tbl dense vw-table">
@@ -197,7 +251,7 @@ export default function OpsStats() {
           {(data?.incidents || []).slice(0, 100).map((e, i) => (
             <tr key={i}><td className="mono">{new Date(e.ts * 1000).toLocaleString('ko-KR')}</td><td>{KIND[e.kind] || e.kind}</td><td className="muted">{e.detail}</td><td className="num">{fmtNum(e.value)}</td></tr>
           ))}
-          {!(data?.incidents || []).length && <tr><td colSpan={4} className="muted">이 구간에 기록된 사건이 없습니다.</td></tr>}
+          {!(data?.incidents || []).length && <tr><td colSpan={4} className="muted">선택 구간({(RANGES.find(([k]) => k === range) || [])[1] || range})에 기록된 사건이 없습니다.{stats ? '' : ' 라우터가 끊겨 있어 새 사건도 기록되지 않습니다.'}</td></tr>}
         </tbody>
       </table>
     </div>

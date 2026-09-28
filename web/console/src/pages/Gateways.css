@@ -3,3 +3,24 @@
 .gwl .tbl td { vertical-align: middle; }
 .gwl-spark-big { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 10px; }
 .gwl-spark-big .lk-spark { width: 100%; max-width: 320px; height: 44px; }
+
+/* 링크 품질 종합 셀: 네모 6개 + 종합 라벨 */
+.gwl-q { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.gwl-q small { margin-left: 6px; font-size: 11px; color: var(--muted); }
+.gwl-q.warn small { color: var(--warn); } .gwl-q.bad small { color: var(--sev-critical); font-weight: 600; }
+.gwl-q-sq { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: color-mix(in srgb, var(--ok) 70%, transparent); }
+.gwl-q-sq.warn { background: var(--warn); } .gwl-q-sq.bad { background: var(--sev-critical); }
+.gwl-q-th { white-space: nowrap; }
+.gwl-q-tog { border: 0; background: transparent; color: var(--accent); font-size: 11px; padding: 0 4px; cursor: pointer; }
+.gwl-q-tog:hover { text-decoration: underline; }
+.gwl .tbl th.gwl-q-col { background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
+.gwl .tbl td.gwl-q-col { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.gwl .tbl td.gwl-q-col.is-warn { background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.gwl .tbl td.gwl-q-col.is-bad { background: color-mix(in srgb, var(--sev-critical) 10%, transparent); }
+/* 상세: 품질 6지표 표 */
+.gwl-q-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin: 4px 0 10px; font-size: 12.5px; }
+.gwl-q-row { display: flex; align-items: center; gap: 6px; }
+.gwl-q-row .gwl-q-sq { width: 9px; height: 9px; }
+.gwl-q-row b { margin-left: auto; }
+.gwl-q-row small { color: var(--muted); font-size: 11px; min-width: 26px; text-align: right; }
+.gwl-q-row.warn small { color: var(--warn); } .gwl-q-row.bad small { color: var(--sev-critical); }

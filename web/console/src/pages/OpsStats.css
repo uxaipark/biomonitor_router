@@ -1,0 +1,19 @@
+/* 운영 통계 — 데이터 파이프라인 띠 · 이중 그래프 · 사건 기록 머리 */
+.ops-pipe { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 12px 14px; margin-bottom: 14px; }
+.ops-pipe-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; font-size: 14px; }
+.ops-pipe-head .muted { font-size: 12.5px; }
+.ops-pipe-row { display: flex; align-items: stretch; gap: 8px; }
+.ops-pipe-arrow { align-self: center; color: var(--muted); font-size: 18px; flex: none; }
+.ops-pipe-arrow.err { color: var(--err); }
+.ops-stage { flex: 1 1 0; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--bg); display: flex; flex-direction: column; gap: 4px; }
+.ops-stage-t { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.ops-stage-t .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.ops-stage.ok .ops-stage-t .dot { background: var(--ok); }
+.ops-stage.warn { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); } .ops-stage.warn .ops-stage-t .dot { background: var(--warn); }
+.ops-stage.err { border-color: color-mix(in srgb, var(--err) 60%, var(--line)); background: color-mix(in srgb, var(--err) 8%, var(--bg)); } .ops-stage.err .ops-stage-t .dot { background: var(--err); }
+.ops-stage-big { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.ops-stage.err .ops-stage-big { color: var(--err); }
+.ops-stage-rows { display: flex; flex-direction: column; gap: 1px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) { .ops-pipe-row { flex-direction: column; } .ops-pipe-arrow { transform: rotate(90deg); align-self: flex-start; margin-left: 14px; } }
+.ops-dual .ops-chart + .ops-chart { margin-top: 6px; border-top: 1px dashed var(--line); padding-top: 6px; }
+.ops-inc-head { gap: 8px; margin-top: 16px; }

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { api, usePoll, fmtBytes } from '../api.js'
 import { can, useMe } from '../auth.js'
 import { ReadOnly } from '../ReadOnly.jsx'
+import './BiosignalAdmin.css'
 
 /**
  * 운영관리 › 데이터 관리: 파형 저장 단위, 무결성 봉인, 백업 대상과 정책.
@@ -58,34 +59,71 @@ export default function BiosignalAdmin() {
   const enabled = targets.filter((t) => t.enabled).length
 
   return (
-    <div className="page">
-      <h2 className="h">데이터 관리</h2>
+    <div className="page dm">
+      <div className="dm-head">
+        <div>
+          <h2 className="h" style={{ margin: 0 }}>데이터 관리</h2>
+          <p className="muted small" style={{ margin: '4px 0 0' }}>저장된 파형 파일이 <b>기록 → 봉인 → 백업 → 정리</b>되는 흐름</p>
+        </div>
+      </div>
       {err && <p className="err">상태를 불러오지 못했습니다: {String(err.message || err)}</p>}
       <div className="settings bk">
         <ReadOnly edit={canEdit}>
-        <section>
-          <h3>저장 파형 백업 현황</h3>
-          <p className="muted">
-            파형은 패치별로 저장 단위(기본 2시간)마다 파일 하나(<code>patches/&lt;패치&gt;/&lt;UTC 시작&gt;_2h.rec</code>)로 저장됩니다. 파일이 닫히면
-            모든 항목의 CRC 를 다시 확인하고 파일 전체의 <b>CRC-32 와 SHA-256</b> 을 봉인 파일(<code>.sum</code>)로 남깁니다 — <b>봉인이 끝난 파일만</b> 백업하고, 봉인 파일도 함께 올립니다.
-            저장 상한에 닿으면 오래된 파일부터 지워집니다.
-            백업 대상이 하나라도 켜져 있으면 <b>검증된 백업이 끝난 파일만</b> 지웁니다. 백업이 밀리면 상한을 넘어서도 보존하고,
-            디스크 여유가 비상 기준 아래로 떨어질 때만 백업 안 된 파일을 지우고 사건으로 남깁니다.
-          </p>
-          <div className="tiles">
-            <div className={'tile' + (st?.store_cap && st.store_bytes > st.store_cap ? ' warn' : '')}><div className="tile-label">로컬 저장</div><div className="tile-value">{st ? fmtBytes(st.store_bytes) : '—'}{st?.store_cap ? <small> / 상한 {fmtBytes(st.store_cap)} ({Math.round(st.store_bytes / st.store_cap * 100)}%)</small> : st ? <small> / 상한 없음</small> : null}</div><div className="tile-sub">디스크 {st ? `${fmtBytes(diskUsed)} / ${fmtBytes(st.disk_total)} (${diskPct}%)` : '—'}</div></div>
-            <div className={'tile' + (p.files > 2000 ? ' warn' : '')}><div className="tile-label">백업 대기</div><div className="tile-value">{p.files?.toLocaleString() ?? '—'}<small> 파일</small></div><div className="tile-sub">{fmtBytes(p.bytes || 0)} · 가장 오래된 {hourLabel(p.oldest)}{p.unsealed_files ? ` · 무결성 확인 중 ${p.unsealed_files.toLocaleString()}` : ''}{p.bad_sealed_files ? ` · CRC 오류 파일 ${p.bad_sealed_files}` : ''}</div></div>
-            <div className="tile"><div className="tile-label">백업 완료 (삭제 가능)</div><div className="tile-value">{p.safe_files?.toLocaleString() ?? '—'}<small> 파일</small></div><div className="tile-sub">{fmtBytes(p.safe_bytes || 0)} · 로컬 전체 {p.local_files?.toLocaleString() ?? '—'}개</div></div>
-            <div className={'tile' + (st?.blocked_bytes ? ' warn' : '')}><div className="tile-label">상한 초과 보존</div><div className="tile-value">{fmtBytes(st?.blocked_bytes || 0)}</div><div className="tile-sub">백업 전이라 지우지 못한 용량</div></div>
-            <div className={'tile' + (st?.unbacked_deleted ? ' err' : '')}><div className="tile-label">비상 삭제 (백업 없이)</div><div className="tile-value">{st?.unbacked_deleted?.toLocaleString() ?? 0}<small> 파일</small></div><div className="tile-sub">{fmtBytes(st?.unbacked_deleted_bytes || 0)} · 라우터 시작 이후</div></div>
-            <div className="tile"><div className="tile-label">전송 중</div><div className="tile-value">{st?.inflight?.length ?? 0}<small> / 대기열 {st?.queue?.toLocaleString() ?? 0}</small></div><div className="tile-sub">{st?.policy?.paused ? '일시 중지됨' : !st?.active ? '백업 대상 없음 (종전처럼 상한에서 삭제)' : `마지막 검사 ${fmtDateTime(st?.last_scan_ms)}`}</div></div>
+        {/* 맨 위 줄: 로컬 저장/디스크 · 지금 검사 · 백업 대상 안내 · + 대상 추가 */}
+        <div className="dm-top">
+          <div className="dm-store">
+            <small>로컬 저장 / 디스크</small>
+            <b className={st?.store_cap && st.store_bytes > st.store_cap ? 'warn' : ''}>{st ? fmtBytes(st.store_bytes) : '—'} <span className="muted">/ {st ? `${fmtBytes(diskUsed)} · 여유 ${fmtBytes(st.disk_free)}` : '—'}</span></b>
+            <small>{st?.store_cap ? `상한 ${fmtBytes(st.store_cap)} (${Math.round(st.store_bytes / st.store_cap * 100)}%)` : '상한 없음'}{diskPct != null ? ` · 디스크 사용률 ${diskPct}%` : ''}</small>
           </div>
-          <div className="toolbar" style={{ marginBottom: 0 }}>
-            <button onClick={async () => { await api.backup.scan(); setTimeout(() => refresh?.(), 1200) }}>지금 검사</button>
-            {st && (st.policy.paused
-              ? <button className="primary" onClick={async () => { try { await api.backup.setPolicy({ ...st.policy, paused: false }); refresh?.() } catch (e) { setMsg(e.message) } }}>백업 재개</button>
-              : <button className="danger" title="전송 중인 파일까지 바로 끊고 멈춥니다 (끊긴 파일은 재개할 때 처음부터 다시 올립니다)" onClick={async () => { try { const r = await api.backup.abort(); setMsg(r.killed ? `백업을 중단했습니다 — 전송 중이던 ${r.killed}건을 끊었습니다` : '백업을 중단했습니다'); refresh?.() } catch (e) { setMsg(e.message) } }}>백업 중단</button>)}
-            {msg && <span className="muted">{msg}</span>}
+          <button onClick={async () => { await api.backup.scan(); setTimeout(() => refresh?.(), 1200) }}>지금 검사</button>
+          {st && (st.policy.paused
+            ? <button className="primary" onClick={async () => { try { await api.backup.setPolicy({ ...st.policy, paused: false }); refresh?.() } catch (e) { setMsg(e.message) } }}>백업 재개</button>
+            : st.active && <button className="danger" title="전송 중인 파일까지 바로 끊고 멈춥니다 (끊긴 파일은 재개할 때 처음부터 다시 올립니다)" onClick={async () => { try { const r = await api.backup.abort(); setMsg(r.killed ? `백업을 중단했습니다 — 전송 중이던 ${r.killed}건을 끊었습니다` : '백업을 중단했습니다'); refresh?.() } catch (e) { setMsg(e.message) } }}>백업 중단</button>)}
+          {st && !targets.length && <span className="dm-notice"><b>백업 대상이 없습니다.</b> 저장 상한에 닿으면 가장 오래된 파형 파일이 백업 없이 삭제됩니다.</span>}
+          {st && targets.length > 0 && !st.active && <span className="dm-notice"><b>켜진 백업 대상이 없습니다.</b> 상한에 닿으면 백업 없이 삭제됩니다.</span>}
+          {msg && <span className="muted small">{msg}</span>}
+          <span className="spacer" />
+          <button className="primary" onClick={() => setEdit({ ...EMPTY })}>+ 백업 대상 추가</button>
+        </div>
+
+        {/* 파형 파일 수명 주기 — 다섯 단계와 살아 있는 숫자 */}
+        <section className="dm-life">
+          <h3>파형 파일 수명 주기</h3>
+          <div className="dm-stages">
+            <div className="dm-stage">
+              <div className="dm-stage-n">①</div><div className="dm-stage-t">기록</div>
+              <div className="dm-stage-v">{p.local_files != null ? <><b>{p.local_files.toLocaleString()}</b> 파일</> : <b>—</b>}</div>
+              <div className="dm-stage-s">패치별 {st?.policy?.block_hours ?? 2}시간 단위 파일<br /><code>patches/&lt;패치&gt;/&lt;UTC&gt;_{st?.policy?.block_hours ?? 2}h.rec</code></div>
+            </div>
+            <div className="dm-arrow" aria-hidden="true">→</div>
+            <div className={'dm-stage' + (p.bad_sealed_files ? ' err' : '')}>
+              <div className="dm-stage-n">②</div><div className="dm-stage-t">봉인</div>
+              <div className="dm-stage-v">{p.unsealed_files != null ? <><b>{p.unsealed_files.toLocaleString()}</b> 확인 중</> : <b>—</b>}</div>
+              <div className="dm-stage-s">닫힐 때 항목 CRC 재확인 후 CRC-32 · SHA-256 을 <code>.sum</code> 에 봉인{p.bad_sealed_files ? <><br /><span className="err">CRC 오류 파일 {p.bad_sealed_files}</span></> : null}</div>
+            </div>
+            <div className="dm-arrow" aria-hidden="true">→</div>
+            <div className={'dm-stage' + (p.files > 2000 ? ' warn' : '')}>
+              <div className="dm-stage-n">③</div><div className="dm-stage-t">백업 대기</div>
+              <div className="dm-stage-v"><b>{p.files?.toLocaleString() ?? '—'}</b> 파일 · {fmtBytes(p.bytes || 0)}</div>
+              <div className="dm-stage-s">가장 오래된 {hourLabel(p.oldest)}</div>
+            </div>
+            <div className="dm-arrow" aria-hidden="true">→</div>
+            <div className={'dm-stage' + (st?.policy?.paused ? ' warn' : '')}>
+              <div className="dm-stage-n">④</div><div className="dm-stage-t">전송 중</div>
+              <div className="dm-stage-v"><b>{st?.inflight?.length ?? 0}</b> · 대기열 {st?.queue?.toLocaleString() ?? 0}</div>
+              <div className="dm-stage-s">{st?.policy?.paused ? <span className="warn">일시 중지됨</span> : !st?.active ? '백업 대상 없음' : `마지막 검사 ${fmtDateTime(st?.last_scan_ms)}`} · 봉인 파일도 함께 올림</div>
+            </div>
+            <div className="dm-arrow" aria-hidden="true">→</div>
+            <div className="dm-stage">
+              <div className="dm-stage-n">⑤</div><div className="dm-stage-t">백업 완료 · 삭제 가능</div>
+              <div className="dm-stage-v"><b>{p.safe_files?.toLocaleString() ?? '—'}</b> 파일 · {fmtBytes(p.safe_bytes || 0)}</div>
+              <div className="dm-stage-s">로컬 전체 {p.local_files?.toLocaleString() ?? '—'}개 · 상한에 닿으면 이 파일부터 삭제</div>
+            </div>
+          </div>
+          <div className="dm-side">
+            <span className={st?.blocked_bytes ? 'warn' : ''}><b>상한 초과 보존</b> {fmtBytes(st?.blocked_bytes || 0)} <span className="muted">— 백업이 밀리면 상한을 넘어도 지우지 않음</span></span>
+            <span className={st?.unbacked_deleted ? 'err' : ''}><b>비상 삭제 (백업 없이)</b> {st?.unbacked_deleted?.toLocaleString() ?? 0} 파일 · {fmtBytes(st?.unbacked_deleted_bytes || 0)} <span className="muted">— 디스크가 비상 기준 아래일 때만 · 사건 기록</span></span>
           </div>
         </section>
 
@@ -93,9 +131,10 @@ export default function BiosignalAdmin() {
           <div className="bk-head">
             <h3>백업 대상 <small className="muted">위에 있을수록 우선 · 활성 {enabled}개</small></h3>
             <span className="spacer" />
+            <span className="muted small">위에 있을수록 먼저 올립니다. 끌어서 순서를 바꿉니다.</span>
             <button className="primary" onClick={() => setEdit({ ...EMPTY })}>+ 대상 추가</button>
           </div>
-          {!targets.length && <p className="muted">아직 백업 대상이 없습니다. 대상을 추가하면 끝난 파일부터 백업을 시작합니다.</p>}
+          {!targets.length && <div className="dm-empty"><b>아직 백업 대상이 없습니다</b><span>추가하면 봉인이 끝난 파일부터 백업을 시작합니다</span></div>}
           <div className="bk-list">
             {targets.map((t, i) => {
               const s = t.stat || {}
@@ -140,7 +179,7 @@ export default function BiosignalAdmin() {
         {st?.targets?.length > 0 && <BackupCatalog targets={st.targets} canEdit={canEdit} />}
 
         <section>
-          <h3>최근 전송 기록</h3>
+          <h3>최근 전송 기록 <small className="muted" style={{ fontWeight: 400, fontSize: 12, marginLeft: 8 }}>라우터 재시작 시 비워짐 · 최근 60건</small></h3>
           <div style={{ overflowX: 'auto' }}>
             <table className="tbl dense">
               <thead><tr><th>시각</th><th>대상</th><th>파일</th><th className="num">크기</th><th className="num">소요</th><th>결과</th></tr></thead>
@@ -152,7 +191,7 @@ export default function BiosignalAdmin() {
                     <td className={l.ok ? 'ok' : 'err'} style={{ whiteSpace: 'normal' }}>{l.ok ? '✓ ' : '✕ '}{l.msg}</td>
                   </tr>
                 ))}
-                {!st?.log?.length && <tr><td colSpan={6} className="muted">아직 전송 기록이 없습니다 (라우터 재시작 시 비워짐).</td></tr>}
+                {!st?.log?.length && <tr><td colSpan={6}><div className="dm-empty"><b>아직 전송 기록이 없습니다</b><span>백업 대상이 켜지고 봉인된 파일이 생기면 여기에 쌓입니다</span></div></td></tr>}
               </tbody>
             </table>
           </div>

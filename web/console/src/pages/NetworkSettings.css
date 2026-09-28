@@ -1,0 +1,23 @@
+/* 운영관리 › 네트워크 설정 — 서비스 카드와 고정 저장 바 (개선안 ⑨) */
+.page.net.has-bar { padding-bottom: 76px; }
+.net-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.settings .net-card { margin-bottom: 0; display: flex; flex-direction: column; gap: 2px; }
+.net-card.changed { border-color: var(--warn); }
+.net-card.missing { border-color: color-mix(in srgb, var(--err) 60%, var(--line)); }
+.net-card-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.net-req { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.net-req.req { color: var(--err); border-color: color-mix(in srgb, var(--err) 50%, var(--line)); }
+.net-req.opt { color: var(--muted); }
+.net-changed { font-size: 11px; font-weight: 600; color: var(--warn); padding: 1px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.net-card .net-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.net-input { display: inline-flex; align-items: center; flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); overflow: hidden; }
+.net-input input { border: 0; background: transparent; flex: 1; min-width: 0; }
+.net-input input:focus { outline: none; }
+.net-card.changed .net-input { border-color: var(--warn); }
+.net-port { padding: 0 10px; color: var(--muted); font-size: 12px; border-left: 1px dashed var(--line); }
+.net-src { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 8px 0 4px; font-size: 12px; }
+.net-src dt { color: var(--muted); } .net-src dd { margin: 0; overflow-wrap: anywhere; }
+.net-test { margin: 6px 0 0; font-size: 12.5px; }
+.net-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; align-items: center; gap: 10px; padding: 12px 20px; background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -8px 24px rgba(0,0,0,.25); font-size: 13px; }
+.net-bar-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+@media (max-width: 900px) { .net-bar { flex-wrap: wrap; } }

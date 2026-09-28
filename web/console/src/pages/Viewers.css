@@ -1,10 +1,54 @@
-/* 뷰어 목록 — 카드 격자 (ListKit .lk-card 위에 이 페이지만의 강조) */
-.vw-sub { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; margin: 0 0 10px; }
-.vw-sort button { padding: 3px 9px; font-size: 12px; }
-.lk-card.has-alarm { border-color: color-mix(in srgb, var(--sev-medium) 55%, var(--line)); }
-.lk-card.has-crit { border-color: color-mix(in srgb, var(--sev-critical) 60%, var(--line)); box-shadow: inset 3px 0 var(--sev-critical); }
-.lk-card-t small.mono { font-family: ui-monospace, Menlo, monospace; font-weight: 400; font-size: 11.5px; margin-left: 4px; }
-.lk-card-go button.ghost { border-color: transparent; color: var(--muted); }
-.lk-card-go button.ghost:hover { border-color: var(--line); color: var(--text); }
-.lk-card-go button.ghost.danger:hover { color: var(--err); }
-.vw-empty { grid-column: 1 / -1; padding: 18px 4px; }
+/* 뷰어 실행기 — ① 묶을 기준 | ② 대상 선택 | ③ 템플릿 (세 칸) */
+.vw-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
+.vw-head .h { margin: 0; }
+.vw-steps { font-size: 13px; } .vw-steps b { color: var(--accent); font-weight: 700; margin: 0 2px; }
+.vw-launch { display: grid; grid-template-columns: 200px minmax(0, 1fr) 280px; gap: 12px; align-items: start; }
+@media (max-width: 1100px) { .vw-launch { grid-template-columns: 1fr; } }
+.vw-col { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.vw-col h4 { margin: 2px 0 8px; font-size: 13.5px; display: flex; align-items: baseline; gap: 8px; }
+.vw-col h4 small { font-weight: 400; }
+.vw-kgrp { margin-bottom: 10px; }
+.vw-klabel { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; color: var(--muted); padding: 4px 8px; }
+.vw-kind { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 6px 10px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--text); font-size: 13px; text-align: left; cursor: pointer; }
+.vw-kind:hover { background: var(--panel2); }
+.vw-kind.on { background: color-mix(in srgb, var(--accent) 16%, var(--panel)); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--accent); font-weight: 600; }
+.vw-kind b { font-weight: 600; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.vw-kind.on b { color: var(--accent); }
+.vw-th { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.vw-th h4 { margin: 0; }
+.vw-q { width: 200px; }
+.vw-subcat { margin: 0 0 6px; }
+.vw-tblwrap { overflow: auto; max-height: calc(100vh - 260px); }
+.vw-tbl td.chk, .vw-tbl th.chk { width: 28px; text-align: center; }
+.vw-tbl td.star, .vw-tbl th.star { width: 26px; text-align: center; padding-left: 0; padding-right: 0; }
+.vw-tbl td.name { white-space: nowrap; }
+.vw-tbl td.name b { font-weight: 600; }
+.vw-tbl td.name small { display: block; font-size: 11.5px; margin-top: 1px; }
+.vw-tbl td.name small.mono, .vw-tbl td.name b small { display: inline; font-family: ui-monospace, Menlo, monospace; font-weight: 400; font-size: 11.5px; margin-left: 4px; }
+.vw-tbl td.act { text-align: right; white-space: nowrap; width: 1%; }
+.vw-tbl td.act button { padding: 2px 8px; font-size: 12px; margin-left: 4px; }
+.vw-tbl tbody tr { cursor: pointer; }
+.vw-tbl tbody tr:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.vw-tbl tr.selected td { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.vw-tbl tr.has-alarm td:first-child { box-shadow: inset 3px 0 var(--sev-medium); }
+.vw-tbl tr.has-crit td:first-child { box-shadow: inset 3px 0 var(--sev-critical); }
+.vw-tbl tr.vw-all td { background: var(--panel2); }
+.vw-tbl th.sortable.on { color: var(--text); }
+.vw-empty { padding: 18px 8px !important; }
+.vw-note { font-size: 12px; margin: 8px 0 0; line-height: 1.5; }
+.vw-tpls { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.vw-tplcard { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.vw-tplcard input { margin: 0; grid-row: span 2; }
+.vw-tplcard.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.vw-tplname { font-weight: 600; font-size: 13px; }
+.vw-tplcard small { font-size: 11.5px; }
+.vw-opts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.vw-opt { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.vw-opt.chk { justify-content: flex-start; }
+.vw-opt .seg button { padding: 3px 9px; font-size: 12px; }
+.vw-foot { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.vw-foot .warn { color: var(--warn); }
+.vw-go { width: 100%; padding: 8px 12px; font-size: 13.5px; }
+button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+button.ghost:hover { border-color: var(--line); color: var(--text); }
+button.ghost.danger:hover { color: var(--err); }

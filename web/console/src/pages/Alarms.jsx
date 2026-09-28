@@ -225,19 +225,123 @@ export default function Alarms({ alarms }) {
         </ListLayout>
       </>}
       {tab === 'rules' && draft && (
-        <ReadOnly edit={can(me, 'action.alarm_rules', 2)}><div className="panel rules">
-          <div className="rule-grid">
-            {RULE_FIELDS.map(([k, label, unit]) => (
-              <label key={k}><span>{label}</span><input type="number" step={k.startsWith('temp') ? 0.1 : 1} value={draft[k]} onChange={(e) => setDraft({ ...draft, [k]: Number(e.target.value) })} /><small>{unit}</small></label>
-            ))}
-          </div>
-          <div className="toolbar">
-            <button className="primary" onClick={save} disabled={JSON.stringify(draft) === JSON.stringify(rules)}>저장</button>
-            <button onClick={() => setDraft(rules)}>되돌리기</button>
-            <span className="muted">수치 알람은 임계를 '지속' 시간 이상 벗어나야 발생하고, 조건이 사라진 뒤 '해제 유예' 시간이 지나면 자동 해제됩니다. 전극 탈락 중에는 수치 알람을 평가하지 않습니다.</span>
-          </div>
-        </div></ReadOnly>
+        <ReadOnly edit={can(me, 'action.alarm_rules', 2)}>
+          <RulesEditor draft={draft} rules={rules} setDraft={setDraft} onSave={save} onRevert={() => setDraft(rules)} />
+        </ReadOnly>
       )}
+    </div>
+  )
+}
+
+/* ───────── 규칙 탭 (개선안 ④): 바이탈별 범위 막대 카드 · 패치·기기 · 발생·해제 타이밍 · 하단 고정 저장 바 ───────── */
+const RULE_LABEL = Object.fromEntries(RULE_FIELDS.map(([k, l, u]) => [k, [l, u]]))
+/** 바이탈 카드 정의: 축 범위와 구간(키 순서대로 낮은 값 → 높은 값). 키가 규칙에 없으면 그 구간은 생략된다. */
+const VITAL_CARDS = [
+  { id: 'hr', title: '심박수 HR', unit: 'bpm', axis: [0, 220], step: 1,
+    stops: [['hr_crit_low', 'crit', '위험'], ['hr_low', 'warn', '서맥'], ['hr_high', 'ok', '정상'], ['hr_crit_high', 'warn', '빈맥'], [null, 'crit', '위험']] },
+  { id: 'spo2', title: '산소포화도 SpO₂', unit: '%', axis: [70, 100], step: 1,
+    stops: [['spo2_crit_low', 'crit', '위험'], ['spo2_low', 'warn', '저산소'], [null, 'ok', '정상']] },
+  { id: 'resp', title: '호흡수 RR', unit: '/min', axis: [0, 40], step: 1,
+    stops: [['resp_low', 'warn', '서호흡'], ['resp_high', 'ok', '정상'], [null, 'warn', '빈호흡']] },
+  { id: 'temp', title: '체온', unit: '°C', axis: [33, 41], step: 0.1,
+    stops: [['temp_low', 'warn', '저체온'], ['temp_high', 'ok', '정상'], [null, 'warn', '고열']] },
+]
+const DEVICE_KEYS = ['battery_low_pct', 'patch_wear_days', 'patch_wear_warn_h']
+const TIMING_KEYS = ['sustain_s', 'lead_off_s', 'patch_silent_s', 'clear_s']
+
+/**
+ * 범위 막대: stops 는 [경계 키, 톤, 라벨] — 각 구간은 이전 경계에서 이 경계까지, 마지막(null)은 축 끝까지.
+ * 경계값은 draft 에서 읽고, 축 밖이면 축 끝으로 자른다. 경계마다 아래에 눈금 숫자.
+ */
+function RangeBar({ card, draft }) {
+  const [lo, hi] = card.axis
+  const span = hi - lo || 1
+  const clamp = (v) => Math.min(hi, Math.max(lo, v))
+  const segs = []
+  const ticks = [{ v: lo, x: 0 }]
+  let prev = lo
+  for (const [key, tone, label] of card.stops) {
+    if (key && draft[key] == null) continue
+    const v = key ? clamp(Number(draft[key])) : hi
+    const w = Math.max(0, (v - prev) / span * 100)
+    segs.push({ key: key || 'end', tone, label, w })
+    if (key) ticks.push({ v: Number(draft[key]), x: (v - lo) / span * 100 })
+    prev = v
+  }
+  ticks.push({ v: hi, x: 100 })
+  return (
+    <div className="rl-range">
+      <div className="rl-bar">{segs.map((g) => <div key={g.key} className={'rl-seg ' + g.tone} style={{ width: `${g.w}%` }} title={g.label}>{g.w >= 8 ? g.label : ''}</div>)}</div>
+      <div className="rl-ticks">{ticks.map((t, i) => <span key={i} className="v" style={{ left: `${t.x}%` }}>{t.v}</span>)}</div>
+    </div>
+  )
+}
+
+function RuleInput({ k, draft, rules, setDraft, step }) {
+  const [label, unit] = RULE_LABEL[k] || [k, '']
+  const changed = rules && draft[k] !== rules[k]
+  return (
+    <label className={'rl-field' + (changed ? ' changed' : '')}>
+      <span>{label}{changed && <em> · 변경됨</em>}</span>
+      <span className="rl-inp"><input type="number" step={step ?? (k.startsWith('temp') || k === 'patch_wear_days' ? 0.1 : 1)} value={draft[k] ?? ''} onChange={(e) => setDraft({ ...draft, [k]: Number(e.target.value) })} aria-label={label} /><small>{unit}</small></span>
+    </label>
+  )
+}
+
+function RulesEditor({ draft, rules, setDraft, onSave, onRevert }) {
+  const has = (k) => draft[k] != null
+  const usedKeys = new Set([...VITAL_CARDS.flatMap((c) => c.stops.map((s) => s[0]).filter(Boolean)), ...DEVICE_KEYS, ...TIMING_KEYS])
+  const others = Object.keys(draft).filter((k) => !usedKeys.has(k) && typeof draft[k] === 'number')
+  const changes = rules ? Object.keys(draft).filter((k) => draft[k] !== rules[k]) : []
+  const fmtChange = (k) => `${(RULE_LABEL[k]?.[0] || k).replace(/\s*[<>≤≥]\s*$/, '')} ${rules[k]} → ${draft[k]}`
+  return (
+    <div className="rules-x">
+      <p className="muted small rl-intro">모든 병동에 공통 적용됩니다. 막대는 지금 입력한 값 기준으로 구간을 보여 주고, 값을 바꾸면 바로 다시 그려집니다.</p>
+      <div className="rl-grid">
+        {VITAL_CARDS.filter((c) => c.stops.some(([k]) => k && has(k))).map((c) => (
+          <section key={c.id} className="rl-card">
+            <h3>{c.title} <small>{c.unit}</small></h3>
+            <RangeBar card={c} draft={draft} />
+            <div className="rl-fields">{c.stops.map(([k]) => k && has(k) ? <RuleInput key={k} k={k} draft={draft} rules={rules} setDraft={setDraft} step={c.step} /> : null)}</div>
+          </section>
+        ))}
+        {DEVICE_KEYS.some(has) && (
+          <section className="rl-card">
+            <h3>패치 · 기기</h3>
+            <div className="rl-fields">{DEVICE_KEYS.filter(has).map((k) => <RuleInput key={k} k={k} draft={draft} rules={rules} setDraft={setDraft} />)}</div>
+          </section>
+        )}
+        {TIMING_KEYS.some(has) && (
+          <section className="rl-card">
+            <h3>발생 · 해제 타이밍</h3>
+            <div className="rl-fields">{TIMING_KEYS.filter(has).map((k) => <RuleInput key={k} k={k} draft={draft} rules={rules} setDraft={setDraft} />)}</div>
+            <div className="rl-flow">
+              <span>임계 이탈</span><i>→</i>
+              <span className="warn"><b className="v">{draft.sustain_s ?? '—'}s</b> 지속</span><i>→</i>
+              <span className="fire">알람 발생</span><i>→</i>
+              <span>조건 해소</span><i>→</i>
+              <span className="ok"><b className="v">{draft.clear_s ?? '—'}s</b> 유예 후 자동 해제</span>
+            </div>
+            <p className="muted small">전극 탈락 중에는 수치 알람을 평가하지 않습니다. 전극 탈락·패치 무응답은 각각의 지속 시간을 넘겨야 알람이 됩니다.</p>
+          </section>
+        )}
+        {others.length > 0 && (
+          <section className="rl-card">
+            <h3>기타</h3>
+            <div className="rl-fields">{others.map((k) => <RuleInput key={k} k={k} draft={draft} rules={rules} setDraft={setDraft} />)}</div>
+          </section>
+        )}
+      </div>
+      <div className={'rl-savebar' + (changes.length ? ' dirty' : '')}>
+        <i className="rl-dot" />
+        {changes.length
+          ? <><b>저장 안 된 변경 {changes.length}건</b><span className="muted small rl-diff">{changes.slice(0, 3).map(fmtChange).join(' · ')}{changes.length > 3 ? ` 외 ${changes.length - 3}` : ''}</span></>
+          : <span className="muted small">변경 없음 — 값을 바꾸면 여기에 표시됩니다</span>}
+        <span className="muted small">저장하면 즉시 모든 병동에 적용되며 감사 기록에 남습니다</span>
+        <span className="spacer" />
+        <button onClick={onRevert} disabled={!changes.length}>되돌리기</button>
+        <button className="primary" onClick={onSave} disabled={!changes.length}>저장</button>
+      </div>
     </div>
   )
 }

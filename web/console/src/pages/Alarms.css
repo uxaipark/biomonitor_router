@@ -8,3 +8,40 @@
 .alarms .tbl tr.acked td { opacity: .62; }
 .alarms .tbl tr.acked td.lk-rail { opacity: .35; }
 .alarms .tbl tr.selected td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+/* ── 규칙 탭 (개선안 ④): 범위 막대 카드 · 고정 저장 바 ── */
+.rules-x { display: flex; flex-direction: column; gap: 12px; padding-bottom: 72px; }
+.rl-intro { margin: 0; }
+.rl-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 900px) { .rl-grid { grid-template-columns: 1fr; } }
+.rl-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.rl-card h3 { margin: 0; font-size: 14.5px; display: flex; align-items: baseline; gap: 8px; }
+.rl-card h3 small { color: var(--muted); font-weight: 400; font-size: 12px; }
+.rl-range { display: flex; flex-direction: column; gap: 3px; }
+.rl-bar { display: flex; height: 24px; border-radius: 6px; overflow: hidden; background: color-mix(in srgb, var(--line) 60%, transparent); }
+.rl-seg { display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; min-width: 0; }
+.rl-seg.ok { background: color-mix(in srgb, var(--ok) 28%, var(--panel)); color: var(--ok); }
+.rl-seg.warn { background: color-mix(in srgb, var(--sev-high) 28%, var(--panel)); color: var(--sev-high); }
+.rl-seg.crit { background: color-mix(in srgb, var(--sev-critical) 28%, var(--panel)); color: var(--sev-critical); }
+.rl-ticks { position: relative; height: 16px; font-size: 11px; color: var(--muted); }
+.rl-ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.rl-ticks span:first-child { transform: none; }
+.rl-ticks span:last-child { transform: translateX(-100%); }
+.rl-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; }
+.rl-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.rl-field em { font-style: normal; color: var(--warn); }
+.rl-field.changed > span:first-child { color: var(--warn); }
+.rl-inp { display: inline-flex; align-items: center; height: 34px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); overflow: hidden; }
+.rl-field.changed .rl-inp { border: 2px solid var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--bg)); }
+.rl-inp input { width: 72px; min-width: 0; border: 0; outline: 0; background: transparent; padding: 0 8px; font-family: ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 600; color: var(--text); text-align: right; }
+.rl-inp small { padding: 0 10px 0 2px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.rl-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11.5px; }
+.rl-flow span { padding: 4px 8px; border-radius: 4px; background: var(--panel2); }
+.rl-flow span.warn { background: color-mix(in srgb, var(--sev-high) 24%, var(--panel)); color: var(--sev-high); }
+.rl-flow span.ok { background: color-mix(in srgb, var(--ok) 24%, var(--panel)); color: var(--ok); }
+.rl-flow span.fire { background: var(--sev-critical); color: #fff; font-weight: 600; }
+.rl-flow i { color: var(--muted); font-style: normal; }
+.rl-savebar { position: sticky; bottom: 0; z-index: 3; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 -6px 18px rgba(0,0,0,.18); }
+.rl-savebar .rl-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.rl-savebar.dirty .rl-dot { background: var(--warn); }
+.rl-savebar .rl-diff { font-variant-numeric: tabular-nums; }

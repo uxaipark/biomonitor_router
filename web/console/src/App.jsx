@@ -28,57 +28,33 @@ import { LiveModal } from './pages/LiveModal.jsx'
 
 // [hash, 메뉴 이름, 페이지, 묶음 메뉴(선택), 권한 자원]
 const PAGES = [
-  // 첫 화면 = 대시보드(운영 통계). 권한이 없으면(의료진) 볼 수 있는 첫 메뉴(이벤트보드)로. 머리글 제목을 누르면 여기로.
-  ['#/', '대시보드', OpsStats, null, 'page.ops'],
-  ['#/board', '이벤트보드', Dashboard, null, 'page.dashboard'],
-  ['#/alarms', '알람', Alarms, null, 'page.alarms'],
-  ['#/events', '이벤트', Events, null, 'page.events'],
-  ['#/patients', '환자', Patients, null, 'page.patients'],
-  ['#/gateways', '게이트웨이', Gateways, null, 'page.gateways'],
-  ['#/map', '병원 지도', MapPage, null, 'page.map'],
-  ['#/viewers', '뷰어', Viewers, null, 'page.viewers'],
-  // entries with a 4th element hang under that top-menu group (rendered as a custom nav menu)
-  ['#/live', '실시간', Live, '테스트', 'page.test'],
-  ['#/test/multiviewer', '멀티 뷰어 테스트', MultiViewerTest, '테스트', 'page.test'],
-  // 운영관리: 운영(네트워크·데이터·서비스·연동) 먼저, 그 아래 계정·보안 — 6번째 값은 드롭다운 안의 소제목
-  ['#/settings/network', '네트워크 설정', NetworkSettings, '운영관리', 'page.settings_network', '운영'],
-  ['#/settings/biosignal', '데이터 관리', BiosignalAdmin, '운영관리', 'page.settings_biosignal', '운영'],
-  ['#/admin/control', '서비스 제어', AdminControl, '운영관리', 'page.service_control', '운영'],
-  ['#/settings/integration', 'EMR 연동', Integration, '운영관리', 'page.integration', '운영'],
-  ['#/settings/viewer', '뷰어 설정', ViewerSettings, '운영관리', 'page.settings_viewer', '운영'],
-  ['#/admin/users', '계정', AdminUsers, '운영관리', 'page.admin_users', '계정·보안'],
-  ['#/admin/permissions', '권한 설정', AdminPermissions, '운영관리', 'page.admin_permissions', '계정·보안'],
-  ['#/admin/tenants', '병원 (테넌트)', AdminTenants, '운영관리', 'page.admin_tenants', '계정·보안'],
-  ['#/admin/audit', '감사 기록', AdminAudit, '운영관리', 'page.admin_audit', '계정·보안'],
-  // 보안 운영은 운영관리 메뉴 맨 끝
-  ['#/admin/security', '보안 운영', AdminSecurity, '운영관리', 'page.security', '계정·보안'],
+  // [hash, 메뉴 이름, 페이지, 톱 메뉴 묶음(모니터링·인프라·관리), 권한 자원, 관리 셸의 소제목]
+  // 모니터링 — 임상·현장이 보는 화면
+  ['#/board', '이벤트보드', Dashboard, '모니터링', 'page.dashboard'],
+  ['#/alarms', '알람', Alarms, '모니터링', 'page.alarms'],
+  ['#/patients', '환자', Patients, '모니터링', 'page.patients'],
+  ['#/map', '병원 지도', MapPage, '모니터링', 'page.map'],
+  ['#/viewers', '뷰어', Viewers, '모니터링', 'page.viewers'],
+  // 인프라 — 파이프라인·장비·기록 (운영 통계가 첫 화면; 권한이 없으면 볼 수 있는 첫 메뉴로)
+  ['#/', '운영 통계', OpsStats, '인프라', 'page.ops'],
+  ['#/gateways', '게이트웨이', Gateways, '인프라', 'page.gateways'],
+  ['#/events', '이벤트 로그', Events, '인프라', 'page.events'],
+  // 관리 — 오른쪽 '관리' 버튼으로 들어가는 설정 셸 (왼쪽 사이드바: 운영 · 계정·보안 · 테스트 도구)
+  ['#/settings/network', '네트워크 설정', NetworkSettings, '관리', 'page.settings_network', '운영'],
+  ['#/settings/biosignal', '데이터 관리', BiosignalAdmin, '관리', 'page.settings_biosignal', '운영'],
+  ['#/admin/control', '서비스 제어', AdminControl, '관리', 'page.service_control', '운영'],
+  ['#/settings/integration', 'EMR 연동', Integration, '관리', 'page.integration', '운영'],
+  ['#/settings/viewer', '뷰어 설정', ViewerSettings, '관리', 'page.settings_viewer', '운영'],
+  ['#/admin/users', '계정', AdminUsers, '관리', 'page.admin_users', '계정·보안'],
+  ['#/admin/permissions', '권한 설정', AdminPermissions, '관리', 'page.admin_permissions', '계정·보안'],
+  ['#/admin/tenants', '병원 (테넌트)', AdminTenants, '관리', 'page.admin_tenants', '계정·보안'],
+  ['#/admin/audit', '감사 기록', AdminAudit, '관리', 'page.admin_audit', '계정·보안'],
+  ['#/admin/security', '보안 운영', AdminSecurity, '관리', 'page.security', '계정·보안'],
+  ['#/live', '실시간 파형', Live, '관리', 'page.test', '테스트 도구'],
+  ['#/test/multiviewer', '멀티 뷰어 테스트', MultiViewerTest, '관리', 'page.test', '테스트 도구'],
 ]
-const MENUS = [...new Set(PAGES.map((p) => p[3]).filter(Boolean))]
-
-/** Top-nav group with a click-to-open submenu (no native controls); closes on outside click / Esc / pick. */
-function NavMenu({ label, items, base, hints }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
-  }, [open])
-  const active = items.some(([h]) => h === base)
-  return (
-    <span ref={ref} className={'nav-menu' + (open ? ' open' : '')}>
-      <a href="#" className={active ? 'active' : ''} onClick={(e) => { e.preventDefault(); setOpen(!open) }} aria-haspopup="menu" aria-expanded={open}>{label} <i className="dd-caret" /></a>
-      {open && <div className="nav-sub" role="menu">{items.map(([h, l, , , , sec], i) => (
-        <React.Fragment key={h}>
-          {sec && sec !== items[i - 1]?.[5] && <div className="nav-sec" role="presentation">{sec}</div>}
-          <a href={h} role="menuitem" className={base === h ? 'active' : ''} onClick={() => setOpen(false)}>{l}{hints?.[h] != null && <span className="hint">{hints[h]}</span>}</a>
-        </React.Fragment>
-      ))}</div>}
-    </span>
-  )
-}
+const TOP_GROUPS = ['모니터링', '인프라']
+const SIDE_GROUPS = ['운영', '계정·보안', '테스트 도구']
 
 function useHash() {
   const [h, setH] = useState(location.hash || '#/')
@@ -175,7 +151,9 @@ function NoAccess({ label }) {
 function Console({ me, setMe }) {
   const hash = useHash()
   const [theme, setTheme] = useTheme()
-  const [health] = usePoll(api.health, 5000)
+  const [health, , refreshHealth] = usePoll(api.health, 5000)
+  const lastOkRef = useRef(0)
+  useEffect(() => { if (health?.ok) lastOkRef.current = Date.now() }, [health])
   // 서비스 제어: 멈춘 서비스는 모든 화면 위 띠 + 머리글 표시로 알린다 (아무도 모르게 멈춰 있지 않게)
   const [ctl, , refreshCtl] = usePoll(api.control.status, 5000)
   useEffect(() => { const f = () => refreshCtl?.(); window.addEventListener('control-changed', f); return () => window.removeEventListener('control-changed', f) }, [refreshCtl])
@@ -212,7 +190,16 @@ function Console({ me, setMe }) {
   // 이 라우터의 병원에 속하지 않은 계정: 관리 화면 외에는 데이터가 없다(서버가 403) — 빈 화면 대신 안내
   const blocked = !me.site.accessible && !page[0].startsWith('#/admin/')
   const Page = blocked ? () => <SiteBlocked me={me} /> : can(me, page[4]) ? page[2] : () => <NoAccess label={page[1]} />
-  const menus = MENUS.filter((m) => allowed.some((p) => p[3] === m))
+  const inAdmin = page[3] === '관리'
+  const adminHome = allowed.find((p) => p[3] === '관리')?.[0] || '#/admin/control'
+  // 시스템 상태 한 알약: 라우터 API → WS → 에뮬레이터 순으로 가장 나쁜 것을 보인다
+  const sys = !health ? { tone: 'off', text: '확인 중' }
+    : !health.ok ? { tone: 'err', text: '라우터 끊김' }
+    : me.site.accessible && canBio(me) && canPhi(me) && ws !== 'open' ? { tone: 'warn', text: 'WS 끊김' }
+    : me.site.accessible && emu && !emu.running ? { tone: 'warn', text: '에뮬레이터 정지' }
+    : me.site.accessible && !emu ? { tone: 'warn', text: '에뮬레이터 연결 안 됨' }
+    : { tone: 'ok', text: '정상' }
+  const sysTitle = `라우터 API ${health?.ok ? '정상' : '응답 없음'} · WS ${ws} · 에뮬레이터 ${emu ? (emu.running ? '전송 중' : '정지') : '연결 안 됨'}`
   const s = alarms.summary || {}
   // Viewer templates run full-screen without the console chrome (opened in their own tab).
   if (base === '#/viewer') {
@@ -224,28 +211,54 @@ function Console({ me, setMe }) {
   return (
     <div className="app">
       <header className="top">
-        <a className="brand" href="#/"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)" /><path d="M4 13h4l2-5 3 9 2-6 1.5 2H20" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>{appTitle(me.user)}</a>
-        <nav>
-          {allowed.filter((p) => !p[3]).map(([h, label]) => (
-            <a key={h} href={h} className={page[0] === h ? 'active' : ''}>{label}{h === '#/alarms' && <span className={'badge' + (s.unacked > 0 ? '' : ' empty')} title={s.unacked > 0 ? `미확인 알람 ${s.unacked}건` : ''}>{s.unacked > 999 ? '999+' : s.unacked || ''}</span>}</a>
-          ))}
-          {menus.map((m) => <NavMenu key={m} label={m} base={page[0]} items={allowed.filter((p) => p[3] === m)} hints={navHints} />)}
+        <a className="brand" href={allowed[0]?.[0] || '#/'}><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)" /><path d="M4 13h4l2-5 3 9 2-6 1.5 2H20" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>{appTitle(me.user)}</a>
+        <nav aria-label="주 메뉴" className="nav-top">
+          {TOP_GROUPS.map((g) => {
+            const items = allowed.filter((p) => p[3] === g)
+            if (!items.length) return null
+            return (
+              <span key={g} className="nav-grp">
+                <span className="nav-grp-label">{g}</span>
+                {items.map(([h, label]) => (
+                  <a key={h} href={h} className={page[0] === h && !inAdmin ? 'active' : ''}>{label}{h === '#/alarms' && <span className={'badge' + (s.unacked > 0 ? '' : ' empty')} title={s.unacked > 0 ? `미확인 알람 ${s.unacked}건` : ''}>{s.unacked > 999 ? '999+' : s.unacked || ''}</span>}</a>
+                ))}
+              </span>
+            )
+          })}
         </nav>
         <span className="spacer" />
-        <span className={'pill ' + (health?.ok ? 'ok' : 'err')} title={`라우터 API ${health?.ok ? '정상' : '응답 없음'}`}>라우터</span>
-        {!me.site.accessible ? null : canBio(me) && canPhi(me) ? <span className={'pill ' + (ws === 'open' ? 'ok' : 'warn')} title={`출력 WebSocket: ${ws}`}>WS</span> : <span className="pill warn" title="개인정보·생체신호 권한이 없어 이름 등은 가려지고 파형은 나오지 않습니다">마스킹</span>}
-        {me.site.accessible && <span className={'pill ' + (emu?.running ? 'ok' : emu ? 'warn' : 'err')} title={`에뮬레이터 (RP5#1): ${emu ? (emu.running ? '전송 중' : '정지') : '연결 안 됨'}`}>에뮬레이터</span>}
-        {alarmsVisible && me.site.accessible && <span className={'pill ' + (s.critical ? 'crit' : s.high ? 'err' : s.active ? 'warn' : '')} title={`활성 알람 — 위험 ${s.critical || 0} · 높음 ${s.high || 0} · 중간 ${s.medium || 0} · 낮음 ${s.low || 0}`}>
-          알람 {s.active ?? 0}{s.critical ? ` · 위험 ${s.critical}` : ''}
-        </span>}
+        <span className={'pill sys ' + sys.tone} title={sysTitle}><i className="sys-dot" />시스템 상태 · {sys.text}</span>
+        {!me.site.accessible ? null : !(canBio(me) && canPhi(me)) && <span className="pill warn" title="개인정보·생체신호 권한이 없어 이름 등은 가려지고 파형은 나오지 않습니다">마스킹</span>}
+        {alarmsVisible && me.site.accessible && (s.critical || s.high) ? <a href="#/alarms" className={'pill ' + (s.critical ? 'crit' : 'err')} title={`활성 알람 — 위험 ${s.critical || 0} · 높음 ${s.high || 0} · 중간 ${s.medium || 0} · 낮음 ${s.low || 0}`}>알람 {s.active ?? 0}{s.critical ? ` · 위험 ${s.critical}` : ''}</a> : null}
+        {allowed.some((p) => p[3] === '관리') && <a href={adminHome} className={'nav-admin' + (inAdmin ? ' active' : '')} title="운영 · 계정·보안 · 테스트 도구">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7z" fill="none" stroke="currentColor" strokeWidth="2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" fill="none" stroke="currentColor" strokeWidth="1.6"/></svg>
+          관리
+        </a>}
         <UserMenu me={me} setMe={setMe} />
         <button className="icon" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title={theme === 'dark' ? '밝은 테마로' : '어두운 테마로'}>{theme === 'dark'
           ? <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" fill="currentColor" /></svg>
           : <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="4.5" fill="currentColor" /><g stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8" /></g></svg>}</button>
       </header>
+      {health && !health.ok && <DisconnectBanner since={lastOkRef.current} onRetry={() => refreshHealth?.()} />}
       {stoppedSvcs.length > 0 && <ControlBanner items={stoppedSvcs} canEdit={can(me, 'page.service_control', 2)} />}
-      <main>
-        <Page alarms={alarms} hash={hash} />
+      <main className={inAdmin ? 'adm-main' : ''}>
+        {inAdmin ? (
+          <div className="adm-shell">
+            <aside className="adm-side" aria-label="관리 메뉴">
+              {SIDE_GROUPS.map((g) => {
+                const items = allowed.filter((p) => p[3] === '관리' && p[5] === g)
+                if (!items.length) return null
+                return (
+                  <div key={g} className="adm-side-grp">
+                    <div className="adm-side-label">{g}</div>
+                    {items.map(([h, label]) => <a key={h} href={h} className={page[0] === h ? 'active' : ''}>{label}{navHints[h] != null && <span className="hint">{navHints[h]}</span>}</a>)}
+                  </div>
+                )
+              })}
+            </aside>
+            <div className="adm-content"><Page alarms={alarms} hash={hash} /></div>
+          </div>
+        ) : <Page alarms={alarms} hash={hash} />}
       </main>
       {modal && <LiveModal channelId={modal.channel_id} alarms={alarms} onClose={() => setModal(null)} />}
     </div>
@@ -323,6 +336,19 @@ function PasswordModal({ must, onClose, onDone }) {
         {err && <p className="err">{err}</p>}
         <div className="toolbar"><span className="spacer" /><button onClick={onClose}>{must ? '나중에' : '취소'}</button><button className="primary" onClick={save}>변경</button></div>
       </div>
+    </div>
+  )
+}
+
+/** 라우터 API 가 응답하지 않을 때 모든 화면 위 빨간 띠: 마지막 정상 시각과 재연결 버튼 */
+function DisconnectBanner({ since, onRetry }) {
+  const t = since ? new Date(since).toLocaleTimeString('ko-KR', { hour12: false }) : null
+  return (
+    <div className="dc-banner" role="status">
+      <b>라우터 연결 끊김</b>
+      <span>{t ? `화면의 수치는 ${t} 기준입니다. ` : ''}새 알람이 들어오지 않을 수 있으니 병동에 직접 확인하세요.</span>
+      <span className="spacer" />
+      <button onClick={onRetry}>재연결 시도</button>
     </div>
   )
 }

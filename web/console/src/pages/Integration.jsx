@@ -3,6 +3,7 @@ import { api, usePoll, fmtTime } from '../api.js'
 import { useMe, can } from '../auth.js'
 import { wardText } from '../model.js'
 import Dropdown from '../Dropdown.jsx'
+import './Integration.css'
 
 /**
  * 운영관리 › EMR 연동 — 라우터가 받은 생체 수치를 병원 EMR 에 간호 바이탈로 보낸다.
@@ -16,6 +17,15 @@ const ADT_HOW = {
 }
 const ADT_CODE = { A01: '입원', A02: '전동', A03: '퇴원', A08: '정보 변경', A11: '입원 취소' }
 const MATCH = { pair: '순서', emr: '연동 키', mrn: 'MRN' }
+/** 형식 카드 (제안안 ⑫): 카탈로그에 있고 라우터가 지원하는 형식만 보인다 */
+const FORMATS = [
+  ['fhir', 'FHIR', 'R4 · STU3'],
+  ['hl7v2', 'HL7 v2', 'MLLP 전송'],
+  ['kr-json', '국내 REST JSON', '기관별 REST API'],
+  ['kr-xml', 'EUC-KR XML 전문', 'EUC-KR 인코딩 XML'],
+  ['cda', '진료정보교류 CDA R2', '진료정보교류 표준 문서'],
+  ['athena', 'athena REST', 'athena REST API'],
+]
 const MATCH_HELP = { pair: '시험용 — 병동 순서대로 짝지음 (같은 사람 아님)', emr: '에뮬레이터 연동 병원 조인 키(등록번호·FHIR id·내원번호)로 같은 사람을 찾음', mrn: '우리 MRN = 기관 등록번호' }
 const ago = (ms) => (ms ? `${Math.max(0, Math.round((Date.now() - ms) / 1000))}초 전` : '—')
 
@@ -28,33 +38,41 @@ export default function Integration() {
   const conns = data?.connections || []
   useEffect(() => { if (!sel && conns.length) setSel(conns[0].config.id) }, [conns, sel])
   const toggle = async (c, on) => { try { await api.integ.update(c.config.id, { enabled: on }); refresh?.() } catch (e) { alert(e.message) } }
+  const noSite = !me?.site?.tenant_id
+  const enabledN = conns.filter((c) => c.config.enabled).length
   return (
     <div className="page adm integ">
       <div className="adm-head">
         <h2 className="h">EMR 연동</h2>
-        <span className="muted">{conns.length}개 연결 · 켜짐 {conns.filter((c) => c.config.enabled).length}</span>
+        <span className="integ-counters"><span><b>{conns.length}</b> 연결</span><span className="sep">·</span><span><b className={enabledN ? 'ok' : ''}>{enabledN}</b> 켜짐</span></span>
         <span className="spacer" />
-        {edit && <button className="primary" onClick={() => setAdding(true)}>+ 연결 추가</button>}
+        {edit && !noSite && <button className="primary" onClick={() => setAdding(true)}>+ 연결 추가</button>}
       </div>
       <p className="muted adm-desc">
-        패치의 HR·호흡수·SpO₂·체온을 병원 EMR 에 간호 바이탈로 기록합니다. FHIR R4/STU3 · HL7 v2(MLLP) · 국내 REST JSON · EUC-KR XML 전문 ·
-        진료정보교류 CDA R2 · athena REST 를 지원하며, 기관마다 다른 인증, 재원 명단, 환자 식별자, 시간대·단위(미국 °F)·문자셋(ISO-2022-JP·ISO 8859-1·EUC-KR)을 라우터가 맞춰 보냅니다. 이 라우터 병원({data?.site}) 환자만 보냅니다.
+        패치의 HR · 호흡수 · SpO₂ · 체온을 병원 EMR에 간호 바이탈로 기록합니다. FHIR R4/STU3 · HL7 v2(MLLP) · 국내 REST JSON · EUC-KR XML 전문 ·
+        진료정보교류 CDA R2 · athena REST 를 지원하며, 기관마다 다른 인증, 재원 명단, 환자 식별자, 시간대·단위(미국 °F)·문자셋(ISO-2022-JP·ISO 8859-1·EUC-KR)을 라우터가 맞춰 보냅니다.{data?.site ? ` 이 라우터 병원(${data.site}) 환자만 보냅니다.` : ''}
       </p>
+      {noSite && (
+        <div className="integ-nosite" role="status">
+          <b>이 라우터에 병원이 지정되지 않았습니다.</b>
+          <span>전송 대상 환자를 정할 수 없어 연결을 켤 수 없습니다.</span>
+          <a href="#/admin/tenants">병원 (테넌트) 지정 →</a>
+        </div>
+      )}
       {err && <p className="err">{err.message}</p>}
       <table className="tbl adm-tbl integ-tbl">
-        <thead><tr><th>켜기</th><th>기관</th><th>형식</th><th>범위</th><th className="num">재원</th><th className="num">매칭</th><th className="num">성공</th><th className="num">실패</th><th>마지막 전송</th><th>상태</th></tr></thead>
+        <thead><tr><th>켜기</th><th>기관</th><th>형식</th><th>범위</th><th className="num">재원 매칭</th><th className="num">성공</th><th className="num">실패</th><th>마지막 전송</th><th>상태</th></tr></thead>
         <tbody>
           {conns.map((c) => {
             const s = c.state, g = c.config
             const backoff = s.backoff_until_ms > Date.now()
             return (
               <tr key={g.id} className={'clickable' + (sel === g.id ? ' sel' : '')} onClick={() => setSel(g.id)}>
-                <td onClick={(e) => e.stopPropagation()}><label className="switch"><input type="checkbox" checked={g.enabled} disabled={!edit} onChange={(e) => toggle(c, e.target.checked)} /><i /></label></td>
+                <td onClick={(e) => e.stopPropagation()}><label className="switch"><input type="checkbox" checked={g.enabled} disabled={!edit || noSite} onChange={(e) => toggle(c, e.target.checked)} /><i /></label></td>
                 <td><b>{g.name}</b></td>
                 <td><span className={'proto p-' + g.protocol}>{PROTO[g.protocol] || g.protocol}{/^\d/.test(g.version) ? ` ${g.version}` : ''}</span> <small className="muted">{g.flavor}</small></td>
                 <td>{g.scope_ward ? wardText(g.scope_ward) : '전체'}</td>
-                <td className="num">{s.census || '—'}</td>
-                <td className="num">{s.linked || '—'}</td>
+                <td className="num" title="재원 명단 인원 / 매칭된 환자">{s.census || '—'} / {s.linked || '—'}</td>
                 <td className="num">{s.sent_ok.toLocaleString()}</td>
                 <td className="num">{s.sent_fail ? <span className="nz-bad">{s.sent_fail}</span> : <span className="zero">0</span>}</td>
                 <td className="muted">{ago(s.last_send_ms)}</td>
@@ -62,7 +80,7 @@ export default function Integration() {
               </tr>
             )
           })}
-          {!conns.length && <tr><td colSpan="10" className="muted">연결이 없습니다. "+ 연결 추가"로 기관을 고르세요.</td></tr>}
+          {!conns.length && <tr><td colSpan="9"><div className="integ-empty"><b>연결을 만들면 여기에서 켜고 끄며 전송 성공률을 확인합니다.</b>{edit && !noSite && <span>"+ 연결 추가" 로 형식 → 기관 → 매칭 → 시험 전송 순서로 만듭니다.</span>}</div></td></tr>}
         </tbody>
       </table>
       {sel && conns.some((c) => c.config.id === sel) && <Detail id={sel} edit={edit} onDeleted={() => { setSel(null); refresh?.() }} onChanged={refresh} />}
@@ -180,40 +198,141 @@ function Detail({ id, edit, onDeleted, onChanged }) {
   )
 }
 
+/**
+ * 연결 추가 마법사 (제안안 ⑫): 1 형식 선택 → 2 기관 · 인증 → 3 재원 명단 · 환자 매칭 → 4 시험 전송 후 켜기.
+ * 기관·인증은 카탈로그(에뮬레이터 가상 EMR)에서 오고, 3단계 값은 만든 뒤 update 로 넣는다. 4단계에서 켜고 시험 전송까지.
+ */
+const STEPS = ['형식 선택', '기관 · 인증', '재원 명단 · 환자 매칭', '시험 전송 후 켜기']
 function AddModal({ onClose, onAdded }) {
   const [cat, setCat] = useState(null)
   const [err, setErr] = useState('')
+  const [step, setStep] = useState(0)
+  const [proto, setProto] = useState('')
   const [site, setSite] = useState('')
+  const [opts, setOpts] = useState({ scope_ward: '', match_mode: 'pair', interval_s: 300, max_patients: 100 })
+  const [made, setMade] = useState(null) // 만든 연결 { id, name }
+  const [busy, setBusy] = useState(false)
+  const [testMsg, setTestMsg] = useState('')
+  const [wards] = usePoll(() => api.channels().then((rows) => [...new Set(rows.map((r) => r.patient?.ward).filter(Boolean))].sort()).catch(() => []), 60000)
   useEffect(() => { api.integ.catalog().then(setCat).catch((e) => setErr(e.message)) }, [])
+  const sites = cat?.sites || []
+  const protos = FORMATS.filter(([p]) => sites.some((x) => x.protocol === p && x.supported))
   const groups = useMemo(() => {
     const m = new Map()
-    for (const s of cat?.sites || []) { if (!m.has(s.country_ko)) m.set(s.country_ko, []); m.get(s.country_ko).push(s) }
+    for (const x of sites) { if (x.protocol !== proto) continue; if (!m.has(x.country_ko)) m.set(x.country_ko, []); m.get(x.country_ko).push(x) }
     return [...m]
-  }, [cat])
-  const add = async () => {
-    setErr('')
-    try { const r = await api.integ.create({ site_id: site }); onAdded(r.config.id) } catch (e) { setErr(e.message) }
+  }, [sites, proto])
+  const picked = sites.find((x) => x.id === site)
+  const canNext = step === 0 ? !!proto : step === 1 ? !!site : step === 2 ? true : false
+  const create = async () => {
+    setBusy(true); setErr('')
+    try {
+      const r = await api.integ.create({ site_id: site })
+      await api.integ.update(r.config.id, { scope_ward: opts.scope_ward, match_mode: opts.match_mode, interval_s: opts.interval_s, max_patients: Number(opts.max_patients) || 100 })
+      setMade({ id: r.config.id, name: r.config.name })
+    } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  const enableAndTest = async () => {
+    if (!made) return
+    setBusy(true); setErr(''); setTestMsg('')
+    try {
+      await api.integ.update(made.id, { enabled: true })
+      await api.integ.run(made.id, 'census')
+      await api.integ.run(made.id, 'send')
+      setTestMsg('켜고 재원 명단을 받은 뒤 시험 전송을 요청했습니다. 결과는 연결 상세의 기록 탭에서 확인하세요.')
+    } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+  const next = async () => {
+    if (step === 2 && !made) { await create(); setStep(3); return }
+    setStep(step + 1)
   }
   return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className="modal adm-form integ-add" onClick={(e) => e.stopPropagation()}>
-        <h3>EMR 연결 추가 <small className="muted">에뮬레이터 가상 EMR 카탈로그</small></h3>
-        {!cat && !err && <p className="muted">카탈로그 불러오는 중…</p>}
-        {groups.map(([country, list]) => (
-          <div key={country} className="ia-group">
-            <span className="ia-country">{country}</span>
-            <div className="ia-list">{list.map((s) => (
-              <button key={s.id} className={'ia-site' + (site === s.id ? ' on' : '')} disabled={!s.supported} onClick={() => setSite(s.id)} title={s.style}>
-                <b>{s.name_local || s.name}</b>
-                <span>{s.protocol_ko} {s.version} · {s.flavor}</span>
-                {!s.supported ? <small className="muted">다음 단계에서 지원</small> : s.added ? <small className="ok">연결 있음</small> : null}
-              </button>
-            ))}</div>
+    <div className="modal-bg" onClick={busy ? undefined : onClose}>
+      <div className="modal adm-form integ-add integ-wiz" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head"><h2>EMR 연결 추가 <small>에뮬레이터 가상 EMR 카탈로그</small></h2><span className="spacer" /><button className="icon" onClick={onClose} disabled={busy}>✕</button></div>
+        <ol className="wiz-steps">
+          {STEPS.map((l, i) => <li key={l} className={i === step ? 'cur' : i < step ? 'done' : ''}><span className="wiz-n">{i + 1}</span><span>{l}</span></li>)}
+        </ol>
+
+        {step === 0 && (
+          <div className="wiz-body">
+            {!cat && !err && <p className="muted">카탈로그 불러오는 중…</p>}
+            <div className="fmt-grid">
+              {protos.map(([p, name, sub]) => (
+                <button key={p} className={'fmt-card' + (proto === p ? ' on' : '')} onClick={() => { setProto(p); setSite('') }}>
+                  <b>{name}</b><span>{sub}</span>
+                  <small className="muted">{sites.filter((x) => x.protocol === p && x.supported).length}개 기관</small>
+                </button>
+              ))}
+              {cat && !protos.length && <p className="muted">지원하는 형식의 기관이 카탈로그에 없습니다.</p>}
+            </div>
+            <p className="muted small">라우터가 자동으로 맞춤: 기관별 인증 · 재원 명단 · 환자 식별자 · 시간대 · 단위 (°F 등) · 문자셋 (EUC-KR · ISO-2022-JP · ISO 8859-1)</p>
           </div>
-        ))}
+        )}
+
+        {step === 1 && (
+          <div className="wiz-body">
+            {groups.map(([country, list]) => (
+              <div key={country} className="ia-group">
+                <span className="ia-country">{country}</span>
+                <div className="ia-list">{list.map((x) => (
+                  <button key={x.id} className={'ia-site' + (site === x.id ? ' on' : '')} disabled={!x.supported} onClick={() => setSite(x.id)} title={x.style}>
+                    <b>{x.name_local || x.name}</b>
+                    <span>{x.protocol_ko} {x.version} · {x.flavor}</span>
+                    {!x.supported ? <small className="muted">다음 단계에서 지원</small> : x.added ? <small className="ok">연결 있음</small> : null}
+                  </button>
+                ))}</div>
+              </div>
+            ))}
+            {picked && <p className="muted small">인증·주소·시간대·문자셋은 카탈로그 값으로 채워집니다{picked.style ? ` (${picked.style})` : ''}. 만든 뒤 상세에서 바꿀 수 있습니다.</p>}
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="wiz-body wiz-form">
+            <label><span>보낼 환자 범위</span>
+              <Dropdown value={opts.scope_ward} options={[{ value: '', label: '전체 병동' }, ...(wards || []).map((w) => ({ value: w, label: `${wardText(w)} (${w})` }))]} onChange={(v) => setOpts({ ...opts, scope_ward: v })} searchable width={260} />
+            </label>
+            <label><span>환자 매칭</span>
+              <span className="seg">{[['pair', '시험용 짝짓기'], ['mrn', '식별자 일치']].map(([k, l]) => <button key={k} className={opts.match_mode === k ? 'active' : ''} onClick={() => setOpts({ ...opts, match_mode: k })}>{l}</button>)}</span>
+              <small className="muted">{MATCH_HELP[opts.match_mode]}</small>
+            </label>
+            <label><span>전송 주기</span>
+              <span className="seg">{[60, 300, 900, 3600].map((n) => <button key={n} className={opts.interval_s === n ? 'active' : ''} onClick={() => setOpts({ ...opts, interval_s: n })}>{n < 3600 ? `${n / 60}분` : '1시간'}</button>)}</span>
+            </label>
+            <label><span>최대 환자 수</span><input type="number" min="1" max="500" value={opts.max_patients} onChange={(e) => setOpts({ ...opts, max_patients: e.target.value })} style={{ width: 90 }} /></label>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="wiz-body">
+            {!made ? <p className="muted">{busy ? '연결을 만드는 중…' : '연결을 만들지 못했습니다. 이전 단계로 돌아가 다시 시도하세요.'}</p> : (
+              <>
+                <p><b>{made.name}</b> 연결을 꺼진 상태로 만들었습니다. 켜면 재원 명단을 받아 환자를 짝짓고, 시험 전송을 한 번 보냅니다.</p>
+                <dl className="wiz-sum">
+                  <dt>형식</dt><dd>{(FORMATS.find(([p]) => p === proto) || [])[1] || proto}</dd>
+                  <dt>기관</dt><dd>{picked?.name_local || picked?.name}</dd>
+                  <dt>범위</dt><dd>{opts.scope_ward ? wardText(opts.scope_ward) : '전체 병동'}</dd>
+                  <dt>매칭 · 주기</dt><dd>{opts.match_mode === 'pair' ? '시험용 짝짓기' : '식별자 일치'} · {opts.interval_s < 3600 ? `${opts.interval_s / 60}분` : '1시간'}</dd>
+                </dl>
+                <div className="toolbar" style={{ marginBottom: 0 }}>
+                  <button className="primary" onClick={enableAndTest} disabled={busy}>{busy ? '요청 중…' : '켜고 시험 전송'}</button>
+                  <button onClick={() => onAdded(made.id)} disabled={busy}>꺼진 채로 두기</button>
+                  {testMsg && <span className="muted small">{testMsg}</span>}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {err && <p className="err">{err}</p>}
-        <p className="muted">추가하면 꺼진 상태로 만들어집니다. 범위(병동)·주기를 정한 뒤 켜세요.</p>
-        <div className="toolbar"><span className="spacer" /><button onClick={onClose}>취소</button><button className="primary" disabled={!site} onClick={add}>추가</button></div>
+        <div className="toolbar wiz-nav">
+          <button onClick={onClose} disabled={busy}>취소</button>
+          <span className="spacer" />
+          {step > 0 && step < 3 && <button onClick={() => setStep(step - 1)} disabled={busy}>이전</button>}
+          {step < 3 && <button className="primary" disabled={!canNext || busy} onClick={next}>{step === 2 ? '연결 만들기' : '다음'}</button>}
+          {step === 3 && made && testMsg && <button className="primary" onClick={() => onAdded(made.id)}>완료</button>}
+        </div>
       </div>
     </div>
   )

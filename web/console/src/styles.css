@@ -1243,3 +1243,34 @@ tr:hover .lk-acts button, tr.selected .lk-acts button, .lk-acts button:focus-vis
 .lk-card-open { font-size: 12px; color: var(--accent); }
 .lk-star { border: 0; background: transparent; color: var(--muted); font-size: 15px; padding: 0 2px; cursor: pointer; line-height: 1; }
 .lk-star.on { color: var(--warn); }
+
+/* ───────── 톱 메뉴: 모니터링 | 인프라 · 시스템 상태 · 관리 (설정 셸) ───────── */
+.nav-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.nav-grp { display: inline-flex; align-items: center; gap: 2px; padding-left: 12px; border-left: 1px solid var(--line); }
+.nav-grp:first-child { padding-left: 0; border-left: 0; }
+.nav-grp-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; color: var(--muted); padding: 0 6px 0 2px; text-transform: uppercase; }
+.nav-top a { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 6px; color: var(--text); text-decoration: none; font-size: 13px; font-weight: 500; }
+.nav-top a:hover { background: var(--panel2); }
+.nav-top a.active { background: color-mix(in srgb, var(--accent) 16%, var(--panel)); color: var(--accent); font-weight: 600; }
+.nav-top .badge { font-size: 11px; font-weight: 600; color: #fff; background: var(--sev-critical); border-radius: 9px; padding: 1px 6px; min-width: 18px; text-align: center; }
+.nav-top .badge.empty { display: none; }
+.pill.sys { display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; border-radius: 999px; font-weight: 600; }
+.pill.sys .sys-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.pill.sys.off { color: var(--muted); }
+.nav-admin { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); text-decoration: none; font-size: 13px; font-weight: 500; }
+.nav-admin:hover { background: var(--panel2); }
+.nav-admin.active { border-color: var(--accent); color: var(--accent); }
+.dc-banner { display: flex; align-items: center; gap: 12px; padding: 9px 16px; background: color-mix(in srgb, var(--sev-critical) 14%, var(--panel)); border-bottom: 1px solid color-mix(in srgb, var(--sev-critical) 45%, transparent); font-size: 13px; }
+.dc-banner b { color: var(--sev-critical); }
+.dc-banner button { padding: 3px 12px; font-size: 12px; background: var(--sev-critical); border-color: var(--sev-critical); color: #fff; }
+/* 관리 셸: 왼쪽 사이드바 + 내용 */
+main.adm-main { padding: 0; }
+.adm-shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100vh - 52px); }
+.adm-side { border-right: 1px solid var(--line); background: var(--panel); padding: 14px 10px; display: flex; flex-direction: column; gap: 16px; position: sticky; top: 0; align-self: start; max-height: 100vh; overflow: auto; }
+.adm-side-label { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; color: var(--muted); padding: 0 8px 6px; }
+.adm-side a { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: 7px; color: var(--text); text-decoration: none; font-size: 13px; }
+.adm-side a:hover { background: var(--panel2); }
+.adm-side a.active { background: color-mix(in srgb, var(--accent) 16%, var(--panel)); color: var(--accent); font-weight: 600; }
+.adm-side a .hint { margin-left: auto; font-size: 11px; color: var(--muted); }
+.adm-content { min-width: 0; }
+@media (max-width: 900px) { .adm-shell { grid-template-columns: 1fr; } .adm-side { position: static; max-height: none; flex-direction: row; flex-wrap: wrap; gap: 8px 18px; border-right: 0; border-bottom: 1px solid var(--line); } .adm-side-grp { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; } }

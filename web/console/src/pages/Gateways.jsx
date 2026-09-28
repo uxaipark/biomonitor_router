@@ -21,14 +21,53 @@ const GW_TYPE = {
   room: '병실', corridor: '복도', support: '지원 시설', toilet: '화장실', mobile: '이동형(MCOT)', stairs: '계단', nurse_station: '간호사실',
   exam: '검사실', elevator: '엘리베이터', lobby: '로비', er: '응급실',
 }
-// 열: 레일 · 게이트웨이 · 위치 · 상태 · 환자 · 프레임/s · NACK · 복구 · 실패 · 신호 · CPU·온도 · 마지막 · 동작
-const COLS = [
-  ['rail', '', 4], ['name', '게이트웨이', 190], ['loc', '위치', null], ['problem', '상태', 84], ['patches', '환자', 52], ['fps', '프레임/s (5분)', 118],
-  ['nack_tx', 'NACK', 56], ['recovered', '복구', 52], ['resend_lost', '실패', 52], ['wan_rssi', '신호', 74], ['cpu', 'CPU · 온도', 84], ['since_last_s', '마지막 프레임', 92], ['act', '', 60],
+// 열: 레일 · 장치 · 위치 · 상태 · 패치 · 마지막 프레임 · 프레임/s · 링크 품질(종합 1칸 또는 펼치면 6열) · CPU · MEM · NET · RSSI · 온도 · 동작
+const QUALITY = [
+  ['framing', '프레이밍', 62], ['nack_tx', 'NACK', 56], ['recovered', '복구', 52], ['resend_lost', '재전송 실패', 74], ['seq_gap', 'seq 갭', 60], ['bad_crc', 'CRC', 50],
 ]
-const W = COLS.map((c) => c[2])
-const NUM = new Set(['patches', 'nack_tx', 'recovered', 'resend_lost', 'wan_rssi', 'cpu'])
-const SORTABLE = new Set(['name', 'loc', 'problem', 'patches', 'nack_tx', 'recovered', 'resend_lost', 'wan_rssi', 'cpu', 'since_last_s'])
+const colsFor = (expanded) => [
+  ['rail', '', 4], ['name', '게이트웨이', 190], ['loc', '위치', null], ['problem', '상태', 84], ['patches', '패치', 52], ['since_last_s', '마지막 프레임', 92], ['fps', '프레임/s (5분)', 118],
+  ...(expanded ? QUALITY : [['quality', '링크 품질 (최근 5분)', 128]]),
+  ['cpu', 'CPU', 52], ['mem', 'MEM', 52], ['net', 'NET', 52], ['wan_rssi', 'RSSI', 74], ['temp', '온도', 54], ['act', '', 60],
+]
+const NUM = new Set(['patches', 'framing', 'nack_tx', 'recovered', 'resend_lost', 'seq_gap', 'bad_crc', 'wan_rssi', 'cpu', 'mem', 'net', 'temp'])
+const SORTABLE = new Set(['name', 'loc', 'problem', 'patches', 'framing', 'nack_tx', 'recovered', 'resend_lost', 'seq_gap', 'bad_crc', 'wan_rssi', 'cpu', 'mem', 'net', 'temp', 'since_last_s'])
+/** 온도 경고 기준 (°C) — 게이트웨이 status.temp_c */
+const TEMP_WARN = 60
+
+/**
+ * 링크 품질 6지표 → 정상(ok)/주의(warn)/문제(bad). 표에서는 작은 네모 6개로 요약하고, 마우스를 올리면 수치가 보인다.
+ *  프레이밍 = bad_crc + bad_magic + garbage (0 ok, 1–9 주의, ≥10 문제) · NACK 는 복구율(복구/NACK ≥ 0.9 ok, ≥ 0.5 주의) ·
+ *  복구 = 같은 복구율 · 재전송 실패 (0 ok, else 문제) · seq 갭 (0 ok, ≤5 주의, else 문제) · CRC (0 ok, ≤5 주의, else 문제)
+ */
+function quality(g) {
+  const framing = (g.bad_crc || 0) + (g.bad_magic || 0) + (g.garbage || 0) + (g.garbage_bytes || 0)
+  const nack = g.nack_tx || 0, rec = g.recovered || 0
+  const ratio = nack ? rec / nack : 1
+  const ratioTone = ratio >= 0.9 ? 'ok' : ratio >= 0.5 ? 'warn' : 'bad'
+  const band = (v, warnMax) => (v === 0 ? 'ok' : v <= warnMax ? 'warn' : 'bad')
+  return [
+    { key: 'framing', label: '프레이밍', val: framing, tone: framing === 0 ? 'ok' : framing < 10 ? 'warn' : 'bad' },
+    { key: 'nack_tx', label: 'NACK', val: nack, tone: nack === 0 ? 'ok' : ratioTone, text: nack ? `${nack} (복구율 ${Math.round(ratio * 100)}%)` : '0' },
+    { key: 'recovered', label: '복구', val: rec, tone: nack === 0 ? 'ok' : ratioTone },
+    { key: 'resend_lost', label: '재전송 실패', val: g.resend_lost || 0, tone: g.resend_lost ? 'bad' : 'ok' },
+    { key: 'seq_gap', label: 'seq 갭', val: g.seq_gap || 0, tone: band(g.seq_gap || 0, 5) },
+    { key: 'bad_crc', label: 'CRC', val: g.bad_crc || 0, tone: band(g.bad_crc || 0, 5) },
+  ]
+}
+const TONE_LABEL = { ok: '정상', warn: '주의', bad: '문제' }
+/** 6지표를 네모 6개로 (종합 셀·상세) */
+function QualityCell({ g, size = 10 }) {
+  const items = quality(g)
+  const worst = items.some((i) => i.tone === 'bad') ? 'bad' : items.some((i) => i.tone === 'warn') ? 'warn' : 'ok'
+  const title = items.map((i) => `${i.label} ${i.text ?? fmtNum(i.val)} · ${TONE_LABEL[i.tone]}`).join('\n')
+  return (
+    <span className={'gwl-q ' + worst} title={title}>
+      {items.map((i) => <i key={i.key} className={'gwl-q-sq ' + i.tone} style={{ width: size, height: size }} />)}
+      <small>{TONE_LABEL[worst]}</small>
+    </span>
+  )
+}
 
 // 문제 등급: 다운 3 · 무응답 2 · 저하/재전송 실패/CRC 1 · 정상 0 (기본 정렬 = 이 값 내림차순 → 위치)
 const problemRank = (g) => (!g.connected || g.st === 2 ? 3 : g.silent ? 2 : g.st === 1 || g.resend_lost > 0 || g.bad_crc > 0 ? 1 : 0)
@@ -41,6 +80,8 @@ const CHIPS = [
   ['degraded', '저하', (g) => g.connected && !g.silent && g.st === 1, 'c-warn'],
   ['silent', '무응답', (g) => g.connected && g.silent, 'c-sev-high'],
   ['down', '다운', (g) => !g.connected || g.st === 2, 'c-sev-critical'],
+  ['temp', '온도 경고', (g) => g.temp != null && g.temp >= TEMP_WARN, 'c-warn'],
+  ['patched', '패치 연결됨', (g) => (g.patches || 0) > 0, 'c-ok'],
   ['mobile', '이동형', (g) => g.type === 'mobile', ''],
   ['dup', '중복 ID', (g) => g.dup_conn > 0, 'c-err'],
   ['problem', '문제 있음', (g) => problemRank(g) > 0 || !!g.alarm, 'c-err'],
@@ -66,6 +107,11 @@ export default function Gateways({ alarms }) {
   const [sort, setSort] = useState(['problem', 'desc'])
   const [page, setPage] = useState(0)
   const [density, setDensity] = useDensity('gateways')
+  // 링크 품질: 종합 1칸(기본) ↔ 6열 펼침 (브라우저에 기억)
+  const [qExp, setQExp] = useState(() => { try { return localStorage.getItem('gw.quality.expanded') === '1' } catch { return false } })
+  const toggleQ = () => { const v = !qExp; setQExp(v); try { localStorage.setItem('gw.quality.expanded', v ? '1' : '0') } catch { /* ignore */ } }
+  const COLS = useMemo(() => colsFor(qExp), [qExp])
+  const W = COLS.map((c) => c[2])
   const gidx = useMemo(() => gatewayAlarmIndex(alarms?.alarms), [alarms])
 
   // 프레임/s 링: gw_id → [{t, frames}] (화면에 보이는 행만 채운다; 안 보이게 되면 그대로 두었다가 자연히 밀린다)
@@ -79,6 +125,7 @@ export default function Gateways({ alarms }) {
       ...g, st, fl, loc: [fl, g.location?.room].filter(Boolean).join(' '),
       problem: 0, // 아래에서 채움 (sortBy 가 키로 읽는다)
       cpu: s.cpu, mem: s.mem, net: s.net, wan_rssi: s.wan_rssi, temp: s.temp_c ?? s.temp, stLabel: GW_STATUS[s.status], alarm: gidx.get(String(g.gw_id)),
+      framing: (g.bad_crc || 0) + (g.bad_magic || 0) + (g.garbage || 0) + (g.garbage_bytes || 0),
       last_ms: g.last_ts_ms || (g.since_last_s != null ? Date.now() - g.since_last_s * 1000 : 0),
     }
   }).map((g) => ({ ...g, problem: problemRank(g) })), [rows, gidx])
@@ -146,9 +193,18 @@ export default function Gateways({ alarms }) {
   const toMap = () => go('#/map', { floor: floor || undefined, gw: sel || undefined, q: q || undefined })
   const th = (k, l) => {
     const sortable = SORTABLE.has(k)
+    if (k === 'quality') {
+      return (
+        <th key={k} className="gwl-q-th" title="6개 품질 지표를 칸 하나씩 색으로 요약(정상/주의/문제). 마우스를 올리면 수치가 보이고, 펼치면 개별 열로 풀립니다.">
+          {l} <button className="gwl-q-tog" onClick={toggleQ} title="개별 열로 펼치기">펼치기 ▸</button>
+        </th>
+      )
+    }
+    const isQ = QUALITY.some(([qk]) => qk === k)
     return (
-      <th key={k} className={(sortable ? 'sortable' : '') + (NUM.has(k) ? ' num' : '')} onClick={sortable ? () => setSort([k, sort[0] === k && sort[1] === 'asc' ? 'desc' : 'asc']) : undefined} title={sortable ? '누르면 정렬' : undefined}>
+      <th key={k} className={(sortable ? 'sortable' : '') + (NUM.has(k) ? ' num' : '') + (isQ ? ' gwl-q-col' : '')} onClick={sortable ? () => setSort([k, sort[0] === k && sort[1] === 'asc' ? 'desc' : 'asc']) : undefined} title={sortable ? '누르면 정렬' : undefined}>
         {l}{sort[0] === k ? (sort[1] === 'asc' ? ' ▲' : ' ▼') : ''}
+        {qExp && k === 'framing' && <button className="gwl-q-tog" onClick={(e) => { e.stopPropagation(); toggleQ() }} title="종합 1칸으로 접기">◂ 접기</button>}
       </th>
     )
   }
@@ -184,13 +240,15 @@ export default function Gateways({ alarms }) {
                   <td><Loc g={g} /></td>
                   <td>{statePill(g)}{g.alarm && <span className={`tag small sev-${g.alarm.severity}`} style={{ marginLeft: 4 }} title={g.alarm.message}>{SEV_LABEL[g.alarm.severity]}</span>}</td>
                   <td className="num"><Z v={g.patches} /></td>
-                  <td>{fps.length >= 2 ? <Spark values={fps} tone={tone} title={`최근 ${fps.length}표본 · 지금 ${fps[fps.length - 1].toFixed(1)}/s`} /> : <Spark values={[]} title="표본 모으는 중" />}</td>
-                  <td className="num"><Z v={g.nack_tx} /></td>
-                  <td className="num"><Z v={g.recovered} /></td>
-                  <td className="num"><Z v={g.resend_lost} bad /></td>
-                  <td className="num"><span className="v">{g.wan_rssi != null ? `${g.wan_rssi}${g.type === 'mobile' ? ' WAN' : ''}` : '—'}</span></td>
-                  <td className="num"><span className="v">{g.cpu != null ? `${g.cpu} %` : '—'}{g.temp != null ? ` · ${g.temp}°` : ''}</span></td>
                   <td className="muted"><Ago ms={g.last_ms} now={now} /></td>
+                  <td>{fps.length >= 2 ? <Spark values={fps} tone={tone} title={`최근 ${fps.length}표본 · 지금 ${fps[fps.length - 1].toFixed(1)}/s`} /> : <Spark values={[]} title="표본 모으는 중" />}</td>
+                  {qExp ? quality(g).map((i) => <td key={i.key} className={'num gwl-q-col' + (i.tone === 'bad' ? ' is-bad' : i.tone === 'warn' ? ' is-warn' : '')} title={`${i.label} · ${TONE_LABEL[i.tone]}`}><Z v={i.val} bad={i.tone === 'bad'} /></td>)
+                    : <td><QualityCell g={g} /></td>}
+                  <td className="num"><span className={'v' + (g.cpu >= 90 ? ' bad' : g.cpu >= 70 ? ' warnv' : '')}>{g.cpu != null ? `${g.cpu}%` : '—'}</span></td>
+                  <td className="num"><span className={'v' + (g.mem >= 90 ? ' bad' : g.mem >= 75 ? ' warnv' : '')}>{g.mem != null ? `${g.mem}%` : '—'}</span></td>
+                  <td className="num"><span className="v">{g.net != null ? `${g.net}%` : '—'}</span></td>
+                  <td className="num"><span className="v">{g.wan_rssi != null ? `${g.wan_rssi}${g.type === 'mobile' ? ' WAN' : ''}` : '—'}</span></td>
+                  <td className="num"><span className={'v' + (g.temp >= TEMP_WARN ? ' bad' : g.temp >= TEMP_WARN - 10 ? ' warnv' : '')}>{g.temp != null ? `${g.temp}°` : '—'}</span></td>
                   <RowActions><button className={isSel ? 'primary' : ''} onClick={() => setQs({ sel: isSel ? '' : String(g.gw_id) })}>열기</button></RowActions>
                 </tr>
               )
@@ -198,7 +256,7 @@ export default function Gateways({ alarms }) {
             {!shown.length && <tr><td colSpan={COLS.length} className="muted">조건에 맞는 게이트웨이가 없습니다.</td></tr>}
           </tbody>
         </table>
-        <p className="lk-legend">정상 행은 레일 없음 · 저하/재전송 실패/CRC 는 주황 · 무응답·다운은 빨강. 프레임/s 는 이 화면이 열린 뒤 쌓인 표본(3초 간격, 최대 5분)입니다.</p>
+        <p className="lk-legend">정상 행은 레일 없음 · 저하/재전송 실패/CRC 는 주황 · 무응답·다운은 빨강. 링크 품질은 프레이밍 · NACK · 복구 · 재전송 실패 · seq 갭 · CRC 여섯 지표를 네모 하나씩 정상/주의/문제 색으로 요약합니다(마우스를 올리면 수치, 머리글의 '펼치기' 로 개별 열). 온도 경고는 {TEMP_WARN}°C 이상. 프레임/s 는 이 화면이 열린 뒤 쌓인 표본(3초 간격, 최대 5분)입니다.</p>
       </ListLayout>
     </div>
   )
@@ -214,12 +272,16 @@ function GatewayDetail({ g, fps = [], onClose }) {
       actions={<>
         <button onClick={() => go('#/map', { gw: g.gw_id })}>지도에서 보기</button>
         <button onClick={() => go('#/alarms', { q: `GW ${g.gw_id}`, tab: 'history' })}>알람 이력</button>
-        <button onClick={() => go('#/events', { q: String(g.gw_id) })}>이벤트</button>
+        <button onClick={() => go('#/events', { q: String(g.gw_id) })}>이벤트 로그</button>
       </>}>
       {g.alarm && <div className={`lk-alarm sev-${g.alarm.severity}`}><span className={`tag small sev-${g.alarm.severity}`}>{SEV_LABEL[g.alarm.severity]}</span> {g.alarm.message}</div>}
+      <h4 className="lk-sub">품질 추이</h4>
       <div className="gwl-spark-big">
         <Spark values={fps} tone={tone} width={280} height={44} title="프레임/s" />
         <small className="muted">프레임/s · {fps.length ? `지금 ${fps[fps.length - 1].toFixed(1)}/s · 최대 ${Math.max(...fps).toFixed(1)}/s` : '표본 모으는 중'}</small>
+      </div>
+      <div className="gwl-q-detail">
+        {quality(g).map((i) => <div key={i.key} className={'gwl-q-row ' + i.tone}><i className={'gwl-q-sq ' + i.tone} /><span>{i.label}</span><b className="v">{i.text ?? fmtNum(i.val)}</b><small>{TONE_LABEL[i.tone]}</small></div>)}
       </div>
       <dl className="lk-kv">
         <KV k="상태">{statePill(g)} {g.stLabel || ''}</KV>
@@ -232,7 +294,7 @@ function GatewayDetail({ g, fps = [], onClose }) {
         <KV k="seq 갭 · 역전 · 재시작 · CRC">{fmtNum(g.seq_gap)} · {fmtNum(g.seq_reorder)} · {fmtNum(g.seq_restart)} · {fmtNum(g.bad_crc)}</KV>
         <KV k="소켓">{g.conn ? `#${g.conn}` : '—'}{g.dup_conn ? ` · 중복 접속 ${g.dup_conn}회` : ''}{g.uptime_s != null ? ` · 연결 ${Math.floor(g.uptime_s / 60)}분` : ''}</KV>
       </dl>
-      <h4 className="lk-sub">연결된 환자 {pats ? `${pats.length}명` : ''}</h4>
+      <h4 className="lk-sub">연결된 패치 {pats ? `${pats.length}개` : ''}</h4>
       <table className="tbl dense lk-mini">
         <tbody>
           {(pats || []).map((r) => (
