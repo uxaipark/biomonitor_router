@@ -13,6 +13,7 @@ import Dashboard from './pages/Dashboard.jsx'
 import Patients from './pages/Patients.jsx'
 import Live from './pages/Live.jsx'
 import MapPage from './pages/MapPage.jsx'
+import McotMap from './pages/McotMap.jsx'
 import Gateways from './pages/Gateways.jsx'
 import Alarms from './pages/Alarms.jsx'
 import Events from './pages/Events.jsx'
@@ -34,6 +35,7 @@ const PAGES = [
   ['#/alarms', '알람', Alarms, '모니터링', 'page.alarms'],
   ['#/patients', '환자', Patients, '모니터링', 'page.patients'],
   ['#/map', '병원 지도', MapPage, '모니터링', 'page.map'],
+  ['#/mcot', 'MCOT 지도', McotMap, '모니터링', 'page.mcot_map'],
   ['#/viewers', '뷰어', Viewers, '모니터링', 'page.viewers'],
   // 인프라 — 파이프라인·장비·기록 (운영 통계가 첫 화면; 권한이 없으면 볼 수 있는 첫 메뉴로)
   ['#/', '운영 통계', OpsStats, '인프라', 'page.ops'],

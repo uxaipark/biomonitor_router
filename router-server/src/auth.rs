@@ -59,7 +59,7 @@ pub fn is_platform(code: &str) -> bool {
 }
 
 /// (코드, 이름, 묶음, 기본값 [SA, SYS, RES, CRM, IT, DOC, NUR, STF])
-pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 27] = [
+pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 28] = [
     // 톱 메뉴 순서대로: 대시보드(첫 화면, 운영 통계) → 이벤트보드 → …
     ("page.ops", "대시보드 (운영 통계 · 첫 화면)", "메뉴", [2, 2, 1, 0, 1, 0, 0, 0]),
     ("page.dashboard", "이벤트보드", "메뉴", [2, 1, 1, 0, 1, 1, 1, 1]),
@@ -68,6 +68,7 @@ pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 27] = [
     ("page.patients", "환자", "메뉴", [2, 1, 0, 0, 1, 2, 2, 1]),
     ("page.gateways", "게이트웨이", "메뉴", [2, 2, 1, 0, 2, 1, 1, 0]),
     ("page.map", "병원 지도", "메뉴", [2, 1, 0, 0, 1, 1, 1, 1]),
+    ("page.mcot_map", "MCOT 지도 (원외 환자 · 세계 지도)", "메뉴", [2, 1, 0, 0, 1, 1, 1, 1]),
     ("page.viewers", "뷰어", "메뉴", [2, 1, 0, 0, 1, 2, 2, 1]),
     ("page.test", "테스트 › 실시간·멀티 뷰어", "메뉴", [2, 2, 0, 0, 1, 0, 0, 0]),
     ("page.settings_viewer", "운영관리 › 뷰어 설정", "메뉴", [2, 2, 0, 0, 2, 1, 1, 1]),

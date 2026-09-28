@@ -1,0 +1,29 @@
+/* MCOT 지도 — 세계 지도(OpenStreetMap 타일) 위에 원외 환자 핀 + 이름 */
+.mm-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.mm-tools .seg button { padding: 3px 9px; font-size: 12px; }
+.mm-tools input[type="search"] { width: 200px; }
+.mm-map { position: relative; height: 100%; min-height: 480px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #dfe8ef; }
+.mm-map .leaflet-container { width: 100%; height: 100%; font: inherit; background: #dfe8ef; }
+.mm-map .leaflet-control-attribution { font-size: 10px; }
+.mm-note { position: absolute; left: 10px; bottom: 22px; z-index: 500; font-size: 11px; color: #333; background: rgba(255,255,255,.85); padding: 3px 8px; border-radius: 6px; pointer-events: none; }
+.mm-offline { position: absolute; inset: 0; z-index: 400; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 13px; color: #333; background: repeating-linear-gradient(45deg, #e6edf2 0 12px, #dfe8ef 12px 24px); pointer-events: none; padding: 20px; line-height: 1.6; }
+/* 핀: 물방울 + 아래 이름표. 색은 알람 심각도 (없으면 강조색, 수신 없음은 회색) */
+.mm-pin { --pc: var(--accent); width: 0; height: 0; position: relative; }
+.mm-pin i { position: absolute; left: -11px; top: -30px; width: 22px; height: 22px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--pc); border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+.mm-pin i::after { content: ''; position: absolute; left: 5px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: #fff; }
+.mm-pin b { position: absolute; left: 0; top: 2px; transform: translateX(-50%); white-space: nowrap; font-size: 11.5px; font-weight: 700; color: #1a1a1a; background: rgba(255,255,255,.9); border: 1px solid rgba(0,0,0,.15); border-radius: 999px; padding: 1px 7px; line-height: 1.35; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+.mm-pin.sev-critical { --pc: var(--sev-critical); } .mm-pin.sev-high { --pc: var(--sev-high); } .mm-pin.sev-medium { --pc: var(--sev-medium); } .mm-pin.sev-low { --pc: var(--sev-low); }
+.mm-pin.stale { --pc: #8a8f96; } .mm-pin.stale b { color: #666; }
+.mm-pin.on i { transform: rotate(-45deg) scale(1.25); } .mm-pin.on b { border-color: var(--pc); box-shadow: 0 0 0 2px var(--pc); }
+.mm-pin.approx i { border-style: dashed; }
+.mm-tip { font-size: 12px; line-height: 1.45; }
+.mm-tip b { font-size: 13px; }
+/* 오른쪽 패널 지역 목록 */
+.mm-region { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+.mm-region:hover { background: var(--panel2); } .mm-region.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.mm-region .nm { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.mm-region .nm b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-region .nm small { font-size: 11px; color: var(--muted); }
+.mm-region .n { font-variant-numeric: tabular-nums; font-weight: 600; }
+.mm-summary { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; margin: 4px 0 8px; }
+.mm-summary b { font-variant-numeric: tabular-nums; }

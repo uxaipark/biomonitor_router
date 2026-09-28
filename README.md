@@ -9,7 +9,7 @@
 | 디렉토리 | 기술 | 상태 |
 |---|---|---|
 | `router-server/` | Rust (tokio/axum) | **P1 완료** — v3 ingest, 게이트웨이 표, NACK, 패치 저장소, 상태 API, 에뮬레이터 링크 |
-| `web/console/` | React (Vite) | 웹 콘솔 — 대시보드·환자·실시간 파형·뷰어 템플릿·병원 지도·게이트웨이·알람·이벤트·설정. 라우터가 `dist` 를 `/` 로 서빙(:7300) |
+| `web/console/` | React (Vite) | 웹 콘솔 — 대시보드·환자·실시간 파형·뷰어 템플릿·병원 지도·MCOT 지도·게이트웨이·알람·이벤트·설정. 라우터가 `dist` 를 `/` 로 서빙(:7300) |
 | `analysis-server/`, `db-api/` | Python | 레거시 목업 — 라우터가 :7100 / :7601 로 접속 시도, 유지 여부 미정 (P3) |
 | `docs/contract/` | JSON | 에뮬레이터 계약 fixture (discovery / layout / trips) |
 | `docs/legacy/` | | 2026-08 스택 문서(ARCHITECTURE·API·FRONTEND)·구 에뮬레이터 소스 |
@@ -179,7 +179,7 @@ npm run dev                                         # 개발 서버 5175 (API/WS
 npm run smoke                                       # react-dom/server 로 전 페이지 렌더 스모크
 ```
 
-대시보드 · 환자 표 · 실시간 파형(병동/게이트웨이 선택, 최대 48장) · 병원 지도(에뮬레이터 도면 JSON) · 게이트웨이 · 알람(확인/이력/규칙) · 이벤트 · **뷰어**.
+대시보드 · 환자 표 · 실시간 파형(병동/게이트웨이 선택, 최대 48장) · 병원 지도(에뮬레이터 도면 JSON) · MCOT 지도(원외 환자를 세계 지도 위 핀으로 — Leaflet + OpenStreetMap 타일, 브라우저 인터넷 필요; 좌표가 없으면 집주소 시군구 기준 근사) · 게이트웨이 · 알람(확인/이력/규칙) · 이벤트 · **뷰어**.
 
 ### 뷰어 템플릿 (`web/console/src/viewer/`)
 

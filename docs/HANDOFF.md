@@ -193,6 +193,13 @@
 
 - [2026-09-17 22:50 MAC] 라우터 P1 구현·검증 (48a3480).
 - [2026-09-17 23:20 MAC] RP5#2 이어 개발 준비: Linux sysmon(/proc), `rust-toolchain.toml`, `scripts/pi-dev-setup.sh`, `docs/RP5-DEV.md`, `CLAUDE.md`, 이 문서.
+### MCOT 지도(세계 지도 · 핀) 신설 + 이동 중 환자 칩 건물 버그 + 뷰어 잔손질 (fitlet3)
+
+- **MCOT 지도** (`#/mcot`, 모니터링 › 병원 지도 다음, 권한 `page.mcot_map` — 기본값은 병원 지도와 같음): `pages/McotMap.jsx` + `McotMap.css`. Leaflet(npm `leaflet`, 마운트 뒤 동적 import — SSR 스모크에서 window 를 만져 죽기 때문) + OpenStreetMap 타일(브라우저가 인터넷에 닿아야 함, 타일 실패 시 안내 오버레이). 원외 환자(모바일 GW 또는 mode≠inpatient)마다 핀 + 이름표, 색은 알람 심각도/수신 없음, 툴팁에 주소·HR/SpO₂/RR·알람. 위치는 EMR 에 좌표(lat/lng·location·geo)가 있으면 그대로, 없으면 집주소 시군구 중심(`geo/korea.js` 의 229개 시군구·17 시도 근사 좌표) + 채널 번호로 고정된 ±1.3 km 흔들림. 오른쪽 320px 패널: 지역별 목록 → 지역 환자 카드(WaveCard) + 중앙 모니터 → `MapPatientPanel`(병원 지도와 같은 상세, 이력 모달). 툴바: 환자/알람/수신 없음/이동 중/지역 수, 검색, 전체·한국·세계 보기, MCOT 전체 중앙 모니터.
+- **이동 중 환자 칩**: "별관 심초음파실" 칩을 눌러도 본관 환자가 함께 나오던 버그 — `heading()` 이 건물을 뺀 실 이름(`심초음파실`)으로만 남은 단계 라벨을 비교했음. 같은 건물(`building_idx`)일 때만 "가는 중"으로 친다.
+- **뷰어**: 그룹 만들기 드롭존 점선 3px, 세부 대상 하단 '모두 선택'/'해제' 버튼 같은 자리·같은 폭(74px).
+- `auth.rs` RESOURCES 27→28 (`page.mcot_map`), `ssr-smoke.jsx` 에 McotMap·Trips 추가.
+
 ### 병원 지도 파형 클릭 → 1인 파형 뷰어 (History 포함) (fitlet3)
 
 - 지도 환자 패널의 파형 영역을 클릭하면 새 탭에 `#/viewer?tpl=central&ids=<패치>` 로 1인 뷰어를 연다. `CentralStation` 은 범위가 1명이면 격자 없이 곧바로 `BedViewer`(History · Night · Back 버튼) 로 들어가고, Back 은 그 탭을 닫는다(`onClose`). 뷰어 ③에서 환자 1명 '열기' 도 같은 경로라 동일하게 동작.

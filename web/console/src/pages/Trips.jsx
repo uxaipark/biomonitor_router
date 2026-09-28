@@ -35,7 +35,8 @@ export default function Trips({ bedIndex }) {
   // 칩 수와 눌렀을 때 보이는 행 수가 어긋났다. 상위(전체)·하위(종류/검사실) 칩은 서로의 필터를 반영한다.
   const shortOf = (r) => (r.room || '').split(' ').slice(1).join(' ')
   const inRoom = (t, r) => t.location === r.room_id
-  const heading = (t, r) => { const sh = shortOf(r); return !!sh && !inRoom(t, r) && (t.steps || []).some((s) => s.state !== 'done' && s.label.startsWith(sh)) }
+  // 가는 중: 남은 단계 라벨이 그 실 이름으로 시작 — 같은 이름의 실이 건물마다 있으므로(본관·별관·신관 심초음파실) 건물도 맞아야 한다
+  const heading = (t, r) => { const sh = shortOf(r); return !!sh && !inRoom(t, r) && (r.building_idx == null || t.building_idx === r.building_idx) && (t.steps || []).some((s) => s.state !== 'done' && s.label.startsWith(sh)) }
   const roomObj = room ? rooms.find((r) => r.room_id === room) : null
   const matchRoom = (t) => !roomObj || inRoom(t, roomObj) || heading(t, roomObj)
   const matchKind = (t) => !kind || (kind === 'shadow' ? t.shadow : t.kind === kind)
