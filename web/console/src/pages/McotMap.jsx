@@ -25,9 +25,9 @@ function geoOf(r) {
     const lat = Number(o.lat ?? o.latitude), lng = Number(o.lng ?? o.lon ?? o.longitude)
     if (Number.isFinite(lat) && Number.isFinite(lng) && (lat || lng)) return { ll: [lat, lng], kind: 'gps', label: '위치 정보' }
   }
-  const loc = locate(p.home_region || p.home_address)
+  const loc = locate(p.home_region || p.home_address, p.home_address)
   if (!loc) return null
-  return { ll: [loc.ll[0] + jitter(r.channel_id, 'a'), loc.ll[1] + jitter(r.channel_id, 'b')], kind: loc.exact ? 'addr' : 'sido', label: loc.exact ? '집주소 (시군구 기준)' : '집주소 (시도 기준)', key: loc.key, sido: loc.sido }
+  return { ll: [loc.ll[0] + jitter(r.channel_id, 'a'), loc.ll[1] + jitter(r.channel_id, 'b')], kind: loc.exact ? 'addr' : 'sido', label: loc.exact ? '집주소 (시군구·도시 기준)' : '집주소 (시도·국가 기준)', key: loc.key, sido: loc.sido }
 }
 
 /** 원외(MCOT) 환자를 세계 지도 위에 — 줌/이동 가능, 핀 + 이름, 오른쪽에 지역 목록 · 환자 상세 */
@@ -130,7 +130,7 @@ export default function McotMap({ alarms }) {
         <div className="mm-map">
           <div ref={elRef} style={{ height: '100%' }} />
           {offline && <div className="mm-offline">지도 타일(OpenStreetMap)을 불러오지 못했습니다.<br />이 브라우저에서 인터넷이 막혀 있으면 핀만 표시됩니다.</div>}
-          <div className="mm-note">핀 위치: {nApprox ? '집주소(시군구) 기준 근사' : '위치 정보'}{nApprox && shown.length - nApprox - nNoGeo > 0 ? ` · 좌표 있는 환자 ${shown.length - nApprox - nNoGeo}` : ''} — 점선 핀은 시도만 아는 경우</div>
+          <div className="mm-note">핀 위치: {nApprox ? '집주소(시군구) 기준 근사' : '위치 정보'}{nApprox && shown.length - nApprox - nNoGeo > 0 ? ` · 좌표 있는 환자 ${shown.length - nApprox - nNoGeo}` : ''} — 점선 핀은 시도·국가만 아는 경우</div>
         </div>
         {pick?.patient ? (
           <aside className="map-side wide">

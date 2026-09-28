@@ -33,11 +33,14 @@ export const SIGUNGU = S
 
 const ALIAS = { 서울특별시: '서울', 부산광역시: '부산', 대구광역시: '대구', 인천광역시: '인천', 광주광역시: '광주', 대전광역시: '대전', 울산광역시: '울산', 세종특별자치시: '세종', 경기도: '경기', 강원도: '강원', 강원특별자치도: '강원', 충청북도: '충북', 충청남도: '충남', 전라북도: '전북', 전북특별자치도: '전북', 전라남도: '전남', 경상북도: '경북', 경상남도: '경남', 제주특별자치도: '제주', 제주도: '제주' }
 
-/** "경기 고양시 덕양구" → { sido:'경기', sgg:'고양시', key:'경기 고양시', ll:[lat,lng], exact:true } (시군구를 모르면 시도 중심, exact:false) */
-export function locate(region) {
+import { locateWorld } from './world.js'
+
+/** "경기 고양시 덕양구" → { sido:'경기', sgg:'고양시', key:'경기 고양시', ll:[lat,lng], exact:true } (시군구를 모르면 시도 중심, exact:false).
+ *  국내 시도가 아니면 해외 표(world.js)로: "미국 Texas" + "미국 · Houston, Texas" → 도시 > 지역 > 국가 */
+export function locate(region, address) {
   const t = String(region || '').trim().split(/\s+/)
   const sido = ALIAS[t[0]] || t[0]
-  if (!SIDO[sido]) return null
+  if (!SIDO[sido]) return locateWorld(region, address)
   const sgg = t[1] || ''
   const ll = S[sido]?.[sgg]
   return { sido, sgg, key: sgg ? `${sido} ${sgg}` : sido, ll: ll || SIDO[sido], exact: !!ll }
