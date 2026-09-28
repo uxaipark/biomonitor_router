@@ -28,7 +28,17 @@ input[type=checkbox], input[type=radio] { min-width: 0; width: 15px; height: 15p
 .spacer { flex: 1; }
 .clickable { cursor: pointer; }
 .app { display: flex; flex-direction: column; height: 100%; }
-header.top { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+/* 톱 바: 본문과 구분되는 은은한 띠 — 다크는 바탕보다 한 단계 어두운 남색 기미, 라이트는 옅은 청회색. 채도 높은 색은
+   알람 배지(빨강)·활성 탭(파랑)의 신호 체계를 흐리므로 쓰지 않는다. 색은 토큰(--top-bg/--top-line)으로만 바꾼다. */
+:root { --top-bg: #0b1017; --top-line: #1c2632; --top-hover: #182230; }
+:root[data-theme="light"] { --top-bg: #e9eef5; --top-line: #cfd8e3; --top-hover: #dde5ef; }
+header.top { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--top-bg); border-bottom: 1px solid var(--top-line); box-shadow: 0 1px 0 color-mix(in srgb, var(--top-line) 50%, transparent), 0 2px 8px rgba(0,0,0,.12); flex-wrap: wrap; }
+header.top .nav-top a:hover { background: var(--top-hover); }
+header.top .nav-grp { border-left-color: var(--top-line); }
+header.top .nav-admin { background: transparent; border-color: var(--top-line); }
+header.top .nav-admin:hover { background: var(--top-hover); }
+header.top button.icon { background: transparent; border-color: var(--top-line); }
+header.top button.icon:hover { background: var(--top-hover); }
 .brand { font-weight: 700; font-size: 16px; margin-right: 8px; display: inline-flex; align-items: center; gap: 8px; color: var(--text); text-decoration: none; }
 .brand svg { display: block; }
 header.top button.icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 30px; padding: 0; }
