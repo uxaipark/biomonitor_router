@@ -356,7 +356,7 @@ svg.plan { display: block; }
 .legend { display: inline-flex; gap: 10px; align-items: center; color: var(--muted); font-size: 12px; }
 .legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
 .legend .dot.ok { background: var(--ok); } .legend .dot.alarm { background: var(--sev-high); } .legend .dot.gw { background: #2f8cf0; }
-.map-side { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; overflow: auto; }
+.map-side { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; overflow: auto; scrollbar-gutter: stable; } /* 스크롤바가 생겨도 폭이 안 바뀌게 자리를 항상 비워 둔다 */
 .map-side h4 { margin: 0 0 4px; } .map-side h4 small { color: var(--muted); font-weight: 400; }
 .prow { padding: 6px 6px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 13px; }
 .prow:hover { background: var(--panel2); }
