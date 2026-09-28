@@ -1,0 +1,5 @@
+/* 이벤트 타임라인 페이지 전용 */
+.events .ghost-toggle { display: inline-flex; align-items: center; gap: 2px; background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+.events .ghost-toggle.on { color: var(--text); }
+.events .lk-tl-sel { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+.events .lk-tl .tag.small { margin-right: 4px; }

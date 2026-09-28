@@ -1,0 +1,5 @@
+/* 게이트웨이 목록 (시안 05) — 페이지 전용 보조 스타일. 공통 부품은 styles.css 의 .lk-* */
+.gwl .gwl-loc { white-space: nowrap; }
+.gwl .tbl td { vertical-align: middle; }
+.gwl-spark-big { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 10px; }
+.gwl-spark-big .lk-spark { width: 100%; max-width: 320px; height: 44px; }

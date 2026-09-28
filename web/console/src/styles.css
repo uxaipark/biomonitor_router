@@ -1183,3 +1183,63 @@ fieldset.ro-fieldset:disabled button, fieldset.ro-fieldset:disabled input, field
 fieldset.ro-fieldset:disabled .ctl-switch, fieldset.ro-fieldset:disabled .seg button { pointer-events: none; }
 .ro-banner { display: flex; align-items: center; gap: 8px; padding: 7px 12px; margin-bottom: 10px; border-radius: 10px; font-size: 13px; border: 1px dashed var(--line); background: color-mix(in srgb, var(--warn, #d97706) 8%, var(--panel)); color: var(--text); }
 .ro-banner::before { content: '🔒'; }
+
+/* ───────── 목록 재설계 공통 부품 (ListKit 확장, 2026-09-28) ───────── */
+:root { --lk-ok: var(--ok); --lk-warn: var(--warn); --lk-crit: var(--crit, #ff2d55); --lk-high: var(--sev-high, #ff8c42); --lk-accent: var(--accent); --lk-muted: var(--muted); --lk-err: var(--err); }
+.lk-two { display: inline-flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.lk-two b { font-weight: 600; }
+.lk-two small { color: var(--muted); font-size: 11.5px; margin-top: 1px; }
+.lk-two.mono b { font-family: ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.lk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; background: var(--muted); }
+.lk-dot.ok { background: var(--ok); } .lk-dot.warn { background: var(--warn); } .lk-dot.err { background: var(--err); } .lk-dot.off { opacity: .45; }
+.lk-pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); white-space: nowrap; line-height: 1.5; }
+.lk-pill.crit { color: var(--sev-critical); border-color: color-mix(in srgb, var(--sev-critical) 55%, var(--line)); }
+.lk-pill.high { color: var(--sev-high); border-color: color-mix(in srgb, var(--sev-high) 55%, var(--line)); }
+.lk-pill.med { color: var(--sev-medium); border-color: color-mix(in srgb, var(--sev-medium) 55%, var(--line)); }
+.lk-pill.low { color: var(--sev-low); border-color: color-mix(in srgb, var(--sev-low) 45%, var(--line)); }
+.lk-pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+.lk-pill.err { color: var(--err); border-color: color-mix(in srgb, var(--err) 50%, var(--line)); }
+.lk-pill.off { color: var(--muted); }
+.lk-bar { display: inline-block; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--line) 70%, transparent); vertical-align: middle; margin-left: 6px; position: relative; overflow: hidden; }
+.lk-bar i { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+.lk-bar.warn i { background: var(--warn); } .lk-bar.crit i { background: var(--sev-critical); }
+.lk-spark { vertical-align: middle; display: inline-block; }
+.lk-grp td { background: var(--panel2) !important; color: var(--muted); font-size: 12px; font-weight: 600; padding: 4px 8px !important; letter-spacing: .03em; position: sticky; top: 30px; z-index: 1; }
+.lk-acts { text-align: right; white-space: nowrap; width: 1%; }
+.lk-acts button { padding: 2px 8px; font-size: 12px; opacity: .55; margin-left: 4px; transition: opacity .12s; }
+tr:hover .lk-acts button, tr.selected .lk-acts button, .lk-acts button:focus-visible { opacity: 1; }
+.lk-ago { font-variant-numeric: tabular-nums; }
+.tbl td.v, .tbl .v { font-family: ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.tbl .v.bad { color: var(--sev-critical); font-weight: 600; } .tbl .v.warnv { color: var(--sev-medium); } .tbl .v.dim { color: var(--muted); }
+.tbl.dense .lk-two small { font-size: 11px; }
+.tbl tr.sev-critical td:first-child, .tbl tr.sev-high td:first-child, .tbl tr.sev-medium td:first-child, .tbl tr.sev-low td:first-child { box-shadow: none; }
+.tbl td.lk-rail { width: 4px; padding: 0 !important; }
+.tbl tr.sev-critical td.lk-rail { background: var(--sev-critical); } .tbl tr.sev-high td.lk-rail { background: var(--sev-high); }
+.tbl tr.sev-medium td.lk-rail { background: var(--sev-medium); } .tbl tr.sev-low td.lk-rail { background: var(--sev-low); }
+.tbl tr.st-err td.lk-rail { background: var(--err); } .tbl tr.st-warn td.lk-rail { background: var(--warn); }
+.lk-density button { padding: 3px 9px; font-size: 12px; }
+.lk-kbd { font-family: ui-monospace, Menlo, monospace; font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; color: var(--muted); }
+.lk-legend { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+/* 타임라인 */
+.lk-tl { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.lk-tl-row { display: grid; grid-template-columns: 78px 92px 1fr; gap: 10px; padding: 6px 4px; border-bottom: 1px solid var(--line); align-items: baseline; }
+.lk-tl-row:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.lk-tl-row.crit, .lk-tl-row.err { background: color-mix(in srgb, var(--err) 7%, transparent); }
+.lk-tl-t { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.lk-tl-body { min-width: 0; overflow-wrap: anywhere; }
+.lk-tl-day { color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: .03em; padding: 10px 4px 4px; position: sticky; top: 0; background: var(--bg); z-index: 1; }
+.lk-tl-empty { color: var(--muted); padding: 14px 4px; }
+.lk-fold { color: var(--accent); font-size: 12px; cursor: pointer; }
+@media (max-width: 640px) { .lk-tl-row { grid-template-columns: 64px 1fr; } .lk-tl-row > span:nth-child(2) { grid-column: 2; } }
+/* 카드 격자 */
+.lk-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.lk-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.lk-card.open { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
+.lk-card-t { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lk-card-t b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lk-card-meta { color: var(--muted); font-size: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
+.lk-card-go { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.lk-card-go button { padding: 3px 10px; font-size: 12.5px; }
+.lk-card-open { font-size: 12px; color: var(--accent); }
+.lk-star { border: 0; background: transparent; color: var(--muted); font-size: 15px; padding: 0 2px; cursor: pointer; line-height: 1; }
+.lk-star.on { color: var(--warn); }

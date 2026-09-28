@@ -1,0 +1,10 @@
+/* 뷰어 목록 — 카드 격자 (ListKit .lk-card 위에 이 페이지만의 강조) */
+.vw-sub { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; margin: 0 0 10px; }
+.vw-sort button { padding: 3px 9px; font-size: 12px; }
+.lk-card.has-alarm { border-color: color-mix(in srgb, var(--sev-medium) 55%, var(--line)); }
+.lk-card.has-crit { border-color: color-mix(in srgb, var(--sev-critical) 60%, var(--line)); box-shadow: inset 3px 0 var(--sev-critical); }
+.lk-card-t small.mono { font-family: ui-monospace, Menlo, monospace; font-weight: 400; font-size: 11.5px; margin-left: 4px; }
+.lk-card-go button.ghost { border-color: transparent; color: var(--muted); }
+.lk-card-go button.ghost:hover { border-color: var(--line); color: var(--text); }
+.lk-card-go button.ghost.danger:hover { color: var(--err); }
+.vw-empty { grid-column: 1 / -1; padding: 18px 4px; }

@@ -4,7 +4,9 @@ import { api, usePoll } from '../api.js'
 import { TEMPLATES, viewerUrl } from '../viewer/templates.js'
 import { sortBy, wardText, wardRoom, roomText, gwLabel, isAway } from '../model.js'
 import Dropdown from '../Dropdown.jsx'
+import { CardGrid, Card, Pill, go } from '../ListKit.jsx'
 import '../viewer/ds.css'
+import './Viewers.css'
 
 /**
  * Viewer picker. Lists the connected patients grouped by one category (ward / room / doctor / nurse /
@@ -37,7 +39,7 @@ export default function Viewers({ alarms }) {
   const [subCat, setSubCat] = useState('') // sub-category ('' = all): ward → building, doctor/nurse → specialty
   // sort per category, remembered: { ward: ['count','desc'], ... }
   const [sorts, setSorts] = useState(() => { try { return JSON.parse(localStorage.getItem('viewers.sorts') || '{}') } catch { return {} } })
-  const sort = sorts[kind] || ['label', 'asc'] // [column, dir]; column: label | building | floor | cond | count | alarms | gws
+  const sort = sorts[kind] || ['alarms', 'desc'] // [column, dir]; column: label | building | floor | cond | count | alarms | gws — 기본은 알람 많은 순
   const setSort = (v) => setSorts((o) => { const n = { ...o, [kind]: v }; try { localStorage.setItem('viewers.sorts', JSON.stringify(n)) } catch { /* ignore */ } return n })
   const [editing, setEditing] = useState(null) // group being edited (null = closed, {} = new)
   useEffect(() => { try { localStorage.setItem('viewers.kind', kind); localStorage.setItem('viewers.tpl', tpl) } catch { /* ignore */ } }, [kind, tpl])
@@ -46,6 +48,20 @@ export default function Viewers({ alarms }) {
   const live = useMemo(() => (rows || []).filter((r) => r.connected), [rows])
   const mobile = useMemo(() => new Set((gws || []).filter(isMobileGw).map((g) => String(g.gw_id))), [gws])
   const alarmIds = useMemo(() => new Set((alarms?.alarms || []).map((a) => String(a.channel_id))), [alarms])
+  // 채널별 가장 높은 심각도 (카드 배지 색: critical/high → crit, medium → med, low → 중립)
+  const alarmSev = useMemo(() => {
+    const rank = { critical: 3, high: 2, medium: 1, low: 0 }
+    const m = new Map()
+    for (const a of alarms?.alarms || []) { const id = String(a.channel_id); const r = rank[a.severity] ?? 0; if ((m.get(id) ?? -1) < r) m.set(id, r) }
+    return m
+  }, [alarms])
+  // 즐겨찾기 (scope:key), 브라우저에 기억
+  const [favs, setFavs] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('viewers.fav') || '[]')) } catch { return new Set() } })
+  const toggleFav = (k) => setFavs((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); try { localStorage.setItem('viewers.fav', JSON.stringify([...n])) } catch { /* ignore */ } return n })
+  // 열어 둔 뷰어 탭 (key → window): 닫혔는지 5초마다 확인해 "열려 있음" 표시를 갱신
+  const wins = React.useRef(new Map())
+  const [, tickOpen] = useState(0)
+  useEffect(() => { const t = setInterval(() => { let changed = false; for (const [k, w] of wins.current) if (!w || w.closed) { wins.current.delete(k); changed = true } if (changed) tickOpen((n) => n + 1) }, 5000); return () => clearInterval(t) }, [])
   const staffLabel = (id) => { const s = staff.get(id); return s ? `${s.name} (${id})` : id }
   const staffSub = (id) => { const s = staff.get(id); return s ? [s.title, s.specialty, s.ward && `병동 ${s.ward}`].filter(Boolean).join(' · ') : '' }
 
@@ -54,12 +70,12 @@ export default function Viewers({ alarms }) {
     const m = new Map()
     const add = (key, r, label, sub) => {
       if (!key) return
-      if (!m.has(key)) m.set(key, { key, label: label || key, sub: sub || '', count: 0, alarms: 0, gws: new Set() })
-      const e = m.get(key); e.count++; if (alarmIds.has(r.channel_id)) e.alarms++; if (r.gateway_id) e.gws.add(r.gateway_id)
+      if (!m.has(key)) m.set(key, { key, label: label || key, sub: sub || '', count: 0, alarms: 0, sev: -1, gws: new Set(), mobile: 0 })
+      const e = m.get(key); e.count++; if (alarmIds.has(r.channel_id)) { e.alarms++; e.sev = Math.max(e.sev, alarmSev.get(String(r.channel_id)) ?? 0) } if (r.gateway_id) { e.gws.add(r.gateway_id); if (mobile.has(r.gateway_id)) e.mobile++ }
     }
     if (kind === 'group') {
-      for (const g of groups || []) m.set(g.id, { key: g.id, label: g.name, sub: [g.description, g.owner && `작성 ${g.owner}`].filter(Boolean).join(' · '), count: 0, alarms: 0, gws: new Set(), group: g })
-      for (const r of live) for (const gid of r.groups || []) { const e = m.get(gid); if (e) { e.count++; if (alarmIds.has(r.channel_id)) e.alarms++ } }
+      for (const g of groups || []) m.set(g.id, { key: g.id, label: g.name, sub: [g.description, g.owner && `작성 ${g.owner}`].filter(Boolean).join(' · '), count: 0, alarms: 0, sev: -1, gws: new Set(), mobile: 0, group: g })
+      for (const r of live) for (const gid of r.groups || []) { const e = m.get(gid); if (e) { e.count++; if (alarmIds.has(r.channel_id)) { e.alarms++; e.sev = Math.max(e.sev, alarmSev.get(String(r.channel_id)) ?? 0) } if (r.gateway_id) { e.gws.add(r.gateway_id); if (mobile.has(r.gateway_id)) e.mobile++ } } }
       return [...m.values()].sort((a, b) => (a.key !== 'all') - (b.key !== 'all') || a.label.localeCompare(b.label, 'ko'))
     }
     if (BOOL_KIND[kind]) {
@@ -74,7 +90,7 @@ export default function Viewers({ alarms }) {
         const e = m.get(' 기타'); (e.ids = e.ids || []).push(r.channel_id) // nothing to scope by: open by patch ids
       }
       const v = [...m.values()].sort((a, b) => a.label.localeCompare(b.label, 'ko'))
-      const total = { key: '', label: all, sub: `${[...m.keys()].length}개 병동`, count: hits.length, alarms: hits.filter((r) => alarmIds.has(r.channel_id)).length, gws: new Set(hits.map((r) => r.gateway_id).filter(Boolean)) }
+      const total = { key: '', label: all, sub: `${[...m.keys()].length}개 병동`, count: hits.length, alarms: hits.filter((r) => alarmIds.has(r.channel_id)).length, sev: Math.max(-1, ...hits.map((r) => alarmSev.get(String(r.channel_id)) ?? -1)), gws: new Set(hits.map((r) => r.gateway_id).filter(Boolean)), mobile: hits.filter((r) => mobile.has(r.gateway_id)).length }
       return [total, ...v.map((e) => ({ ...e, key: e.key.trim() }))]
     }
     for (const r of live) {
@@ -95,7 +111,7 @@ export default function Viewers({ alarms }) {
     if (kind === 'gw') v.sort((a, b) => Number(a.key) - Number(b.key))
     else v.sort((a, b) => a.label.localeCompare(b.label, 'ko'))
     return v
-  }, [kind, live, groups, gws, staff, alarmIds, mobile])
+  }, [kind, live, groups, gws, staff, alarmIds, alarmSev, mobile])
   // sub-category buttons: ward → building, doctor/nurse → specialty
   const SUB_LABEL = { ward: '건물', doctor: '진료과목', nurse: '진료과목' }
   const subCats = useMemo(() => {
@@ -109,15 +125,14 @@ export default function Viewers({ alarms }) {
     let v = needle ? entries.filter((e) => [e.key, e.label, e.sub].some((x) => String(x || '').toLowerCase().includes(needle))) : entries
     if (SUB_LABEL[kind] && subCat) v = v.filter((e) => (e.sub2 || '기타') === subCat)
     const key = sort[0] === 'gws' ? (e) => e.gws.size : sort[0] === 'cond' ? (e) => describeGroup(e.group) : sort[0] === 'floor' ? (e) => Number(e.floor) || 0 : sort[0] === 'label' && kind === 'gw' ? (e) => Number(e.key) : sort[0]
-    const sorted = sortBy(v, key, sort[1])
-    // the catch-all group stays on top whatever the order
-    if (kind === 'group') return [...sorted.filter((e) => e.key === 'all'), ...sorted.filter((e) => e.key !== 'all')]
-    if (BOOL_KIND[kind]) return [...sorted.filter((e) => e.key === ''), ...sorted.filter((e) => e.key !== '')]
-    return sorted
-  }, [entries, q, sort, kind, subCat])
-  const th = (col, label, cls = '') => (
-    <th key={col} className={'sortable ' + cls} onClick={() => setSort([col, sort[0] === col && sort[1] === 'asc' ? 'desc' : 'asc'])}>{label}{sort[0] === col ? (sort[1] === 'asc' ? ' ▲' : ' ▼') : ''}</th>
-  )
+    let sorted = sortBy(v, key, sort[1])
+    // 알람 순 정렬은 같은 수면 이름순
+    if (sort[0] === 'alarms') sorted = [...sorted].sort((a, b) => (b.alarms - a.alarms) * (sort[1] === 'desc' ? 1 : -1) || a.label.localeCompare(b.label, 'ko'))
+    // 즐겨찾기(★)는 항상 앞, 전체(모든 환자) 카드는 그 다음
+    const favKey = (e) => `${kind}:${e.key}`
+    const top = (e) => (favs.has(favKey(e)) ? 0 : (kind === 'group' && e.key === 'all') || (BOOL_KIND[kind] && e.key === '') ? 1 : 2)
+    return [...sorted].sort((a, b) => top(a) - top(b))
+  }, [entries, q, sort, kind, subCat, favs])
   const kindCounts = useMemo(() => {
     const c = {}
     for (const [k] of KINDS) {
@@ -132,7 +147,27 @@ export default function Viewers({ alarms }) {
 
   const kindLabel = KINDS.find(([k]) => k === kind)[1]
   const urlFor = (e, t) => viewerUrl({ tpl: t, ...(BOOL_KIND[kind]?.scope || {}), ...(e.ids ? { ids: e.ids } : e.region ? { region: e.region } : { [SCOPE_KEY[kind]]: e.key }), label: BOOL_KIND[kind] ? (e.key ? `${kindLabel} · 병동 ${e.label}` : e.label) : `${kindLabel} ${e.label}` })
-  const open = (e, t = tpl) => window.open(urlFor(e, t), '_blank', 'noopener')
+  const winKey = (e, t) => `${kind}:${e.key}:${t}`
+  const open = (e, t = tpl) => {
+    const k = winKey(e, t)
+    const w = wins.current.get(k)
+    if (w && !w.closed) { try { w.focus() } catch { /* ignore */ } return }
+    // noopener 를 빼야 핸들을 쥐고 "열려 있음" 을 알 수 있다 (같은 출처의 우리 뷰어 탭이라 위험 없음)
+    const nw = window.open(urlFor(e, t), '_blank')
+    if (nw) { wins.current.set(k, nw); tickOpen((n) => n + 1) }
+  }
+  const openHandle = (e) => { for (const t of TEMPLATES) { const w = wins.current.get(winKey(e, t.id)); if (w && !w.closed) return () => { try { w.focus() } catch { /* ignore */ } } } return null }
+  // 환자 목록으로 가는 범위 매핑 (있는 것만)
+  const listParams = (e) => {
+    if (kind === 'ward' && e.key) return { ward: e.key }
+    if (kind === 'room' && e.key) return { room: e.key }
+    if (kind === 'gw' && e.key) return { gw: e.key }
+    if (kind === 'doctor' && e.key) return { doctor: e.key }
+    if (kind === 'nurse' && e.key) return { nurse: e.key }
+    if (kind === 'group' && e.key) return { group: e.key }
+    return null
+  }
+  const badgeTone = (e) => (e.alarms ? (e.sev >= 2 ? 'crit' : e.sev === 1 ? 'med' : 'low') : '')
   const tplOpts = TEMPLATES.map((t) => ({ value: t.id, label: t.name }))
   const removeGroup = async (g) => {
     if (!window.confirm(`그룹 "${g.name}" 을(를) 삭제할까요?`)) return
@@ -145,7 +180,7 @@ export default function Viewers({ alarms }) {
         <span className="seg wrap">{KINDS.map(([k, l]) => <button key={k} className={kind === k ? 'active' : ''} onClick={() => { setKind(k); setQ(''); setSubCat('') }}>{l}<small className="muted"> {kindCounts[k] ?? 0}</small></button>)}</span>
         <input placeholder={`${kindLabel} 검색`} value={q} onChange={(e) => setQ(e.target.value)} />
         <span className="spacer" />
-        <span className="muted">클릭 시 열 뷰어</span>
+        <span className="muted">기본 뷰어</span>
         <Dropdown value={tpl} options={tplOpts} onChange={setTpl} searchable={false} width={260} />
         {kind === 'group' && canGroups && <button className="primary" onClick={() => setEditing({})}>＋ 새 그룹</button>}
       </div>
@@ -158,32 +193,39 @@ export default function Viewers({ alarms }) {
           </span>
         </div>
       )}
-      <p className="muted">{kindLabel}별 목록입니다. 행을 누르면 선택한 템플릿의 뷰어가 새 탭에서 전체 화면으로 열리고, 행의 버튼으로 다른 템플릿을 고를 수도 있습니다. 전체 연결 환자 {live.length.toLocaleString()}명.</p>
-      <table className="tbl vw-table">
-        <thead><tr><th className="w-idx">#</th>{th('label', kindLabel)}{kind === 'ward' && th('building', '건물')}{kind === 'ward' && th('floor', '층', 'num w-n')}{kind === 'group' && th('cond', '조건')}{th('count', '환자', 'num w-n')}{th('alarms', '알람', 'num w-n')}{kind !== 'gw' && kind !== 'group' && th('gws', 'GW', 'num w-n')}<th>뷰어</th>{kind === 'group' && <th></th>}</tr></thead>
-        <tbody>
-          {shown.map((e, i) => (
-            <tr key={e.key} className={'clickable' + (e.alarms ? ' sev-high' : '')} onClick={() => open(e)}>
-              <td className="num muted w-idx">{i + 1}</td>
-              <td className="lbl">{kind === 'ward' && e.key && wardText(e.label) !== e.label ? <><b>{wardText(e.label)}</b><small className="mono">{e.label}</small></> : kind === 'room' && wardRoom(e.label) ? <><b>{roomText(e.label)}</b><small className="mono">{e.label}</small></> : <b>{e.label}</b>}{e.sub && <small>{e.sub}</small>}</td>
-              {kind === 'ward' && <td>{e.building || <span className="muted">—</span>}</td>}
-              {kind === 'ward' && <td className="num w-n">{e.floor ? `${e.floor}F` : <span className="muted">—</span>}</td>}
-              {kind === 'group' && <td className="muted cond">{describeGroup(e.group)}</td>}
-              <td className="num w-n">{e.count.toLocaleString()}</td>
-              <td className="num w-n">{e.alarms ? <span className="tag sev-high small">{e.alarms}</span> : <span className="muted">0</span>}</td>
-              {kind !== 'gw' && kind !== 'group' && <td className="num w-n">{e.gws.size}</td>}
-              <td className="acts" onClick={(ev) => ev.stopPropagation()}>
-                {TEMPLATES.map((t) => <button key={t.id} className={t.id === tpl ? 'tpl-default' : ''} title={t.desc} onClick={() => open(e, t.id)}>{t.name.split(' (')[0]}</button>)}
-              </td>
-              {kind === 'group' && <td className="acts" onClick={(ev) => ev.stopPropagation()}>
-                {canGroups && <button onClick={() => setEditing(e.group)}>편집</button>}
-                {canGroups && e.key !== 'all' && <button onClick={() => removeGroup(e.group)}>삭제</button>}
-              </td>}
-            </tr>
-          ))}
-          {!shown.length && <tr><td colSpan={8} className="muted">{kind === 'group' ? '그룹이 없습니다. "새 그룹"으로 만드세요.' : '표시할 항목이 없습니다.'}</td></tr>}
-        </tbody>
-      </table>
+      <div className="vw-sub muted">
+        {kindLabel}별 카드입니다. 카드의 버튼으로 뷰어를 새 탭에 열고, ★ 로 즐겨찾기를 맨 앞에 둡니다. 전체 연결 환자 {live.length.toLocaleString()}명 · 표시 {shown.length.toLocaleString()}개.
+        <span className="spacer" />
+        <span className="seg vw-sort">
+          {[['alarms', '알람 많은 순'], ['count', '환자 많은 순'], ['label', '이름순']].map(([c, l]) => <button key={c} className={sort[0] === c ? 'active' : ''} onClick={() => setSort([c, c === 'label' ? 'asc' : 'desc'])}>{l}</button>)}
+        </span>
+      </div>
+      <CardGrid>
+        {shown.map((e) => {
+          const fk = `${kind}:${e.key}`
+          const lp = listParams(e)
+          const title = kind === 'ward' && e.key && wardText(e.label) !== e.label ? <>{wardText(e.label)} <small className="mono muted">{e.label}</small></> : kind === 'room' && wardRoom(e.label) ? <>{roomText(e.label)} <small className="mono muted">{e.label}</small></> : e.label
+          const meta = [`환자 ${e.count.toLocaleString()}`]
+          if (kind !== 'gw') meta.push(e.mobile && e.mobile === e.count ? `이동형 ${e.mobile}` : `GW ${e.gws.size}${e.mobile ? ` · 이동형 ${e.mobile}` : ''}`)
+          if (e.sub) meta.push(e.sub)
+          if (kind === 'group') meta.push(describeGroup(e.group))
+          return (
+            <Card key={e.key} title={title} star={favs.has(fk)} onStar={() => toggleFav(fk)} open={openHandle(e)}
+              className={e.alarms ? (e.sev >= 2 ? 'has-crit' : 'has-alarm') : ''}
+              badge={<Pill tone={badgeTone(e)}>알람 {e.alarms}</Pill>}
+              meta={meta}
+              actions={<>
+                <button className={tpl === 'central' ? 'primary' : ''} onClick={() => open(e, 'central')} title={TEMPLATES.find((t) => t.id === 'central')?.desc}>중앙 모니터</button>
+                <button className={tpl === 'grid' ? 'primary' : ''} onClick={() => open(e, 'grid')} title={TEMPLATES.find((t) => t.id === 'grid')?.desc}>그리드</button>
+                {TEMPLATES.filter((t) => t.id !== 'central' && t.id !== 'grid').map((t) => <button key={t.id} className={tpl === t.id ? 'primary' : ''} onClick={() => open(e, t.id)} title={t.desc}>{t.name.split(' (')[0]}</button>)}
+                {lp && <button className="ghost" onClick={() => go('#/patients', lp)}>환자 목록</button>}
+                {kind === 'group' && canGroups && <button className="ghost" onClick={() => setEditing(e.group)}>편집</button>}
+                {kind === 'group' && canGroups && e.key !== 'all' && <button className="ghost danger" onClick={() => removeGroup(e.group)}>삭제</button>}
+              </>} />
+          )
+        })}
+        {!shown.length && <div className="muted vw-empty">{kind === 'group' ? '그룹이 없습니다. "새 그룹"으로 만드세요.' : '표시할 항목이 없습니다.'}</div>}
+      </CardGrid>
       {editing && <GroupEditor group={editing} rows={rows || []} staff={staff} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refreshGroups?.(); setTimeout(() => refreshRows?.(), 1200) }} />}
     </div>
   )

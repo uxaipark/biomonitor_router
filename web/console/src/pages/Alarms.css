@@ -1,0 +1,10 @@
+/* 알람 목록 (시안 02): 두 줄 셀·값/임계 막대·행 끝 동작은 ListKit 공통, 여기엔 페이지 전용만 */
+.alarms .al-who .lk-two small a { color: inherit; }
+.alarms .al-kind { display: block; }
+.alarms .al-msg { display: block; font-size: 11px; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alarms .al-tbl.dense .al-msg { display: none; }               /* 촘촘 모드에선 종류만 */
+.alarms .al-val { display: inline-flex; align-items: center; justify-content: flex-end; gap: 2px; white-space: nowrap; }
+.alarms .al-grp { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.alarms .tbl tr.acked td { opacity: .62; }
+.alarms .tbl tr.acked td.lk-rail { opacity: .35; }
+.alarms .tbl tr.selected td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
