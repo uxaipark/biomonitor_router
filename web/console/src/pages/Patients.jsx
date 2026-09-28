@@ -213,7 +213,7 @@ export default function Patients({ alarms }) {
         <Dropdown value={ward} options={wards} onChange={(v) => { setQs({ ward: v }); setPage(0) }} placeholder="모든 병동" width={200} />
         {doctors.length > 1 && <Dropdown value={doctor} options={doctors} onChange={(v) => { setQs({ doc: v }); setPage(0) }} placeholder="모든 담당의" width={170} />}
         <Dropdown value={sort[0]} options={SORTS.map(([k, l]) => ({ value: k, label: `정렬: ${l}` }))} onChange={(v) => { setSort([v, SORT_DIR[v] || 'asc']); setPage(0) }} searchable={false} width={170} />
-        <label className="chk" title={ward ? "병동 필터를 지우면 병동별로 묶어 볼 수 있습니다" : "켜면 표를 병동별 묶음 헤더로 나눠 보여 줍니다"}><input type="checkbox" checked={groupPref} disabled={!!ward} onChange={(e) => setGroup(e.target.checked)} /><span>병동별 묶어 보기</span></label>
+        <label className="chk" title={ward ? "병동 필터를 지우면 병동별로 묶어 볼 수 있습니다" : "켜면 표를 병동별 묶음 헤더로 나눠 보여 줍니다"}><input type="checkbox" checked={groupPref} disabled={!!ward} onChange={(e) => setGroup(e.target.checked)} /><span>병동 묶기</span></label>
         <DensityToggle value={density} onChange={setDensity} />
       </FilterBar>
       <ListLayout detail={selRow ? <PatientDetail r={selRow} alarms={alarms} onClose={() => setQs({ sel: '' })} /> : sel ? <DetailPanel title={`패치 ${sel}`} onClose={() => setQs({ sel: '' })}><p className="muted">목록에 없는 패치입니다 (퇴원·교체).</p></DetailPanel> : null}>
