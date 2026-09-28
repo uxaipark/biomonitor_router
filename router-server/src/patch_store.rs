@@ -43,8 +43,13 @@ const INDEX_PER_FLUSH: usize = 10;
 const RETIRE_AFTER: Duration = Duration::from_secs(900);
 /// 봉인 스레드 페이싱: 2시간 단위가 끝나면 2,000여 파일이 한꺼번에 닫혀 1분간 한 코어를 다 쓰던 것을, 초당 파일 수 제한 +
 /// 낮은 우선순위(nice)로 몇 분에 걸쳐 펼친다. 봉인 뒤에 백업이 시작되므로 그만큼 늦어질 뿐 결과는 같다.
-const SEAL_MAX_PER_SEC: u64 = 10;
 const SEAL_NICE: i32 = 10;
+/// 초당 봉인 파일 수 (0 = 제한 없음). 초기값 `ROUTER_SEAL_PER_SEC`(기본 10), 이후 데이터 관리 › 정책 `seal_per_sec` 이 덮어쓴다.
+pub static SEAL_PER_SEC: AtomicU64 = AtomicU64::new(10);
+
+pub fn seal_per_sec_default() -> u32 {
+    std::env::var("ROUTER_SEAL_PER_SEC").ok().and_then(|v| v.parse().ok()).unwrap_or(10)
+}
 
 /// Total bytes on disk (rec + rec.gz), maintained incrementally and rescanned every 10 minutes.
 pub static STORE_BYTES: AtomicU64 = AtomicU64::new(0);
@@ -1093,13 +1098,16 @@ fn gzip_worker(rx: std::sync::mpsc::Receiver<PathBuf>, level: u32) {
         let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
         libc::setpriority(libc::PRIO_PROCESS, tid, SEAL_NICE);
     }
-    let min_gap = Duration::from_millis(1000 / SEAL_MAX_PER_SEC);
-    let mut last = Instant::now() - min_gap;
+    let mut last = Instant::now() - Duration::from_secs(1);
     while let Ok(path) = rx.recv() {
-        // 페이싱: 파일 사이 최소 간격 (초당 SEAL_MAX_PER_SEC 개) — 2,050 파일이면 약 100 s 에 걸쳐 봉인
-        let since = last.elapsed();
-        if since < min_gap {
-            std::thread::sleep(min_gap - since);
+        // 페이싱: 파일 사이 최소 간격 (초당 SEAL_PER_SEC 개, 0 = 제한 없음) — 정책에서 바꾸면 다음 파일부터
+        let per_sec = SEAL_PER_SEC.load(Ordering::Relaxed);
+        if per_sec > 0 {
+            let min_gap = Duration::from_millis(1000 / per_sec.max(1));
+            let since = last.elapsed();
+            if since < min_gap {
+                std::thread::sleep(min_gap - since);
+            }
         }
         last = Instant::now();
         // the writer hands over `<key>.rec`; a previous run may have left it gzipped already

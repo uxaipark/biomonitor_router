@@ -210,6 +210,13 @@ pub struct Policy {
     /// 로컬 파형 저장 상한(GB). 0 = 런처 값(`ROUTER_STORE_MAX_GB`) 사용. 바꾸면 다음 정리 주기부터(약 1분 안).
     #[serde(default)]
     pub store_max_gb: u32,
+    /// 봉인 속도(초당 파일 수, 0 = 제한 없음). 저장 단위가 끝날 때 2,000여 파일이 한꺼번에 닫히는 CPU 피크를 펼친다.
+    /// 초기값은 `ROUTER_SEAL_PER_SEC`(기본 10). 바꾸면 다음 파일부터.
+    #[serde(default = "d_seal_per_sec")]
+    pub seal_per_sec: u32,
+}
+fn d_seal_per_sec() -> u32 {
+    crate::patch_store::seal_per_sec_default()
 }
 fn d_block_hours() -> u32 {
     2
@@ -642,6 +649,7 @@ impl Backup {
         EMERGENCY_FREE_PCT.store(p.emergency_free_pct as u64, Ordering::Relaxed);
         crate::patch_store::BLOCK_HOURS.store(p.block_hours as u64, Ordering::Relaxed);
         crate::patch_store::STORE_CAP_OVERRIDE_GB.store(p.store_max_gb as u64, Ordering::Relaxed);
+        crate::patch_store::SEAL_PER_SEC.store(p.seal_per_sec as u64, Ordering::Relaxed);
         ACTIVE.store(self.targets.read().unwrap().iter().any(|t| t.enabled), Ordering::Relaxed);
     }
 
@@ -789,6 +797,7 @@ impl Backup {
                 return Err(format!("저장 상한 {} GB 가 디스크 용량 {} GB 보다 큽니다", p.store_max_gb, vol_gb));
             }
         }
+        p.seal_per_sec = p.seal_per_sec.min(1000);
         let before = crate::patch_store::cap_bytes();
         if let Ok(j) = serde_json::to_string(&p) {
             let _ = self.db.lock().unwrap().execute("INSERT OR REPLACE INTO backup_kv (key, value) VALUES ('policy', ?1)", params![j]);

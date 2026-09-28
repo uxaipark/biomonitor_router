@@ -1160,9 +1160,10 @@ async fn backup_status(State(state): State<Arc<AppState>>) -> impl IntoResponse 
 
 async fn backup_policy(State(state): State<Arc<AppState>>, Extension(who): Extension<Principal>, Json(p): Json<crate::backup::Policy>) -> impl IntoResponse {
     let detail = format!(
-        "저장 단위 {}시간 · 상한 {} · 사본 {} · 삭제 {} · 검증 {} · {}",
+        "저장 단위 {}시간 · 상한 {} · 봉인 {}/s · 사본 {} · 삭제 {} · 검증 {} · {}",
         p.block_hours,
         if p.store_max_gb > 0 { format!("{} GB", p.store_max_gb) } else { "런처 값".into() },
+        if p.seal_per_sec > 0 { p.seal_per_sec.to_string() } else { "무제한".into() },
         p.copies,
         p.delete_mode,
         p.verify,

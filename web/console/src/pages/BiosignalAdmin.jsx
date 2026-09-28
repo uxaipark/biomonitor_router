@@ -194,6 +194,10 @@ function PolicyCard({ policy, nTargets, onSaved, capEnvGb, diskTotal }) {
           <div className="muted">
             {(() => { const gb = p.store_max_gb > 0 ? p.store_max_gb : capEnvGb; if (!gb) return '상한 없음 — 디스크가 찰 때까지 보존합니다.'; const h = gb / 8; return `이 상한에 닿으면 오래된 파일부터 지웁니다(백업 대상이 있으면 백업이 끝난 파일만). 환자 2,000명 전 채널(약 8 GB/h)이면 로컬에 약 ${h >= 48 ? `${(h / 24).toFixed(1)}일` : `${Math.round(h)}시간`}치가 남고, 그 구간은 백업과 이중으로 보관됩니다. 저장 즉시 적용(다음 정리 주기, 1분 안).` })()}
           </div></div>
+        <label>봉인 속도</label>
+        <div>{num('seal_per_sec')} 파일/초 <span className="muted">— 0 = 제한 없음</span>
+          <div className="muted">저장 단위가 끝나는 정각에 환자 수만큼 파일이 한꺼번에 닫히며 봉인(CRC·SHA-256)됩니다. 속도를 제한하면 그 순간의 CPU 피크가 펼쳐지고, 봉인이 끝난 파일부터 백업이 시작되므로 그만큼 늦어집니다.
+            {(p.seal_per_sec ?? 0) > 0 ? ` 환자 2,000명이면 약 ${Math.round(2000 / p.seal_per_sec)}초에 걸쳐 봉인합니다.` : ' 제한 없음은 1분 남짓에 한 코어를 씁니다.'} 저장 즉시 적용.</div></div>
         <label>필요 사본 수</label>
         <div><Seg value={p.copies} options={copies} onChange={(v) => set('copies', v)} />
           <div className="muted">위 순위부터 이 수만큼 검증된 사본이 생겨야 로컬에서 지울 수 있습니다. 1이면 1순위가 실패할 때 다음 순위로 넘어가고, 2 이상이면 여러 곳에 중복 백업합니다.</div></div>

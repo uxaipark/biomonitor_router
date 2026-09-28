@@ -71,6 +71,7 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
 | `ROUTER_DEV_MODE` | `1` | 개발 모드 초기값(수퍼 어드민 전체 권한, 로그인 화면에 시험용 계정 표시). 이후엔 운영관리 › 권한 설정의 스위치 |
 | `ROUTER_CPU_REF_MHZ` | `2000` | CPU 환산 기준 클럭(MHz). `/api/stats.cpu_process_percent_norm` = 라우터 CPU × 최근 2 s 평균 클럭(사용 시간 가중, cpufreq) ÷ 기준 클럭. 가변 클럭 장비끼리 비교용, 원래 값(`cpu_process_percent`)은 그대로 |
 | `ROUTER_TEST_PIN` | `95305449` | 로그인 화면 PIN(8자리 숫자)의 출고 기본값. **시험용 계정**(개발 모드 임시 비밀번호 계정)은 비밀번호가 맞아도 PIN 이 같아야 로그인된다(일반 계정은 비워도 됨). 기본 PIN 과 계정별 PIN 은 수퍼 어드민이 관리 › 계정 › 'PIN 설정' 에서 바꾼다(본인 것 포함, `router.db` 에 저장, 저장값 > 환경변수 > 출고값) |
+| `ROUTER_SEAL_PER_SEC` | `10` | 봉인(닫힌 저장 파일의 CRC·SHA-256) 속도 초기값, 초당 파일 수(0 = 제한 없음). 운영관리 › 데이터 관리 › 정책 '봉인 속도' 가 우선하며 재시작 없이 적용. 정각에 환자 수만큼 파일이 한꺼번에 닫히는 CPU 피크를 펼친다(봉인 스레드는 nice 10) |
 | `ROUTER_SERVICE_TOKEN` | (없음) | 스크립트용 Bearer 토큰. 없으면 `router.db` 옆 `service_token`(0600)을 처음 실행 때 만든다 |
 
 ### 서비스 제어 (운영관리 › 서비스 제어, 2026-09-27)
