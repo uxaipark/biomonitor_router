@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { can, useMe, ReadOnly } from '../auth.js'
 import { api, usePoll, fmtTime, fmtAgo } from '../api.js'
 import { SEV_LABEL, ALARM_KIND, roomText, wardText, sortBy, spaceName } from '../model.js'
 import Dropdown from '../Dropdown.jsx'
@@ -20,6 +21,7 @@ const W = [70, 116, 190, 118, null, 90, 84, 90, 84]
 
 /** 알람: 활성/이력/규칙 탭 · 심각도·미확인 칩 · 병동/종류/검색 필터(주소에 남음) · 표 · 오른쪽 상세 */
 export default function Alarms({ alarms }) {
+  const me = useMe() // 규칙 편집은 action.alarm_rules '편집' 만
   const [qs, setQs] = useQuery()
   const tab = qs.get('tab') || 'active', q = qs.get('q') || '', ward = qs.get('ward') || '', kind = qs.get('kind') || '', chip = qs.get('f') || '', sel = qs.get('sel') || ''
   const [hist] = usePoll(() => api.alarmHistory(500), 5000)
@@ -103,7 +105,7 @@ export default function Alarms({ alarms }) {
         </ListLayout>
       </>}
       {tab === 'rules' && draft && (
-        <div className="panel rules">
+        <ReadOnly edit={can(me, 'action.alarm_rules', 2)}><div className="panel rules">
           <div className="rule-grid">
             {RULE_FIELDS.map(([k, label, unit]) => (
               <label key={k}><span>{label}</span><input type="number" step={k.startsWith('temp') ? 0.1 : 1} value={draft[k]} onChange={(e) => setDraft({ ...draft, [k]: Number(e.target.value) })} /><small>{unit}</small></label>
@@ -114,7 +116,7 @@ export default function Alarms({ alarms }) {
             <button onClick={() => setDraft(rules)}>되돌리기</button>
             <span className="muted">수치 알람은 임계를 '지속' 시간 이상 벗어나야 발생하고, 조건이 사라진 뒤 '해제 유예' 시간이 지나면 자동 해제됩니다. 전극 탈락 중에는 수치 알람을 평가하지 않습니다.</span>
           </div>
-        </div>
+        </div></ReadOnly>
       )}
     </div>
   )

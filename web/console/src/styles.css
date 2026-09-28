@@ -1176,3 +1176,10 @@ button.ghost:hover { border-color: var(--line); color: var(--text); }
 .ops-limit-text { color: var(--warn, #d97706); font-weight: 500; }
 /* 권한 표 머리글은 고정(sticky) — 스위치 손잡이가 위로 지나가지 않게 층을 올린다 */
 .perm thead th { position: sticky; top: 0; z-index: 5; }
+
+/* 보기 전용 가드 (auth.js ReadOnly): 권한 '보기' 사용자는 상태를 바꾸는 컨트롤을 쓸 수 없다 */
+fieldset.ro-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+fieldset.ro-fieldset:disabled button, fieldset.ro-fieldset:disabled input, fieldset.ro-fieldset:disabled select, fieldset.ro-fieldset:disabled textarea, fieldset.ro-fieldset:disabled [role=switch] { cursor: not-allowed; opacity: .6; }
+fieldset.ro-fieldset:disabled .ctl-switch, fieldset.ro-fieldset:disabled .seg button { pointer-events: none; }
+.ro-banner { display: flex; align-items: center; gap: 8px; padding: 7px 12px; margin-bottom: 10px; border-radius: 10px; font-size: 13px; border: 1px dashed var(--line); background: color-mix(in srgb, var(--warn, #d97706) 8%, var(--panel)); color: var(--text); }
+.ro-banner::before { content: '🔒'; }

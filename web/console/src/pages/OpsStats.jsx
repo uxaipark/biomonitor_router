@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { api, usePoll, fmtBytes, fmtNum } from '../api.js'
+import { can, useMe } from '../auth.js'
 
 /**
  * 대시보드 (운영 통계) — long-term (24/7/365) operating statistics.
@@ -143,7 +144,7 @@ export default function OpsStats() {
           {info ? ` · 분 기록 ${fmtNum(info.minute_rows)}(${info.keep_days}일 보관) · 시간 기록 ${fmtNum(info.hour_rows)} · DB ${fmtBytes(info.db_bytes)}` : ''}
         </span>
         <span className="spacer" />
-        <button className="danger" onClick={reset}>통계 초기화</button>
+        {can(useMe(), 'page.ops', 2) && <button className="danger" onClick={reset}>통계 초기화</button>}
       </div>
       <div className="ops-grid2">
         <section><h4>CPU (%, 1코어 = 100 · 4코어 최대 400 · <span className="ops-limit-text">주의 300 %</span>)</h4><Chart points={pts} range={range} unit="" fixedMax={400} limit={{ value: 300, label: '주의 300 %' }} series={[

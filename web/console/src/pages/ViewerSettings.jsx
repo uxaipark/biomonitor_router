@@ -1,5 +1,6 @@
 import React from 'react'
 import { RENDER_MODES, setRenderMode, useRenderMode } from '../settings.js'
+import { can, useMe, ReadOnly } from '../auth.js'
 
 const DESC = {
   quality: '디바이스 픽셀 열마다 파형의 최소·최대를 채우는 병상 모니터 방식. 선 두께가 균일하고, R파처럼 뾰족한 봉우리가 화면보다 촘촘한 샘플에서도 사라지지 않습니다. 프레임마다 채우기 1회.',
@@ -9,10 +10,12 @@ const DESC = {
 /** 운영관리 › 뷰어 설정. Stored in the browser (localStorage) and shared with viewer tabs of the same origin. */
 export default function ViewerSettings() {
   const mode = useRenderMode()
+  const canEdit = can(useMe(), 'page.settings_viewer', 2)
   return (
     <div className="page">
       <h2 className="h">뷰어 설정</h2>
       <div className="settings">
+        <ReadOnly edit={canEdit}>
         <section>
           <h3>메인 뷰어 그래픽</h3>
           <p className="muted">파형을 그리는 방식입니다. 뷰어 템플릿(중앙 모니터·침상 뷰어)과 콘솔 실시간 카드에 함께 적용되고, 열려 있는 뷰어 탭에도 바로 반영됩니다.</p>
@@ -26,6 +29,7 @@ export default function ViewerSettings() {
           </div>
           <p className="muted">속도 비교는 테스트 › 실시간 페이지의 성능 줄("그리기 ms/프레임")로 두 모드를 바꿔 가며 확인할 수 있습니다.</p>
         </section>
+        </ReadOnly>
       </div>
     </div>
   )

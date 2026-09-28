@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { latencyNow } from '../ws.js'
+import { can, useMe, ReadOnly } from '../auth.js'
 
 /**
  * 운영관리 › 네트워크 설정: 라우터가 접속하는 상대 주소(에뮬레이터·분석 서버·DB API)를 브라우저에서 지정한다.
@@ -27,7 +28,7 @@ const FIELDS = [
 const SOURCE = { db: '이 화면에서 설정됨', env: '환경변수/기본값', unset: '설정 안 됨' }
 
 /** 전송 지연 시계 보정 — 에뮬레이터 시계가 앞서 음수 나이가 보이면 그 최대 절대값을 보정값으로 두고 모든 지연에 더한다. 여기서 또는 가동 초기화 때만 0 으로. */
-function LatencyCard() {
+function LatencyCard({ canEdit = true }) {
   const [stats, , refresh] = usePoll(api.stats, 5000)
   const [msg, setMsg] = useState('')
   const l = stats?.latency || {}
@@ -66,7 +67,7 @@ function LatencyCard() {
       </div>
       <p className="muted small" style={{ margin: '8px 0 0' }}>브라우저 쪽 값은 <b>대략적인 파악 용도</b>입니다. 사용자 디바이스는 시계가 관리되지 않는 경우가 많아 편차가 큽니다. 기준 지표는 에뮬레이터→라우터 구간입니다.</p>
       <div className="toolbar" style={{ marginTop: 10, marginBottom: 0 }}>
-        <button onClick={reset}>지연시간 계산 리셋</button>
+        <button onClick={reset} disabled={!canEdit} title={canEdit ? '' : '편집 권한이 필요합니다'}>지연시간 계산 리셋</button>
         <span className="muted small">보정값과 표본을 0 으로. 가동 초기화 때도 0 이 됩니다.</span>
         {msg && <span className="muted small">{msg}</span>}
       </div>
@@ -75,6 +76,7 @@ function LatencyCard() {
 }
 
 export default function NetworkSettings() {
+  const canEdit = can(useMe(), 'page.settings_network', 2) // '보기' 면 연결 상태·지연만 보고 주소 변경·리셋은 잠근다
   const [net, err, refresh] = usePoll(api.net.get, 5000)
   const [draft, setDraft] = useState({})
   const [tests, setTests] = useState({})
@@ -127,7 +129,8 @@ export default function NetworkSettings() {
           )}
         </section>
 
-        <LatencyCard />
+        <LatencyCard canEdit={canEdit} />
+        <ReadOnly edit={canEdit}>
 
         {FIELDS.map((f) => {
           const cur = net?.[f.key]
@@ -171,6 +174,7 @@ export default function NetworkSettings() {
             수신 포트(ingest)와 웹/API 포트는 실행 환경변수로만 바꿀 수 있습니다.
           </p>
         </section>
+        </ReadOnly>
       </div>
     </div>
   )

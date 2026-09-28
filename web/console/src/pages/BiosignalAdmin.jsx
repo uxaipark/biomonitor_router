@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { api, usePoll, fmtBytes } from '../api.js'
-import { can, useMe } from '../auth.js'
+import { can, useMe, ReadOnly } from '../auth.js'
 
 /**
  * 운영관리 › 데이터 관리: 파형 저장 단위, 무결성 봉인, 백업 대상과 정책.
@@ -28,6 +28,8 @@ const where = (t) => {
 }
 
 export default function BiosignalAdmin() {
+  const me = useMe()
+  const canEdit = can(me, 'page.settings_biosignal', 2) // '보기' 면 현황만 보고 정책·대상·백업 동작은 잠근다
   const [st, err, refresh] = usePoll(api.backup.status, 3000)
   const [edit, setEdit] = useState(null) // target being edited (or EMPTY for new)
   const [msg, setMsg] = useState('')
@@ -59,6 +61,7 @@ export default function BiosignalAdmin() {
       <h2 className="h">데이터 관리</h2>
       {err && <p className="err">상태를 불러오지 못했습니다: {String(err.message || err)}</p>}
       <div className="settings bk">
+        <ReadOnly edit={canEdit}>
         <section>
           <h3>저장 파형 백업 현황</h3>
           <p className="muted">
@@ -131,8 +134,9 @@ export default function BiosignalAdmin() {
         </section>
 
         {st && <PolicyCard policy={st.policy} nTargets={Math.max(1, enabled)} onSaved={refresh} capEnvGb={st.store_cap_env_gb} diskTotal={st.disk_total} />}
+        </ReadOnly>
 
-        {st?.targets?.length > 0 && <BackupCatalog targets={st.targets} />}
+        {st?.targets?.length > 0 && <BackupCatalog targets={st.targets} canEdit={canEdit} />}
 
         <section>
           <h3>최근 전송 기록</h3>
@@ -288,8 +292,8 @@ function TargetModal({ target, onClose, onSaved }) {
 }
 
 /** 백업 저장소별 목록: 대상 → 파일 단위(UTC 블록)별 요약 → 그 블록의 패치 파일 */
-function BackupCatalog({ targets }) {
-  const canPurge = can(useMe(), 'action.backup_purge', 2) // 권한 설정 › 운영관리 › 데이터 관리 › 백업 파일 전체 삭제
+function BackupCatalog({ targets, canEdit = true }) {
+  const canPurge = canEdit && can(useMe(), 'action.backup_purge', 2) // 권한 설정 › 운영관리 › 데이터 관리 › 백업 파일 전체 삭제
   const [tid, setTid] = useState(targets[0]?.id)
   const id = targets.some((t) => t.id === tid) ? tid : targets[0]?.id
   const [cat, err, refresh] = usePoll(() => api.backup.catalog(id), 10000, [id])
@@ -322,7 +326,7 @@ function BackupCatalog({ targets }) {
         <Seg value={id} options={targets.map((x) => [x.id, x.name])} onChange={setTid} />
         <span className="muted">{t && where(t)} · 파일 {(cat?.files ?? 0).toLocaleString()}개 · {fmtBytes(cat?.bytes || 0)}</span>
         <span className="spacer" />
-        {t?.kind !== 'smb' && <button onClick={startSync} disabled={sync?.running} title="원격 저장소의 patches/ 를 읽어 목록에 없는 파일을 채웁니다 (목록 기능 이전에 올린 파일 포함)">{sync?.running && sync.op !== 'purge' ? `원격 목록 읽는 중… ${sync.dirs || 0}/${sync.dirs_total ?? '?'}` : '원격 목록 읽기'}</button>}
+        {t?.kind !== 'smb' && <button onClick={startSync} disabled={!canEdit || sync?.running} title="원격 저장소의 patches/ 를 읽어 목록에 없는 파일을 채웁니다 (목록 기능 이전에 올린 파일 포함)">{sync?.running && sync.op !== 'purge' ? `원격 목록 읽는 중… ${sync.dirs || 0}/${sync.dirs_total ?? '?'}` : '원격 목록 읽기'}</button>}
         {canPurge && <button className="danger" onClick={purge} disabled={sync?.running}>{sync?.running && sync.op === 'purge' ? `삭제 중… 폴더 ${sync.dirs || 0}/${sync.dirs_total ?? '?'} · 파일 ${(sync.deleted || 0).toLocaleString()}` : '백업 파일 전체 삭제'}</button>}
       </div>
       {sync && !sync.running && sync.done_ms && sync.op === 'purge' && (

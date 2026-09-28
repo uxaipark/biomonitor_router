@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { can, useMe } from '../auth.js'
 import { api, usePoll } from '../api.js'
 import { TEMPLATES, viewerUrl } from '../viewer/templates.js'
 import { sortBy, wardText, wardRoom, roomText, gwLabel, isAway } from '../model.js'
@@ -25,6 +26,7 @@ const BOOL_KIND = { pacemaker: { test: isPaced, scope: { paced: '1' }, all: '페
 const pref = (k, d) => { try { return localStorage.getItem(k) || d } catch { return d } }
 
 export default function Viewers({ alarms }) {
+  const canGroups = can(useMe(), 'action.groups_edit', 2) // 그룹 만들기·편집·삭제
   const [rows, , refreshRows] = usePoll(api.channels, 10000)
   const [gws] = usePoll(api.gateways, 15000)
   const [groups, , refreshGroups] = usePoll(api.groups, 10000)
@@ -145,7 +147,7 @@ export default function Viewers({ alarms }) {
         <span className="spacer" />
         <span className="muted">클릭 시 열 뷰어</span>
         <Dropdown value={tpl} options={tplOpts} onChange={setTpl} searchable={false} width={260} />
-        {kind === 'group' && <button className="primary" onClick={() => setEditing({})}>＋ 새 그룹</button>}
+        {kind === 'group' && canGroups && <button className="primary" onClick={() => setEditing({})}>＋ 새 그룹</button>}
       </div>
       {SUB_LABEL[kind] && subCats.length > 0 && (
         <div className="toolbar sub">
@@ -174,8 +176,8 @@ export default function Viewers({ alarms }) {
                 {TEMPLATES.map((t) => <button key={t.id} className={t.id === tpl ? 'tpl-default' : ''} title={t.desc} onClick={() => open(e, t.id)}>{t.name.split(' (')[0]}</button>)}
               </td>
               {kind === 'group' && <td className="acts" onClick={(ev) => ev.stopPropagation()}>
-                <button onClick={() => setEditing(e.group)}>편집</button>
-                {e.key !== 'all' && <button onClick={() => removeGroup(e.group)}>삭제</button>}
+                {canGroups && <button onClick={() => setEditing(e.group)}>편집</button>}
+                {canGroups && e.key !== 'all' && <button onClick={() => removeGroup(e.group)}>삭제</button>}
               </td>}
             </tr>
           ))}
