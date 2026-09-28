@@ -193,6 +193,10 @@
 
 - [2026-09-17 22:50 MAC] 라우터 P1 구현·검증 (48a3480).
 - [2026-09-17 23:20 MAC] RP5#2 이어 개발 준비: Linux sysmon(/proc), `rust-toolchain.toml`, `scripts/pi-dev-setup.sh`, `docs/RP5-DEV.md`, `CLAUDE.md`, 이 문서.
+### 병원 지도 파형 클릭 → 1인 파형 뷰어 (History 포함) (fitlet3)
+
+- 지도 환자 패널의 파형 영역을 클릭하면 새 탭에 `#/viewer?tpl=central&ids=<패치>` 로 1인 뷰어를 연다. `CentralStation` 은 범위가 1명이면 격자 없이 곧바로 `BedViewer`(History · Night · Back 버튼) 로 들어가고, Back 은 그 탭을 닫는다(`onClose`). 뷰어 ③에서 환자 1명 '열기' 도 같은 경로라 동일하게 동작.
+
 ### 병원 지도 환자 패널 새로 구현 + 뷰어 페이지 ⑬ 재구성 (fitlet3)
 
 - **병원 지도 오른쪽 패널(환자 상세)**: 인라인 `LiveModal` 을 320px 에 욱여넣던 방식(카드 안 카드, 파형 찌그러짐)을 버리고 `pages/MapPatientPanel.jsx` 를 새로 작성. 평평한 구획(이름·태그 → 수치 4열 → ECG/호흡/Pleth 파형 296px 폭 → 배터리·착용·교체·신호·마지막 수신 → 알람 → 환자 정보). 파형은 `WaveCanvas` 를 패널 폭 그대로 그리고 `claimLive('map-patient')` 로 구독. **이력** 버튼은 기존 실시간 창을 모달로 띄우되 `initialHistory` prop 으로 바로 이력 탭(저장 파형)에서 시작. `LiveModal` 의 `inline` 모드와 `.lm-inline` CSS 는 제거, `EmrPanel` 은 export 해서 패널이 재사용 (`.mp-emr` 로 좁은 폭용 축소).

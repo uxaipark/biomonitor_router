@@ -4,6 +4,7 @@ import { claimLive, releaseLive, latest } from '../ws.js'
 import { WaveCanvas } from '../WaveCard.jsx'
 import { alarmIndex, flagNames, SEV_LABEL, FLAG_LABEL, FLAG_WARN, patchLife, fmtDays, homePlace, nowPlace } from '../model.js'
 import { EmrPanel } from './LiveModal.jsx'
+import { viewerUrl } from '../viewer/templates.js'
 import { useMe, canBio, canPhi } from '../auth.js'
 
 /**
@@ -77,8 +78,10 @@ export default function MapPatientPanel({ channelId, alarms, onClose, onHistory,
             {waves.includes('temp') && <div className={'mp-vital temp' + sevOf('temp_')}><small>Temp</small><b>{v.temp != null ? v.temp.toFixed(1) : '—'}</b><i>°C</i></div>}
             {v.glucose != null && <div className="mp-vital glu"><small>Glu</small><b>{Math.round(v.glucose)}</b><i>mg/dL</i></div>}
           </div>
-          <div className="mp-wave">
-            <div className="mp-wl"><b>ECG</b><span className="muted">{row.sample_rate} Hz · 6초</span>{live?.pace?.length ? <span className="tag small">페이스 {live.pace.length}</span> : null}</div>
+          <div className="mp-wave" role="button" tabIndex={0} title="클릭 → 1인 파형 뷰어 (새 탭, History 포함)"
+            onClick={() => window.open(viewerUrl({ tpl: 'central', ids: channelId, label: p.name || channelId }), `bed:${channelId}`)}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.click() }}>
+            <div className="mp-wl"><b>ECG</b><span className="mp-hint muted">클릭 → 1인 뷰어</span><span className="muted">{row.sample_rate} Hz · 6초</span>{live?.pace?.length ? <span className="tag small">페이스 {live.pace.length}</span> : null}</div>
             <WaveCanvas id={channelId} wave="ecg" width={WAVE_W} height={104} />
             {waves.includes('resp_wave') && <><div className="mp-wl sub"><b>호흡</b></div><WaveCanvas id={channelId} wave="resp_wave" width={WAVE_W} height={40} color="#7cc4ff" /></>}
             {waves.includes('ppg') && <><div className="mp-wl sub"><b>Pleth</b></div><WaveCanvas id={channelId} wave="ppg" width={WAVE_W} height={40} color="#ff9f6b" /></>}

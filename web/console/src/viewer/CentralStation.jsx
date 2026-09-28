@@ -107,7 +107,10 @@ export default function CentralStation({ rows, alarms, unit, onClose }) {
   const [preset, setPreset] = useState(() => { try { return CS_PRESETS.find((x) => x.id === localStorage.getItem('cs:preset') && x.c) || null } catch { return null } })
   const [page, setPage] = useState(0)
   const [silenced, setSilenced] = useState(false)
-  const [open, setOpen] = useState(null)
+  // 1인 범위(ids=1명, 지도 패널의 파형 클릭 등)면 격자 대신 곧바로 단일 침상 뷰어(History 버튼 포함)
+  const solo = rows.length === 1 ? rows[0].channel_id : null
+  const [open, setOpen] = useState(solo)
+  useEffect(() => { if (solo) setOpen(solo) }, [solo])
   const [box, setBox] = useState({ w: 0, h: 0 })
   const [, tick] = useState(0)
   const clock = useClock()
@@ -162,7 +165,7 @@ export default function CentralStation({ rows, alarms, unit, onClose }) {
         {shown.map((r) => lay.numeric ? <NumTile key={r.channel_id} row={r} alarm={aidx.get(r.channel_id)} onOpen={setOpen} /> : <Tile key={r.channel_id} row={r} alarm={aidx.get(r.channel_id)} small={small} onOpen={setOpen} />)}
         {Array.from({ length: blanks }, (_, i) => <article key={'b' + i} className="cs-tile cs-blank" />)}
       </main>
-      {open && <BedViewer row={sorted.find((r) => r.channel_id === open) || rows.find((r) => r.channel_id === open)} alarms={alarms} unit={unit} onBack={() => setOpen(null)} />}
+      {open && <BedViewer row={sorted.find((r) => r.channel_id === open) || rows.find((r) => r.channel_id === open)} alarms={alarms} unit={unit} onBack={() => (solo ? (onClose ? onClose() : setOpen(null)) : setOpen(null))} />}
     </div>
   )
 }

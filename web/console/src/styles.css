@@ -1315,7 +1315,10 @@ main.adm-main { padding: 0; }
 .mp-vital.sev-high { --vc: var(--sev-high); background: color-mix(in srgb, var(--sev-high) 14%, var(--panel2)); }
 .mp-vital.sev-medium { --vc: var(--sev-medium); }
 .mp-wave { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.mp-wave { cursor: pointer; border-radius: 6px; }
+.mp-wave:hover { outline: 1px solid var(--accent); outline-offset: 2px; }
 .mp-wave canvas.wave { width: 100%; border-radius: 4px; }
+.mp-hint { font-size: 10.5px; margin-left: auto; }
 .mp-wl { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
 .mp-wl.sub { margin-top: 2px; font-size: 11.5px; color: var(--muted); }
 .mp-dev { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 8px; font-size: 12px; padding: 6px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin-top: 4px; }
