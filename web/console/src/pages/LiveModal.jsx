@@ -136,7 +136,8 @@ function EmrPanel({ emr, p, row, platform, onMap }) {
 
 /** One patient in detail: header (who / where / status), live vitals and waves (or the stored history), and
  *  side cards with alarms, the EMR profile (via the router's EMR proxy) and the storage index. */
-export function LiveModal({ channelId, alarms, onClose }) {
+/** inline = 모달 대신 패널로(병원 지도 오른쪽): 배경·중앙 정렬 없이 한 열로 길게, 파형 폭은 패널에 맞춤 */
+export function LiveModal({ channelId, alarms, onClose, inline = false }) {
   // only this patch's row (the full list is ~1.7 MB for 2,100 patches)
   const [rows] = usePoll(() => api.channelsScoped(`ids=${encodeURIComponent(channelId)}`), 3000, [channelId])
   const row = useMemo(() => (rows || []).find((r) => r.channel_id === channelId), [rows, channelId])
@@ -166,7 +167,7 @@ export function LiveModal({ channelId, alarms, onClose }) {
     const t = setInterval(load, 10000)
     return () => { alive = false; clearInterval(t) }
   }, [pid])
-  if (!row) return <div className="modal-bg" onClick={onClose}><div className="modal lm"><p className="muted">패치 {channelId} 정보를 불러오는 중…</p></div></div>
+  if (!row) return inline ? <div className="lm lm-inline"><p className="muted">패치 {channelId} 정보를 불러오는 중…</p></div> : <div className="modal-bg" onClick={onClose}><div className="modal lm"><p className="muted">패치 {channelId} 정보를 불러오는 중…</p></div></div>
 
   const live = latest.get(channelId)
   const waves = row.channels || []
@@ -191,9 +192,12 @@ export function LiveModal({ channelId, alarms, onClose }) {
   // highlight the vital tile the alarm is about (alarm kinds: hr_*, spo2_*, resp_*, temp_*)
   const sevOf = (prefix) => (alarm?.kind?.startsWith(prefix) ? `sev-${alarm.severity}` : '')
 
+  const WW = inline ? 460 : 920, WH = inline ? 150 : 190, WS = inline ? 50 : 60
+  const Wrap = ({ children }) => inline
+    ? <div className={'lm lm-inline' + (alarm ? ` lm-sev-${alarm.severity}` : '')}>{children}</div>
+    : <div className="modal-bg" onClick={onClose}><div className={'modal lm' + (alarm ? ` lm-sev-${alarm.severity}` : '')} onClick={(e) => e.stopPropagation()}>{children}</div></div>
   return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className={'modal lm' + (alarm ? ` lm-sev-${alarm.severity}` : '')} onClick={(e) => e.stopPropagation()}>
+    <Wrap>
         <header className="lm-head">
           {pid && phi ? <img className="lm-avatar" src={`/api/emr/patients/${pid}/avatar.svg`} alt="" /> : <div className="lm-avatar" />}
           <div className="lm-who">
@@ -239,9 +243,9 @@ export function LiveModal({ channelId, alarms, onClose }) {
                 </div>
                 <section className="lm-panel">
                   <div className="lm-ph"><b>ECG</b><span className="muted">{row.sample_rate} Hz · 6초 스윕</span>{live?.pace?.length ? <span className="tag small">페이스 {live.pace.length}</span> : null}</div>
-                  <WaveCanvas id={channelId} wave="ecg" width={920} height={190} />
-                  {waves.includes('resp_wave') && <><div className="lm-ph sub"><b>호흡 파형</b></div><WaveCanvas id={channelId} wave="resp_wave" width={920} height={60} color="#7cc4ff" /></>}
-                  {waves.includes('ppg') && <><div className="lm-ph sub"><b>Pleth</b></div><WaveCanvas id={channelId} wave="ppg" width={920} height={60} color="#ff9f6b" /></>}
+                  <WaveCanvas id={channelId} wave="ecg" width={WW} height={WH} />
+                  {waves.includes('resp_wave') && <><div className="lm-ph sub"><b>호흡 파형</b></div><WaveCanvas id={channelId} wave="resp_wave" width={WW} height={WS} color="#7cc4ff" /></>}
+                  {waves.includes('ppg') && <><div className="lm-ph sub"><b>Pleth</b></div><WaveCanvas id={channelId} wave="ppg" width={WW} height={WS} color="#ff9f6b" /></>}
                 </section>
                 {waves.includes('accel') && (
                   <section className="lm-panel">
@@ -298,7 +302,6 @@ export function LiveModal({ channelId, alarms, onClose }) {
             </section>
           </aside>
         </div>
-      </div>
-    </div>
+    </Wrap>
   )
 }

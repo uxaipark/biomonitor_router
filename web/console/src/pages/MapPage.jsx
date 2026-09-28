@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { alarmIndex, gatewayAlarmIndex, GW_STATUS, SEV_LABEL, wardText, wardRoom, patchLife, fmtDays, gwLabel, nowPlace } from '../model.js'
-import { openLive } from '../App.jsx'
+import { LiveModal } from './LiveModal.jsx'
+import { WaveCard } from '../WaveCard.jsx'
+import { claimLive, releaseLive } from '../ws.js'
 import { useMe } from '../auth.js'
 import Dropdown from '../Dropdown.jsx'
 import FloorPlan, { LEGEND, LOD, bedBox, wallSegments, coveragePolygon, polyPoints, COV_OPEN_M } from './FloorPlan.jsx'
@@ -244,6 +246,15 @@ export default function MapPage({ alarms, hash }) {
     return () => clearTimeout(t)
   }, [hlKey])
 
+  // 선택한 병실/게이트웨이의 환자와 간략 파형 구독 — 훅이라 이른 return 앞에 둔다
+  const pickRoom = pick?.room && (cur?.rooms || []).find((r) => r.id === pick.room)
+  const pickGw = pick?.gw && floorGws.find((g) => String(g.gw_no) === pick.gw)
+  const pickPatients = pickRoom ? byRoom.get(pickRoom.id) || [] : pickGw ? (rows || []).filter((r) => r.connected && r.gateway_id === String(pickGw.gw_no)) : []
+  // 목록의 간략 파형: 보이는 환자만 WS 구독 (패널을 떠나면 해제), 파형·수치 갱신용 0.5 s 틱
+  const listIds = (pick?.patient ? [] : pickPatients).map((p) => String(p.channel_id)).join(',')
+  useEffect(() => { if (!listIds) { releaseLive('map-side'); return } claimLive('map-side', listIds.split(',')); return () => releaseLive('map-side') }, [listIds])
+  const [, mapTick] = useState(0)
+  useEffect(() => { if (!listIds) return; const t = setInterval(() => mapTick((x) => x + 1), 500); return () => clearInterval(t) }, [listIds])
   if (err) return <div className="page"><p className="err">도면을 불러오지 못했습니다: {err} (에뮬레이터 연결 확인)</p></div>
   if (!layout || !cur) return <div className="page"><p className="muted">도면 불러오는 중…</p></div>
 
@@ -251,9 +262,6 @@ export default function MapPage({ alarms, hash }) {
   const floorList = floors.filter((f) => f.building_idx === cur.building_idx)
   const stats = { patients: 0, alarm: 0 }
   for (const r of cur.rooms) for (const p of byRoom.get(r.id) || []) { stats.patients++; if (aidx.has(p.channel_id)) stats.alarm++ }
-  const pickRoom = pick?.room && cur.rooms.find((r) => r.id === pick.room)
-  const pickGw = pick?.gw && floorGws.find((g) => String(g.gw_no) === pick.gw)
-  const pickPatients = pickRoom ? byRoom.get(pickRoom.id) || [] : pickGw ? (rows || []).filter((r) => r.connected && r.gateway_id === String(pickGw.gw_no)) : []
 
   return (
     <div className="page map-page">
@@ -370,7 +378,7 @@ export default function MapPage({ alarms, hash }) {
                   const leadOff = (p.flags & 0x01) !== 0
                   const urgent = a && (a.severity === 'critical' || a.severity === 'high')
                   return (
-                    <g key={p.channel_id} className={'pat q-' + q + (a ? ` sev-${a.severity}` : '') + (urgent ? ' urgent' : '') + (a?.acked ? ' acked' : '')} transform={dx ? `translate(${dx.toFixed(2)} 0)` : undefined} onClick={(e) => { e.stopPropagation(); setTip(null); openLive(p.channel_id) }}
+                    <g key={p.channel_id} className={'pat q-' + q + (a ? ` sev-${a.severity}` : '') + (urgent ? ' urgent' : '') + (a?.acked ? ' acked' : '')} transform={dx ? `translate(${dx.toFixed(2)} 0)` : undefined} onClick={(e) => { e.stopPropagation(); setTip(null); setPick((cur) => ({ patient: String(p.channel_id), back: cur && !cur.patient ? cur : cur?.back })) }}
                       onMouseEnter={(e) => setTip({ kind: 'pat', id: p.channel_id, x: e.clientX, y: e.clientY })} onMouseMove={(e) => setTip({ kind: 'pat', id: p.channel_id, x: e.clientX, y: e.clientY })} onMouseLeave={() => setTip(null)}>
                       {/* 위험·높음: 알람색 아이콘 + 알람색 이름표 (깜박이는 원판은 아래 층) */}
                       {a && !urgent && <circle cx={px} cy={py} r="0.72" className="pat-halo" />}
@@ -420,7 +428,13 @@ export default function MapPage({ alarms, hash }) {
         {tip && <MapTip tip={tip} row={tip.kind === 'pat' ? (rows || []).find((r) => r.channel_id === tip.id) : null}
           gw={tip.kind === 'gw' ? floorGws.find((x) => String(x.gw_no) === tip.id) : null} live={tip.kind === 'gw' ? gwById.get(tip.id) : null}
           alarm={tip.kind === 'pat' ? aidx.get(tip.id) : gidx.get(tip.id)} platform={!me?.user?.tenant_id} />}
-        <aside className="map-side">
+        {pick?.patient && (
+          <aside className="map-side wide">
+            {pick.back && <button className="map-back" onClick={() => setPick(pick.back)}>← {pick.back.room ? `${pick.back.room} 환자 목록` : pick.back.gw ? `게이트웨이 ${pick.back.gw} 환자 목록` : '목록'}</button>}
+            <LiveModal inline channelId={pick.patient} alarms={alarms} onClose={() => setPick(pick.back || null)} />
+          </aside>
+        )}
+        <aside className="map-side" hidden={!!pick?.patient}>
           {pickRoom && <><h4>{pickRoom.id} <small>{pickRoom.kind} · {pickRoom.ward}</small></h4><small className="muted">게이트웨이 {pickRoom.gateway ? '있음' : '없음'} · 침대 {pickRoom.beds?.length || 0}</small></>}
           {pickGw && <><h4>{gwLabel(pickGw.id)} <small>{pickGw.type}</small></h4><GwInfo g={gwById.get(String(pickGw.gw_no))} />
             {pickPatients.length > 0
@@ -428,17 +442,15 @@ export default function MapPage({ alarms, hash }) {
               : <p className="muted">이 게이트웨이에 연결된 환자가 없습니다.</p>}</>}
           {pickRoom && pickPatients.length > 0 && <p><a href={`#/viewer?tpl=central&room=${encodeURIComponent(pickRoom.id)}`} target="_blank" rel="noopener"><button className="primary">이 병실 중앙 모니터 (새 탭)</button></a></p>}
           {pickRoom && !pickPatients.length && <p className="muted">이 병실에 연결된 환자가 없습니다.</p>}
-          {!pick && <p className="muted">병실이나 게이트웨이를 누르면 환자 목록이 나옵니다. 환자 점을 누르면 실시간 창이 열립니다.</p>}
-          {pickPatients.map((p) => {
-            const a = aidx.get(p.channel_id)
-            return (
-              <div key={p.channel_id} className={'prow clickable ' + (a ? `sev-${a.severity}` : '')} onClick={() => openLive(p.channel_id)}>
-                <b>{p.patient?.name || p.mrn}</b> <span className="mono muted">{p.channel_id}</span>
-                <span className="vit">HR {p.vitals?.hr ?? '—'} · SpO₂ {p.vitals?.spo2 ?? '—'} · RR {p.vitals?.resp ?? '—'}</span>
-                {a && <span className={`tag small sev-${a.severity}`}>{a.message}</span>}
-              </div>
-            )
-          })}
+          {!pick && <p className="muted">병실이나 게이트웨이를 누르면 중앙 모니터 버튼과 환자 목록(간략 파형)이, 환자 점을 누르면 파형·수치·환자 정보가 이 자리에 길게 나옵니다.</p>}
+          {(pickRoom || pickGw) && pickPatients.length > 0 && (
+            <div className="map-plist">
+              <div className="map-plist-head"><b>환자 {pickPatients.length}명</b><span className="muted small">카드를 누르면 상세 · 파형은 6초 스윕</span></div>
+              {pickPatients.map((p) => (
+                <WaveCard key={p.channel_id} row={p} density="dense" alarm={aidx.get(p.channel_id)} onClick={() => setPick((cur) => ({ patient: String(p.channel_id), back: cur }))} />
+              ))}
+            </div>
+          )}
         </aside>
       </div>
     </div>

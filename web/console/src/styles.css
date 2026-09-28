@@ -1284,3 +1284,19 @@ main.adm-main { padding: 0; }
 .tr-bld-label em { font-style: normal; color: var(--accent); margin-left: 3px; font-weight: 600; }
 .tr-bld-rooms { display: flex; flex-wrap: wrap; gap: 6px; }
 @media (max-width: 700px) { .tr-bld { grid-template-columns: 1fr; } }
+
+/* 병원 지도 오른쪽 패널: 환자 상세(모달 대신) · 병실/게이트웨이 환자 목록(간략 파형) */
+.map-cols:has(.map-side.wide) { grid-template-columns: 1fr 520px; }
+.map-side.wide { padding: 8px; }
+.map-back { margin-bottom: 6px; font-size: 12.5px; }
+.map-plist { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.map-plist-head { display: flex; align-items: baseline; gap: 8px; padding: 2px 2px 0; }
+.map-plist .card.dense { cursor: pointer; }
+.lm.lm-inline { display: flex; flex-direction: column; border-radius: 10px; overflow: visible; }
+.lm-inline .lm-head { padding: 10px 12px 8px; border-radius: 10px 10px 0 0; position: sticky; top: 0; z-index: 2; }
+.lm-inline .lm-body { display: flex; flex-direction: column; }
+.lm-inline .lm-main { overflow: visible; padding: 10px 12px; }
+.lm-inline .lm-side { border-left: 0; border-top: 1px solid var(--line); padding: 10px 12px 14px; }
+.lm-inline .lm-vitals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.lm-inline .lm-close { display: inline-flex; }
+@media (max-width: 1000px) { .map-cols:has(.map-side.wide) { grid-template-columns: 1fr; } }
