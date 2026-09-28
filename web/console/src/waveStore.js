@@ -4,7 +4,7 @@
 // source-rate drift never distorts the trace.
 const store = new Map() // `${patch}:${key}` → ring
 
-const RETAIN_MS = 8000
+const RETAIN_MS = 16000 // 이력 LIVE 구간의 이음새: 저장소 플러시 지연(≈5–10 s)보다 링이 길어야 저장본과 링 사이가 비지 않는다
 const DISPLAY_DELAY_MS = 1000
 const COMFORT_MS = 2500
 

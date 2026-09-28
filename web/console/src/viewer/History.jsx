@@ -277,7 +277,7 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow, onH
     }
     const runCov = (runs) => runs.map((r) => [r.t0, r.t0 + (r.i1 - r.i0) * r.step])
     // Holes in the live strip — frames the browser never got (WS lag, a stalled tab, more than the 8 s ring holds)
-    // — are filled from the store once they are old enough for the writer to have flushed them (≥ 6 s). The
+    // — are filled from the store as soon as it has them (the writer flushes every ~5 s). The
     // stored copy is complete (the router keeps every record), so the strip ends up whole instead of waiting for
     // the rollover redraw. While the stored chunk lacks the piece, the parent is asked to re-read it.
     const backfill = (i, T) => {
@@ -290,7 +290,9 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow, onH
       const holes = []
       if (merged.length && merged[0][0] > cur + 400) holes.push([cur, merged[0][0]])
       for (let k = 1; k < merged.length; k++) if (merged[k][0] - merged[k - 1][1] > tol) holes.push([merged[k - 1][1], merged[k][0]])
-      const limit = T - 6000
+      // anything behind the live front is fair game: the seam between the store's last flushed sample and the
+      // ring's oldest one (right in front of the sweep when History opens) fills as soon as the store has it
+      const limit = T - 1500
       let missing = false
       for (const [a, b] of holes) {
         if (b > limit) continue
@@ -476,7 +478,7 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   // the live strip found a hole the stored chunk does not cover yet: re-read that chunk, at most every 5 s
   const holesAt = useRef(0)
   const onHoles = useMemo(() => (w0) => {
-    if (performance.now() - holesAt.current < 5000) return
+    if (performance.now() - holesAt.current < 2500) return
     holesAt.current = performance.now()
     for (let c = Math.floor(w0 / CHUNK_MS); c <= Math.floor((w0 + spanMs - 1) / CHUNK_MS); c++) refetchChunk(c)
   }, [spanMs, id]) // eslint-disable-line react-hooks/exhaustive-deps
