@@ -76,7 +76,7 @@ export default function McotMap({ alarms }) {
       // 처음 '전체 맞춤'이 같은 배율이 되고, 미국이 양쪽에 두 번 보이는 과도한 줌아웃이 없다
       const minZoomFor = (w) => Math.max(1, Math.ceil(Math.log2(Math.max(256, w) / 256) * 4) / 4)
       let map
-      try { const map = L.map(elRef.current, { worldCopyJump: false, zoomSnap: 0.25, zoomDelta: 0.5, minZoom: minZoomFor(elRef.current.clientWidth), maxBounds: [[-85, -180], [85, 180]], maxBoundsViscosity: 1, zoomControl: true }).setView(KOREA.center, KOREA.zoom) } catch (e) { console.error('mcot map init', e); setLoadErr(String(e?.message || e)); return }
+      try { map = L.map(elRef.current, { worldCopyJump: false, zoomSnap: 0.25, zoomDelta: 0.5, minZoom: minZoomFor(elRef.current.clientWidth), maxBounds: [[-85, -180], [85, 180]], maxBoundsViscosity: 1, zoomControl: true }).setView(KOREA.center, KOREA.zoom) } catch (e) { console.error('mcot map init', e); setLoadErr(String(e?.message || e)); return }
       const tiles = L.tileLayer(TILES, { maxZoom: 19, noWrap: true, bounds: [[-85, -180], [85, 180]], attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' })
       let errs = 0, oks = 0
       tiles.on('tileerror', () => { errs++; if (errs >= 4 && !oks) setOffline(true) })
