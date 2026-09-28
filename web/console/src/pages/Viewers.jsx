@@ -20,6 +20,10 @@ const KINDS = [
   ['ward', '병동'], ['room', '병실'], ['gw', '게이트웨이'],
   ['doctor', '담당의'], ['nurse', '간호사'], ['department', '진료과목'], ['diagnosis', '주진단'], ['pacemaker', '페이스메이커'], ['mcot', 'MCOT'],
 ]
+const BOARD_OWNER = '전광판' // 라우터가 도면에서 자동 생성한 전광판 그룹의 owner (emu_link.rs)
+const BOARD_KIND = (g) => g.id.startsWith('board-ns-') ? '간호사실' : g.id.startsWith('board-fl-') ? '복도' : g.id.startsWith('board-er-') ? '응급실' : g.id.startsWith('board-lobby-') ? '로비' : '기타'
+// 설명 "본관 3F · …" → 건물 · 층
+const boardPlace = (g) => { const m = /^(\S+) (-?\d+)F/.exec(g.description || ''); return m ? { b: m[1], f: Number(m[2]) } : { b: '기타', f: 0 } }
 const KIND_GROUPS = [['위치', ['ward', 'room', 'gw']], ['담당 · 임상', ['doctor', 'nurse', 'department', 'diagnosis', 'pacemaker', 'mcot']]]
 const SCOPE_KEY = { ward: 'ward', room: 'room', doctor: 'doctor', nurse: 'nurse', department: 'dept', diagnosis: 'dx', gw: 'gw', pacemaker: 'ward', mcot: 'ward' }
 // boolean categories: rows are the wards holding such patients, plus an all-wards row (key '')
@@ -33,7 +37,7 @@ const SEV = { 3: ['위험', 'crit'], 2: ['높음', 'high'], 1: ['중간', 'med']
 const roomOnly = (id) => wardRoom(id)?.room || id || ''
 const shortTpl = (t) => t.name.split(' (')[0]
 
-export default function Viewers({ alarms }) {
+export default function Viewers({ alarms, hash }) {
   const canGroups = can(useMe(), 'action.groups_edit', 2) // 그룹 저장·편집·삭제
   const [rows, , refreshRows] = usePoll(api.channels, 10000)
   const [gws] = usePoll(api.gateways, 15000)
@@ -58,6 +62,19 @@ export default function Viewers({ alarms }) {
   useEffect(() => { try { localStorage.setItem('viewers.kind', kind); localStorage.setItem('viewers.tpl', tpl) } catch { /* ignore */ } }, [kind, tpl])
   useEffect(() => { api.staff().then((d) => setStaff(new Map((d?.staff || []).map((s) => [s.id, s])))).catch(() => {}) }, [])
   useEffect(() => { setVal(null); setSub(null); setSel(new Set()) }, [kind])
+  // #/viewers?group=<id> (병원 지도의 전광판 '설정'): 그룹이 로드되면 그 그룹을 편집 상태로 연다 — 한 번만
+  const wantGroup = new URLSearchParams((hash || '').split('?')[1] || '').get('group')
+  const openedRef = useRef(null)
+  useEffect(() => {
+    if (!wantGroup || openedRef.current === wantGroup || !groups) return
+    const g = groups.find((x) => x.id === wantGroup); if (!g) return
+    openedRef.current = wantGroup; editGroup(g); setSavedTab(g.owner === BOARD_OWNER ? 'board' : 'user')
+  }, [wantGroup, groups]) // eslint-disable-line react-hooks/exhaustive-deps
+  // 저장된 그룹 패널: 전광판(자동, 건물→층 트리) | 일반
+  const [savedTab, setSavedTab] = useState('board')
+  const [gq, setGq] = useState('')
+  const [openKeys, setOpenKeys] = useState(() => new Set())
+  const toggleKey = (k) => setOpenKeys((cur) => { const n = new Set(cur); n.has(k) ? n.delete(k) : n.add(k); return n })
 
   const live = useMemo(() => (rows || []).filter((r) => r.connected), [rows])
   const byId = useMemo(() => new Map((rows || []).map((r) => [String(r.channel_id), r])), [rows])
@@ -343,19 +360,66 @@ export default function Viewers({ alarms }) {
         {/* 저장된 그룹 · 그룹 만들기 */}
         <aside className="vw-right" aria-label="그룹">
           <section className="vw-col">
-            <div className="vw-colh"><h4>저장된 그룹 <span className="mono">{(groups || []).length}</span></h4></div>
-            <div className="vw-list saved">
-              {(groups || []).map((g, i) => (
-                <div key={g.id} className={'vw-saved' + (editing?.id === g.id ? ' on' : '')}>
+            {(() => {
+              const all = groups || []
+              const boards = all.filter((g) => g.owner === BOARD_OWNER), users = all.filter((g) => g.owner !== BOARD_OWNER)
+              const q = gq.trim().toLowerCase()
+              const hit = (g) => !q || [g.name, g.description, g.id].some((x) => String(x || '').toLowerCase().includes(q))
+              const Row = ({ g, i }) => (
+                <div className={'vw-saved' + (editing?.id === g.id ? ' on' : '')}>
                   <i className="vw-dot" style={{ background: `hsl(${(i * 47) % 360} 60% 55%)` }} />
-                  <span className="vw-vname"><b>{g.name}</b><small className="muted">{describeGroup(g)}</small></span>
+                  <span className="vw-vname"><b>{g.name}</b><small className="muted">{g.owner === BOARD_OWNER ? (g.description || '').replace(/^\S+ -?\d+F · /, '') : describeGroup(g)}</small></span>
                   <b className="vw-cnt mono">{groupCount(g).toLocaleString()}명</b>
                   {canGroups && g.id !== 'all' && <button className="ghost" onClick={() => editGroup(g)}>편집</button>}
                   <button className="vw-open" onClick={() => openGroup(g)} title={`${tplName} 으로 열기`}>열기</button>
                 </div>
-              ))}
-              {!(groups || []).length && <div className="vw-empty muted">저장된 그룹이 없습니다. 아래에서 만드세요.</div>}
-            </div>
+              )
+              // 전광판: 건물 → 층 트리 (접힘 기본, 검색 중이거나 편집 중인 그룹이 있는 가지는 펼침)
+              const tree = []
+              for (const g of boards.filter(hit)) {
+                const { b, f } = boardPlace(g)
+                let B = tree.find((x) => x.b === b); if (!B) { B = { b, floors: [], n: 0 }; tree.push(B) }
+                let F = B.floors.find((x) => x.f === f); if (!F) { F = { f, rows: [] }; B.floors.push(F) }
+                F.rows.push(g); B.n++
+              }
+              for (const B of tree) B.floors.sort((a, b) => a.f - b.f)
+              tree.sort((a, b) => a.b.localeCompare(b.b, 'ko'))
+              const kindOrder = { 로비: 0, 응급실: 1, 복도: 2, 간호사실: 3, 기타: 4 }
+              const isOpen = (k, g) => !!q || openKeys.has(k) || (editing && g.some((x) => x.id === editing.id))
+              return (
+                <>
+                  <div className="vw-colh">
+                    <h4>저장된 그룹 <span className="mono">{all.length}</span></h4>
+                    <span className="seg"><button className={savedTab === 'board' ? 'active' : ''} onClick={() => setSavedTab('board')}>전광판 {boards.length}</button><button className={savedTab === 'user' ? 'active' : ''} onClick={() => setSavedTab('user')}>일반 {users.length}</button></span>
+                    <span className="spacer" />
+                    <input type="search" className="vw-gq" placeholder="그룹 검색" value={gq} onChange={(e) => setGq(e.target.value)} />
+                  </div>
+                  <div className="vw-list saved">
+                    {savedTab === 'user' && users.filter(hit).map((g, i) => <Row key={g.id} g={g} i={i} />)}
+                    {savedTab === 'user' && !users.filter(hit).length && <div className="vw-empty muted">{q ? '검색 결과 없음' : '저장된 그룹이 없습니다. 아래에서 만드세요.'}</div>}
+                    {savedTab === 'board' && tree.map((B) => {
+                      const bk = `b:${B.b}`, bAll = B.floors.flatMap((F) => F.rows), bo = isOpen(bk, bAll)
+                      return (
+                        <div key={bk} className="vw-tree">
+                          <button className={'vw-node' + (bo ? ' open' : '')} onClick={() => toggleKey(bk)}><span className="vw-caret">{bo ? '▾' : '▸'}</span><b>{B.b}</b><small className="muted">{B.floors.length}개 층 · {B.n}개</small><span className="spacer" /><b className="vw-cnt mono">{bAll.reduce((s, g) => s + groupCount(g), 0).toLocaleString()}명</b></button>
+                          {bo && B.floors.map((F) => {
+                            const fk = `${bk}/${F.f}`, fo = isOpen(fk, F.rows)
+                            const rows = [...F.rows].sort((a, b) => (kindOrder[BOARD_KIND(a)] - kindOrder[BOARD_KIND(b)]) || a.name.localeCompare(b.name, 'ko'))
+                            return (
+                              <div key={fk} className="vw-tree sub">
+                                <button className={'vw-node' + (fo ? ' open' : '')} onClick={() => toggleKey(fk)}><span className="vw-caret">{fo ? '▾' : '▸'}</span><b>{F.f}F</b><small className="muted">{rows.map(BOARD_KIND).filter((k, i, a) => a.indexOf(k) === i).join(' · ')} {rows.length}개</small><span className="spacer" /><b className="vw-cnt mono">{rows.reduce((s, g) => s + groupCount(g), 0).toLocaleString()}명</b></button>
+                                {fo && rows.map((g, i) => <Row key={g.id} g={g} i={i + F.f * 3} />)}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })}
+                    {savedTab === 'board' && !tree.length && <div className="vw-empty muted">{q ? '검색 결과 없음' : '전광판 그룹이 아직 없습니다. 라우터가 에뮬레이터 도면에서 자동으로 만듭니다(간호사실·층 복도·응급실·로비).'}</div>}
+                  </div>
+                </>
+              )
+            })()}
           </section>
 
           <section className={'vw-col vw-builder' + (over ? ' hot' : '') + (dragN ? ' dragging' : '')} onDragOver={onDragOver} onDragEnter={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} aria-label="그룹 만들기">

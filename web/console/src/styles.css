@@ -1335,3 +1335,11 @@ main.adm-main { padding: 0; }
 .mp-emr .lm-sub { margin: 10px 0 2px; padding: 5px 0 4px; font-size: 11.5px; }
 .mp-emr .lm-dx b { font-size: 13px; }
 .mp-noaccess { padding: 8px 0; }
+
+/* 병원 지도: 전광판(고정 디스플레이) 그룹 블록 — 열기 / 설정 */
+.map-board { margin: 6px 0 8px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); border-left: 3px solid var(--accent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 6%, var(--panel)); display: flex; flex-direction: column; gap: 4px; }
+.map-board-h { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.map-board-h b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-board small { font-size: 11.5px; line-height: 1.4; }
+.map-board-btns { display: flex; gap: 6px; margin-top: 2px; }
+.map-board-btns button { padding: 4px 14px; }

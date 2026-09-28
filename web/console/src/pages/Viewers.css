@@ -112,3 +112,17 @@ button.ghost.danger:hover { color: var(--err); }
 @keyframes vw-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .vw-foot .vw-selcnt { min-width: 84px; font-variant-numeric: tabular-nums; }
 .vw-foot .ghost.small { padding: 3px 0; font-size: 12.5px; margin-left: 14px; width: 74px; text-align: center; } /* 모두 선택 ↔ 해제: 같은 자리, 같은 폭 */
+
+/* 저장된 그룹: 전광판 트리 (건물 → 층 → 전광판) */
+.vw-colh .seg button { padding: 2px 8px; font-size: 11.5px; }
+.vw-gq { width: 110px; padding: 3px 8px; font-size: 12px; }
+.vw-list.saved { max-height: 340px; }
+.vw-tree { display: flex; flex-direction: column; gap: 2px; }
+.vw-tree.sub { margin-left: 14px; }
+.vw-tree.sub .vw-saved { margin-left: 14px; }
+.vw-node { display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--text); font-size: 12.5px; text-align: left; cursor: pointer; }
+.vw-node:hover { background: var(--panel2); }
+.vw-node.open { background: color-mix(in srgb, var(--panel2) 60%, transparent); }
+.vw-node b { font-weight: 600; }
+.vw-node small { font-size: 11px; }
+.vw-caret { width: 12px; color: var(--muted); font-size: 11px; }

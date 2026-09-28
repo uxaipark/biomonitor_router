@@ -76,6 +76,7 @@ pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
     // home address lives only in the per-patient detail (`/emr/patients/{profile}` → address{sido,sigungu,dong,label});
     // fetched for outside (MCOT) patients only and remembered per profile id, refreshed hourly
     let mut home_cache: std::collections::HashMap<u64, (std::time::Instant, String, String)> = std::collections::HashMap::new();
+    let mut boards_at: Option<std::time::Instant> = None;
     loop {
         tick.tick().await;
         if !crate::control::SYNC_ON.load(std::sync::atomic::Ordering::Relaxed) {
@@ -176,7 +177,96 @@ pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
             info!("emr sync: {} patch issue times updated", n);
         }
         sync_home_addresses(&state, &addr, &mut home_cache).await;
+        // 전광판(고정 디스플레이) 그룹: 도면에서 자동 생성 — 한 시간에 한 번
+        if boards_at.map(|t| t.elapsed() >= Duration::from_secs(3600)).unwrap_or(true) {
+            boards_at = Some(std::time::Instant::now());
+            sync_board_groups(&state, &addr).await;
+        }
     }
+}
+
+/// 전광판 그룹 ID 규칙 — 콘솔(병원 지도·뷰어)도 같은 규칙으로 위치 → 그룹을 찾는다:
+///   간호사실 `board-ns-<ward>` · 층 복도 전광판 `board-fl-<building_idx>-<floor>` · 응급실 `board-er-<building_idx>-<floor>` · 로비 `board-lobby-<building_idx>`
+/// 설명은 "<건물> <층>F · <장소>" 로 시작한다(뷰어의 건물→층 트리가 이걸 읽는다). 이미 있는 그룹(사용자가 고친 것 포함)은 건드리지 않는다.
+pub const BOARD_OWNER: &str = "전광판";
+async fn sync_board_groups(state: &Arc<AppState>, addr: &str) {
+    let Ok((200, body)) = request(addr, "GET", "/api/v1/emr/layout", None).await else { return };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) else { return };
+    let want = board_groups_from_layout(&v);
+    let mut made = 0usize;
+    for g in want {
+        if state.groups.get(&g.id).is_none() {
+            state.groups.upsert(g);
+            made += 1;
+        }
+    }
+    if made > 0 {
+        info!("board groups: {} created from layout", made);
+        state.recompute_all();
+    }
+}
+
+pub fn board_groups_from_layout(v: &serde_json::Value) -> Vec<crate::grouping::GroupConfig> {
+    use crate::grouping::GroupConfig;
+    let arr = |k: &str| v.get(k).and_then(|a| a.as_array()).cloned().unwrap_or_default();
+    let bnames: Vec<String> = arr("buildings").iter().map(|b| s(b, "name")).collect();
+    let bname = |i: usize| bnames.get(i).cloned().filter(|n| !n.is_empty()).unwrap_or_else(|| format!("건물 {}", i + 1));
+    let ward_name: std::collections::HashMap<String, String> = arr("wards").iter().map(|w| (s(w, "id"), s(w, "name"))).collect();
+    let mk = |id: String, name: String, desc: String, crit: Vec<(&str, String)>| GroupConfig {
+        id,
+        name,
+        description: desc,
+        owner: BOARD_OWNER.into(),
+        criteria: crit.into_iter().map(|(k, val)| (k.to_string(), vec![val])).collect(),
+        include: vec![],
+        exclude: vec![],
+        created_ms: 0,
+        updated_ms: 0,
+    };
+    let mut out: Vec<GroupConfig> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut lobby_done = std::collections::HashSet::new();
+    for f in arr("floors") {
+        let b = f.get("building_idx").and_then(|x| x.as_u64()).unwrap_or(0) as usize;
+        let fl = f.get("floor").and_then(|x| x.as_i64()).unwrap_or(0);
+        let rooms = f.get("rooms").and_then(|a| a.as_array()).cloned().unwrap_or_default();
+        let has_ward = rooms.iter().any(|r| !s(r, "ward").is_empty());
+        if has_ward {
+            let id = format!("board-fl-{b}-{fl}");
+            if seen.insert(id.clone()) {
+                out.push(mk(id, format!("복도 전광판 · {} {}F", bname(b), fl), format!("{} {}F · 복도 전광판 (이 층 전체 재원 환자)", bname(b), fl), vec![("building", bname(b)), ("floor", fl.to_string())]));
+            }
+        }
+        for r in &rooms {
+            let kind = s(r, "kind");
+            let ward = s(r, "ward");
+            match kind.as_str() {
+                "nurse_station" if !ward.is_empty() => {
+                    let mut id = format!("board-ns-{ward}");
+                    if !seen.insert(id.clone()) {
+                        id = format!("board-ns-{ward}-{}", s(r, "id"));
+                        if !seen.insert(id.clone()) { continue; }
+                    }
+                    let wn = ward_name.get(&ward).cloned().filter(|n| !n.is_empty()).unwrap_or_else(|| ward.clone());
+                    out.push(mk(id, format!("간호사실 · {wn}"), format!("{} {}F · {} · 간호사실 전광판 (병동 {} 재원 환자)", bname(b), fl, s(r, "name"), ward), vec![("ward", ward)]));
+                }
+                "er" => {
+                    let id = format!("board-er-{b}-{fl}");
+                    if seen.insert(id.clone()) {
+                        out.push(mk(id, format!("응급실 · {}", bname(b)), format!("{} {}F · {} · 응급실 전광판 (응급실 배정 환자)", bname(b), fl, s(r, "name")), vec![("room", s(r, "id"))]));
+                    }
+                }
+                "lobby" => {
+                    let id = format!("board-lobby-{b}");
+                    if lobby_done.insert(b) && seen.insert(id.clone()) {
+                        out.push(mk(id, format!("로비 전광판 · {}", bname(b)), format!("{} {}F · {} · 로비 전광판 (건물 전체 재원 환자)", bname(b), fl, s(r, "name")), vec![("building", bname(b))]));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    out
 }
 
 /// 에뮬레이터 로컬 시각(`2026-09-24T21:17:29`, 병원 시간대 = KST) → UTC ms

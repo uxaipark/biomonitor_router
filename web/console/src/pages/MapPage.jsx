@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { alarmIndex, gatewayAlarmIndex, GW_STATUS, SEV_LABEL, wardText, wardRoom, patchLife, fmtDays, gwLabel, nowPlace } from '../model.js'
 import { LiveModal } from './LiveModal.jsx'
+import { viewerUrl } from '../viewer/templates.js'
+import { go } from '../ListKit.jsx'
 import MapPatientPanel from './MapPatientPanel.jsx'
 import { WaveCard } from '../WaveCard.jsx'
 import { claimLive, releaseLive } from '../ws.js'
@@ -252,7 +254,17 @@ export default function MapPage({ alarms, hash }) {
   const pickGw = pick?.gw && floorGws.find((g) => String(g.gw_no) === pick.gw)
   const pickPatients = pickRoom ? byRoom.get(pickRoom.id) || [] : pickGw ? (rows || []).filter((r) => r.connected && r.gateway_id === String(pickGw.gw_no)) : []
   // 목록의 간략 파형: 보이는 환자만 WS 구독 (패널을 떠나면 해제), 파형·수치 갱신용 0.5 s 틱
-  const listIds = (pick?.patient ? [] : pickPatients).map((p) => String(p.channel_id)).join(',')
+  // 전광판(고정 디스플레이) 그룹 — 라우터가 도면에서 자동 생성한 그룹(id 규칙은 emu_link.rs 와 같다):
+  //   간호사실 board-ns-<ward> · 복도 GW board-fl-<b>-<f> · 응급실 board-er-<b>-<f> · 로비 board-lobby-<b>
+  const [groups] = usePoll(api.groups, 15000)
+  const boardId = pickRoom
+    ? (pickRoom.kind === 'nurse_station' && pickRoom.ward ? `board-ns-${pickRoom.ward}` : pickRoom.kind === 'er' ? `board-er-${cur?.building_idx}-${cur?.floor}` : pickRoom.kind === 'lobby' ? `board-lobby-${cur?.building_idx}` : null)
+    : pickGw
+      ? (pickGw.type === 'corridor' ? `board-fl-${pickGw.building_idx}-${pickGw.floor}` : pickGw.type === 'nurse_station' ? `board-ns-${(cur?.rooms || []).find((r) => r.id === pickGw.room)?.ward || ''}` : pickGw.type === 'er' ? `board-er-${pickGw.building_idx}-${pickGw.floor}` : pickGw.type === 'lobby' ? `board-lobby-${pickGw.building_idx}` : null)
+      : null
+  const board = boardId ? (groups || []).find((g) => g.id === boardId) : null
+  const boardRows = board ? (rows || []).filter((r) => r.connected && (r.groups || []).includes(board.id)) : []
+  const listIds = (pick?.patient ? [] : pickPatients.length ? pickPatients : boardRows.slice(0, 24)).map((p) => String(p.channel_id)).join(',')
   useEffect(() => { if (!listIds) { releaseLive('map-side'); return } claimLive('map-side', listIds.split(',')); return () => releaseLive('map-side') }, [listIds])
   const [, mapTick] = useState(0)
   const [hx, setHx] = useState(null) // 이력 모달(실시간 창의 이력 탭)
@@ -443,13 +455,24 @@ export default function MapPage({ alarms, hash }) {
             {pickPatients.length > 0
               ? <p><a href={`#/viewer?tpl=central&gw=${pickGw.gw_no}`} target="_blank" rel="noopener"><button className="primary">중앙 모니터 열기 (새 탭)</button></a></p>
               : <p className="muted">이 게이트웨이에 연결된 환자가 없습니다.</p>}</>}
+          {board && (
+            <div className="map-board">
+              <div className="map-board-h"><span className="tag small">전광판</span><b>{board.name}</b></div>
+              <small className="muted">{board.description} · 환자 <b>{boardRows.length}</b>명</small>
+              <div className="map-board-btns">
+                <a href={viewerUrl({ tpl: 'central', group: board.id, label: board.name })} target="_blank" rel="noopener"><button className="primary" disabled={!boardRows.length} title="이 전광판 그룹의 중앙 모니터 (새 탭)">열기</button></a>
+                <button onClick={() => go('#/viewers', { group: board.id })} title="뷰어에서 이 그룹의 구성 편집">설정</button>
+              </div>
+            </div>
+          )}
+          {boardId && !board && <p className="muted small">전광판 그룹이 아직 없습니다. 라우터가 에뮬레이터 도면에서 한 시간마다 만듭니다.</p>}
           {pickRoom && pickPatients.length > 0 && <p><a href={`#/viewer?tpl=central&room=${encodeURIComponent(pickRoom.id)}`} target="_blank" rel="noopener"><button className="primary">이 병실 중앙 모니터 (새 탭)</button></a></p>}
-          {pickRoom && !pickPatients.length && <p className="muted">이 병실에 연결된 환자가 없습니다.</p>}
+          {pickRoom && !pickPatients.length && !board && <p className="muted">이 병실에 연결된 환자가 없습니다.</p>}
           {!pick && <p className="muted">병실이나 게이트웨이를 누르면 중앙 모니터 버튼과 환자 목록(간략 파형)이, 환자 점을 누르면 파형·수치·환자 정보가 이 자리에 길게 나옵니다.</p>}
-          {(pickRoom || pickGw) && pickPatients.length > 0 && (
+          {(pickRoom || pickGw) && (pickPatients.length > 0 || boardRows.length > 0) && (
             <div className="map-plist">
-              <div className="map-plist-head"><b>환자 {pickPatients.length}명</b><span className="muted small">카드를 누르면 상세 · 파형은 6초 스윕</span></div>
-              {pickPatients.map((p) => (
+              <div className="map-plist-head"><b>{pickPatients.length ? `환자 ${pickPatients.length}명` : `전광판 환자 ${boardRows.length}명${boardRows.length > 24 ? ' (앞 24명)' : ''}`}</b><span className="muted small">카드를 누르면 상세 · 파형은 6초 스윕</span></div>
+              {(pickPatients.length ? pickPatients : boardRows.slice(0, 24)).map((p) => (
                 <WaveCard key={p.channel_id} row={p} density="dense" alarm={aidx.get(p.channel_id)} onClick={() => setPick((cur) => ({ patient: String(p.channel_id), back: cur }))} />
               ))}
             </div>

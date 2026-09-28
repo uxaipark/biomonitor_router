@@ -193,6 +193,12 @@
 
 - [2026-09-17 22:50 MAC] 라우터 P1 구현·검증 (48a3480).
 - [2026-09-17 23:20 MAC] RP5#2 이어 개발 준비: Linux sysmon(/proc), `rust-toolchain.toml`, `scripts/pi-dev-setup.sh`, `docs/RP5-DEV.md`, `CLAUDE.md`, 이 문서.
+### 전광판(고정 디스플레이) 그룹 자동 생성 + 병원 지도 열기/설정 + 뷰어 전광판 트리 (fitlet3)
+
+- **라우터** `emu_link.rs::sync_board_groups` — EMR 동기화 루프에서 한 시간에 한 번 `/api/v1/emr/layout` 을 읽어 전광판 그룹을 만든다(없는 id 만 생성, 사용자가 고친 그룹은 보존). id 규칙(콘솔도 같은 규칙으로 위치→그룹): 간호사실 `board-ns-<ward>`(criteria ward) · 층 복도 `board-fl-<b>-<f>`(building+floor) · 응급실 `board-er-<b>-<f>`(room) · 로비 `board-lobby-<b>`(building). owner `전광판`, 설명은 "<건물> <층>F · <장소> · …" 로 시작. 현재 도면에서 144개(간호사실 92 · 층 복도 46 · 응급실 3 · 로비 3).
+- **병원 지도**: 간호사실·응급실·로비 방이나 복도/간호사실/응급실/로비 게이트웨이를 누르면 패널에 전광판 블록(그룹 이름·설명·환자 수) + **열기**(중앙 모니터 새 탭, `group=`) / **설정**(`#/viewers?group=<id>` 로 이동해 편집 상태). 그 자리에 환자가 없으면 전광판 그룹 환자(앞 24명)를 카드로.
+- **뷰어**: 저장된 그룹 패널이 `전광판 N | 일반 N` 탭 + 검색. 전광판은 건물 → 층 → (로비·응급실·복도·간호사실 순) 접이식 트리(검색 중이거나 편집 중인 그룹의 가지는 자동 펼침). `?group=` 이 오면 로드 후 한 번 그 그룹을 편집 상태로 연다.
+
 ### MCOT 지도(세계 지도 · 핀) 신설 + 이동 중 환자 칩 건물 버그 + 뷰어 잔손질 (fitlet3)
 
 - **MCOT 지도** (`#/mcot`, 모니터링 › 병원 지도 다음, 권한 `page.mcot_map` — 기본값은 병원 지도와 같음): `pages/McotMap.jsx` + `McotMap.css`. Leaflet(npm `leaflet`, 마운트 뒤 동적 import — SSR 스모크에서 window 를 만져 죽기 때문) + OpenStreetMap 타일(브라우저가 인터넷에 닿아야 함, 타일 실패 시 안내 오버레이). 원외 환자(모바일 GW 또는 mode≠inpatient)마다 핀 + 이름표, 색은 알람 심각도/수신 없음, 툴팁에 주소·HR/SpO₂/RR·알람. 위치는 EMR 에 좌표(lat/lng·location·geo)가 있으면 그대로, 없으면 집주소 시군구 중심(`geo/korea.js` 의 229개 시군구·17 시도 근사 좌표) + 채널 번호로 고정된 ±1.3 km 흔들림. 오른쪽 320px 패널: 지역별 목록 → 지역 환자 카드(WaveCard) + 중앙 모니터 → `MapPatientPanel`(병원 지도와 같은 상세, 이력 모달). 툴바: 환자/알람/수신 없음/이동 중/지역 수, 검색, 전체·한국·세계 보기, MCOT 전체 중앙 모니터.
