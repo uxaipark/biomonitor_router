@@ -120,7 +120,7 @@ export default function OpsStats() {
       <div className="ops-tiles ops-row">
         <Tile label="현재 가동 시간" value={fmtDur(stats?.uptime_s)} sub={`선택 구간 안 라우터 재시작 ${inc.restart || 0}회`} title="라우터 프로세스가 다시 시작된 횟수(선택한 구간 기준). 배포·설정 반영을 위한 재시작도 포함되며, 수집 공백이 90초를 넘으면 '수집 공백'으로 표시됩니다. 아래 사건 표에서 시각을 볼 수 있습니다." />
         <Tile label="수집 커버리지" value={`${(cov.percent || 0).toFixed(1)}%`} sub={range === '5min' ? `${fmtNum(cov.sampled_samples || 0)} / ${fmtNum(cov.expected_samples || 0)} 샘플 (2초)` : `${fmtNum(cov.sampled_minutes || 0)} / ${fmtNum(cov.expected_minutes || 0)}분`} warn={(cov.percent || 0) < 99 && range !== 'hour' && range !== '5min'} />
-        <Tile label="라우터 CPU" value={`${(tot.cpu_avg || 0).toFixed(1)}%`} sub={`최대 ${(tot.cpu_max || 0).toFixed(0)}% · 1코어=100`} warn={(tot.cpu_max || 0) > 300} />
+        <Tile label="라우터 CPU (Max 400%)" value={`${(tot.cpu_avg || 0).toFixed(1)}%`} sub={`최대 ${(tot.cpu_max || 0).toFixed(0)}% · 1코어=100`} warn={(tot.cpu_max || 0) > 300} />
         <Tile label="라우터 메모리" value={fmtBytes(tot.mem_avg || 0)} sub={`최대 ${fmtBytes(tot.mem_max || 0)}`} />
         <Tile label="웹 뷰어 / 전송 회선" value={stats ? `${fmtNum(stats.ws_sessions)} / ${fmtNum(stats.ws_subscribed_channels)}` : '—'} sub="웹 뷰어 = 탭 단위 WS 세션 · 전송 회선 = 구독 중인 패치" />
         <Tile label="전송 지연 (에뮬레이터→라우터)" value={stats?.latency?.n ? `${stats.latency.p50} ms` : '—'} sub={stats?.latency?.n ? `p95 ${stats.latency.p95} ms${stats.latency.offset_ms ? ` · 시계 보정 +${stats.latency.offset_ms} ms` : ''}` : '프레임 없음'} warn={(stats?.latency?.p95 || 0) > 2000} />
