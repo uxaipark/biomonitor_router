@@ -216,6 +216,8 @@ pub enum StoreOp {
     Reset,
     /// Same as `Reset`, then signal the sender (가동 초기화 waits for it). Queued ops before it are processed first.
     ResetWait(std::sync::mpsc::Sender<()>),
+    /// 아직 디스크에 쓰지 않은 이 패치의 버퍼(항목 인코딩 그대로) 사본 — 이력 API 가 "지금"까지 이어 붙이는 데 쓴다
+    Pending { pid: u32, tx: tokio::sync::oneshot::Sender<Vec<u8>> },
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -690,19 +692,34 @@ pub fn read_wave_range(root: &Path, patch_id: u32, from_ms: u64, to_ms: u64) -> 
             continue;
         }
         let _ = stream_entries_in(&path, from_ms, to_ms, |e| {
-            let mut rec = WaveRec { ts_ms: e.ts_ms, seq: e.seq, blocks: Vec::new(), pace: Vec::new() };
-            for (ch, dt, n, data) in &e.channels {
-                if *ch == wire::CH_PACE && *dt == 3 {
-                    rec.pace = data.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
-                } else if *dt == 1 && wire::wave_info(*ch).is_some() {
-                    rec.blocks.push((*ch, *n, data.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect()));
-                }
-            }
-            if !rec.blocks.is_empty() || !rec.pace.is_empty() {
+            if let Some(rec) = wave_rec_of(e) {
                 out.push(rec);
             }
         });
     }
+    out
+}
+
+fn wave_rec_of(e: &Entry) -> Option<WaveRec> {
+    let mut rec = WaveRec { ts_ms: e.ts_ms, seq: e.seq, blocks: Vec::new(), pace: Vec::new() };
+    for (ch, dt, n, data) in &e.channels {
+        if *ch == wire::CH_PACE && *dt == 3 {
+            rec.pace = data.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
+        } else if *dt == 1 && wire::wave_info(*ch).is_some() {
+            rec.blocks.push((*ch, *n, data.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect()));
+        }
+    }
+    if rec.blocks.is_empty() && rec.pace.is_empty() { None } else { Some(rec) }
+}
+
+/// Wave records in an in-memory entry buffer (the store's unflushed pending bytes) inside [from_ms, to_ms).
+pub fn wave_recs_in_buf(buf: &[u8], from_ms: u64, to_ms: u64) -> Vec<WaveRec> {
+    let mut out = Vec::new();
+    walk_entries_in(buf, from_ms, to_ms, |e| {
+        if let Some(rec) = wave_rec_of(e) {
+            out.push(rec);
+        }
+    });
     out
 }
 
@@ -827,6 +844,9 @@ impl PatchStore {
             StoreOp::ResetWait(tx) => {
                 self.reset();
                 let _ = tx.send(());
+            }
+            StoreOp::Pending { pid, tx } => {
+                let _ = tx.send(self.patches.get(&pid).map(|p| p.buf.clone()).unwrap_or_default());
             }
         }
         if self.last_flush.elapsed() >= FLUSH_EVERY {

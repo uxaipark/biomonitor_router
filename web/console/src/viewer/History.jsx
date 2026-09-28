@@ -346,10 +346,10 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow, onH
       pull(T, cur)
       rows.forEach((row, i) => {
         const st = S[i]
-        if (prep(i)) { // resized: repaint everything drawn so far
-          restart(i)
-          if (st.t.length) { st.seeded = true; traceRuns(i, splitRuns(st)); st.drawn = st.t.length }
-        }
+        // (re)sized — the first frame too: clear and let the seed → ring → backfill path below redraw everything.
+        // (Drawing the ring here and marking the strip seeded skipped the stored prefix on the very first frame,
+        // so the part before the ring's oldest sample stayed blank when History opened.)
+        if (prep(i)) restart(i)
         if (!st.ctx) return
         // seed: the part of the window before the oldest ring sample comes from the stored chunk — wait up to
         // 2.5 s for it (the chunk is being re-read), then give up and draw from the rings only

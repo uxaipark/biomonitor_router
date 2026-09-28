@@ -938,10 +938,21 @@ async fn wave_read_all(
     let Some(pid) = patch_id_of(&channel_id) else { return (StatusCode::BAD_REQUEST, "bad patch id").into_response() };
     let _permit = hist_sem().acquire().await;
     let bk = state.backup.clone();
-    let recs = tokio::task::spawn_blocking(move || {
+    let mut recs = tokio::task::spawn_blocking(move || {
         bk.ensure_local(pid, from, to, 2); // 로컬에서 지운 구간은 백업에서 받아 온다 (첫 요청만 느림)
         crate::patch_store::read_wave_range(&root, pid, from, to)
     }).await.unwrap_or_default();
+    // 아직 플러시되지 않은 버퍼(최대 ~5 s)도 이어 붙인다: 이력 LIVE 구간이 "지금" 직전까지 저장본으로 채워진다.
+    // 파일과 겹치는 레코드(플러시 직후의 경합)는 (ts, seq) 로 걸러 낸다.
+    if to + 10_000 >= now {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        state.send_store(crate::patch_store::StoreOp::Pending { pid, tx });
+        if let Ok(Ok(buf)) = tokio::time::timeout(std::time::Duration::from_millis(300), rx).await {
+            let seen: std::collections::HashSet<(u64, u32)> = recs.iter().map(|r| (r.ts_ms, r.seq)).collect();
+            recs.extend(crate::patch_store::wave_recs_in_buf(&buf, from, to).into_iter().filter(|r| !seen.contains(&(r.ts_ms, r.seq))));
+        }
+    }
+    recs.sort_by_key(|r| (r.ts_ms, r.seq));
     // per-channel run detection: a new segment when the seq jumps or the time gap is not one bundle
     // each segment keeps its own samples (records interleave channels); the blob is laid out segment by segment
     struct Seg { key: &'static str, fs: u32, axes: usize, scale: f32, t0: u64, n: usize, data: Vec<i16>, last_seq: u32, last_end: u64 }
