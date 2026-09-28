@@ -17,3 +17,13 @@
 @media (max-width: 900px) { .ops-pipe-row { flex-direction: column; } .ops-pipe-arrow { transform: rotate(90deg); align-self: flex-start; margin-left: 14px; } }
 .ops-dual .ops-chart + .ops-chart { margin-top: 6px; border-top: 1px dashed var(--line); padding-top: 6px; }
 .ops-inc-head { gap: 8px; margin-top: 16px; }
+
+/* 그래프 호버 팁: 세로 안내선 + 계열 점 + 시각·수치 */
+.ops-chart-box { position: relative; }
+.ops-chart-box svg { cursor: crosshair; }
+.ops-tip { position: absolute; top: 6px; transform: translateX(10px); pointer-events: none; z-index: 5; background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; font-size: 11.5px; line-height: 1.5; box-shadow: 0 4px 14px rgba(0,0,0,.25); white-space: nowrap; }
+.ops-tip.left { transform: translateX(calc(-100% - 10px)); }
+.ops-tip-t { color: var(--muted); font-variant-numeric: tabular-nums; margin-bottom: 2px; }
+.ops-tip div { display: flex; align-items: center; gap: 6px; }
+.ops-tip i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.ops-tip b { margin-left: auto; padding-left: 12px; font-variant-numeric: tabular-nums; }

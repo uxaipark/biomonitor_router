@@ -41,8 +41,21 @@ function Chart({ points, series, range, height = 130, unit = '', stack = false, 
   const area = (s) => !points.length ? '' : `${path(s)} L${x(points.length - 1).toFixed(1)},${y(0)} L${x(0).toFixed(1)},${y(0)} Z`
   const ticks = [0, 0.5, 1].map((f) => top * f)
   const label = (v) => (unit === 'B' ? fmtBytes(v) : unit === '%' ? `${v.toFixed(0)}%` : v >= 1000 ? fmtNum(Math.round(v)) : v.toFixed(v < 10 ? 1 : 0))
+  // 마우스 위치의 표본: 세로 안내선 + 계열별 점 + 수치 팁 (x 비율 → 표본 번호)
+  const [hov, setHov] = useState(null)
+  const onMove = (e) => {
+    if (!points.length) return
+    const r = e.currentTarget.getBoundingClientRect()
+    const vx = ((e.clientX - r.left) / r.width) * W
+    const i = Math.max(0, Math.min(points.length - 1, Math.round(((vx - pad.l) / (W - pad.l - pad.r)) * (points.length - 1))))
+    if (i !== hov) setHov(i)
+  }
+  const hp = hov != null ? points[Math.min(hov, points.length - 1)] : null
+  const hx = hp ? x(Math.min(hov, points.length - 1)) : 0
+  const fullT = (t) => { const d = new Date(t * 1000); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}${range === '5min' ? ':' + p(d.getSeconds()) : ''}` }
   return (
     <div className="ops-chart">
+      <div className="ops-chart-box" onMouseMove={onMove} onMouseLeave={() => setHov(null)}>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
         {ticks.map((t, i) => <g key={i}><line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} className="ops-grid" /><text x={pad.l - 6} y={y(t) + 3} className="ops-ytick">{label(t)}</text></g>)}
         {limit && limit.value <= top && <g className="ops-limit">
@@ -53,7 +66,16 @@ function Chart({ points, series, range, height = 130, unit = '', stack = false, 
           {(stack || s.area) && <path d={area(s)} fill={s.color} opacity="0.16" />}
           <path d={path(s)} fill="none" stroke={s.color} strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
         </g>)}
+        {hp && <g className="ops-hover">
+          <line x1={hx} x2={hx} y1={pad.t} y2={H - pad.b} stroke="var(--text)" strokeOpacity="0.45" strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+          {series.map((s) => { const v = (s.get ? s.get(hp) : hp[s.key]) ?? 0; return <ellipse key={s.key || s.label} cx={hx} cy={y(v)} rx={W / 250} ry={H / 40} fill={s.color} stroke="var(--panel)" strokeWidth="1" vectorEffect="non-scaling-stroke" /> })}
+        </g>}
       </svg>
+      {hp && <div className={'ops-tip' + (hx > W * 0.62 ? ' left' : '')} style={{ left: `${(hx / W) * 100}%` }}>
+        <div className="ops-tip-t">{fullT(hp.t)}</div>
+        {series.map((s) => { const v = (s.get ? s.get(hp) : hp[s.key]) ?? 0; return <div key={s.key || s.label}><i style={{ background: s.color }} />{s.label}<b>{label(v)}</b></div> })}
+      </div>}
+      </div>
       <div className="ops-legend">
         {series.map((s) => { const v = vals(s); const last = v[v.length - 1] ?? 0; const mx = Math.max(0, ...v)
           return <span key={s.key || s.label}><i style={{ background: s.color }} />{s.label} <b>{label(last)}</b> <small>최대 {label(mx)}</small></span> })}
