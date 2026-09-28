@@ -30,35 +30,50 @@ export default function Trips({ bedIndex }) {
   const trips = d?.trips || []
   const st = d?.stats || {}
   const rooms = st.rooms || []
-  // 검사실 칩: 지금 그 실에 있거나 아직 남은 단계가 그 실인 환자 ("본관 ECG실" → 단계 이름이 "ECG실 …")
-  const roomShort = room ? (rooms.find((r) => r.room_id === room)?.room || '').split(' ').slice(1).join(' ') : ''
-  const shown = useMemo(() => trips.filter((t) => (!kind || (kind === 'shadow' ? t.shadow : t.kind === kind))
-    && (!room || t.location === room || (roomShort && (t.steps || []).some((s) => s.state !== 'done' && s.label.startsWith(roomShort))))), [trips, kind, room, roomShort])
-  const used = rooms.reduce((s, r) => s + (r.in_room || 0), 0), cap = rooms.reduce((s, r) => s + (r.capacity || 0), 0), moving = rooms.reduce((s, r) => s + Math.max(0, (r.load || 0) - (r.in_room || 0)), 0)
+  // ── 칩·머리글 숫자는 모두 이 목록(trips)에서 센다 ──
+  // 에뮬레이터 stats(kinds·rooms.in_room/load)는 표 행과 기준이 달라(검사실 점유는 exam 만, 재활·이동 중 제외 등)
+  // 칩 수와 눌렀을 때 보이는 행 수가 어긋났다. 상위(전체)·하위(종류/검사실) 칩은 서로의 필터를 반영한다.
+  const shortOf = (r) => (r.room || '').split(' ').slice(1).join(' ')
+  const inRoom = (t, r) => t.location === r.room_id
+  const heading = (t, r) => { const sh = shortOf(r); return !!sh && !inRoom(t, r) && (t.steps || []).some((s) => s.state !== 'done' && s.label.startsWith(sh)) }
+  const roomObj = room ? rooms.find((r) => r.room_id === room) : null
+  const matchRoom = (t) => !roomObj || inRoom(t, roomObj) || heading(t, roomObj)
+  const matchKind = (t) => !kind || (kind === 'shadow' ? t.shadow : t.kind === kind)
+  const shown = useMemo(() => trips.filter((t) => matchKind(t) && matchRoom(t)), [trips, kind, room, rooms]) // eslint-disable-line react-hooks/exhaustive-deps
+  // 종류 칩: 검사실 필터를 적용한 목록에서 (전체 = 그 합)
+  const byRoom = useMemo(() => trips.filter(matchRoom), [trips, room, rooms]) // eslint-disable-line react-hooks/exhaustive-deps
+  const kindCounts = useMemo(() => { const c = {}; for (const t of byRoom) c[t.kind] = (c[t.kind] || 0) + 1; return c }, [byRoom])
+  const shadowN = byRoom.filter((t) => t.shadow).length
+  // 검사실 칩: 종류 필터를 적용한 목록에서 "지금 그 실에 있는 수 / 정원 (+그 실로 가는 중)"
+  const byKind = useMemo(() => trips.filter(matchKind), [trips, kind])
+  const roomStat = useMemo(() => rooms.map((r) => ({ ...r, in_n: byKind.filter((t) => inRoom(t, r)).length, head_n: byKind.filter((t) => heading(t, r)).length })), [rooms, byKind]) // eslint-disable-line react-hooks/exhaustive-deps
+  const used = roomStat.reduce((s, r) => s + r.in_n, 0), cap = roomStat.reduce((s, r) => s + (r.capacity || 0), 0), moving = roomStat.reduce((s, r) => s + r.head_n, 0)
+  // 1시간(upcoming_h) 안 검사 예정: 목록의 next_exams 로 직접 센다 (환자 수)
+  const soonS = (st.upcoming_h ?? 1) * 3600
+  const examsSoon = trips.filter((t) => (t.next_exams || []).some((x) => x.in_s != null && x.in_s <= soonS)).length
   if (err) return <p className="err">이동 정보를 불러오지 못했습니다: {err.message}</p>
   if (!d) return <p className="muted">이동 정보를 불러오는 중…</p>
   return (
     <div className="trips">
       <div className="trips-head">
         <b>이동 중 환자</b>
-        <span>이동 중 <b>{st.moving ?? trips.length}</b></span>
-        <span>검사실 사용 <b>{used}/{cap}</b> (+{moving} 이동 중)</span>
-        <span className={st.shadow ? 'warn' : ''}>음영 <b>{st.shadow ?? 0}</b></span>
-        <span>{st.upcoming_h ?? 1}시간 내 검사 예정 <b>{st.exams_soon ?? 0}</b></span>
+        <span>이동 중 <b>{trips.length}</b></span>
+        <span title="지금 검사·치료실 안에 있는 환자 / 정원 (+ 그 실로 이동 중)">검사실 사용 <b>{used}/{cap}</b> (+{moving} 이동 중)</span>
+        <span className={trips.some((t) => t.shadow) ? 'warn' : ''}>음영 <b>{trips.filter((t) => t.shadow).length}</b></span>
+        <span>{st.upcoming_h ?? 1}시간 내 검사 예정 <b>{examsSoon}</b></span>
         <span className="muted">시뮬 시각 {hms(d.sim_time)}</span>
       </div>
       <div className="trips-kinds">
-        <button className={!kind ? 'on' : ''} onClick={() => setQs({ tk: '' })}>전체 {trips.length}</button>
-        {Object.entries(st.kinds || {}).filter(([, n]) => n > 0).map(([k, n]) => <button key={k} className={kind === k ? 'on' : ''} onClick={() => setQs({ tk: kind === k ? '' : k })}>{KIND[k] || k} {n}</button>)}
-        {st.shadow > 0 && <button className={'warn' + (kind === 'shadow' ? ' on' : '')} onClick={() => setQs({ tk: kind === 'shadow' ? '' : 'shadow' })}>음영 {st.shadow}</button>}
+        <button className={!kind ? 'on' : ''} onClick={() => setQs({ tk: '' })}>전체 {byRoom.length}</button>
+        {Object.keys(KIND).concat(Object.keys(kindCounts).filter((k) => !KIND[k])).filter((k) => kindCounts[k] > 0).map((k) => <button key={k} className={kind === k ? 'on' : ''} onClick={() => setQs({ tk: kind === k ? '' : k })}>{KIND[k] || k} {kindCounts[k]}</button>)}
+        {shadowN > 0 && <button className={'warn' + (kind === 'shadow' ? ' on' : '')} onClick={() => setQs({ tk: kind === 'shadow' ? '' : 'shadow' })}>음영 {shadowN}</button>}
       </div>
       <div className="trips-rooms">
-        {rooms.map((r) => {
-          const extra = Math.max(0, (r.load || 0) - (r.in_room || 0))
-          const full = r.load >= r.capacity && r.capacity > 0
+        {roomStat.filter((r) => r.in_n > 0 || r.head_n > 0 || r.capacity > 0).map((r) => {
+          const full = r.capacity > 0 && r.in_n >= r.capacity
           return (
-            <button key={r.room_id} className={'tr-room' + (full ? ' full' : '') + (room === r.room_id ? ' on' : '') + (!r.load ? ' idle' : '')} onClick={() => setQs({ tr: room === r.room_id ? '' : r.room_id })} title={`${r.room} · 사용 ${r.in_room}/${r.capacity}${extra ? ` · 이동 중 ${extra}` : ''}`}>
-              {r.room} <b>{r.in_room}/{r.capacity}</b>{extra > 0 && <em> +{extra} 이동 중</em>}
+            <button key={r.room_id} className={'tr-room' + (full ? ' full' : '') + (room === r.room_id ? ' on' : '') + (!r.in_n && !r.head_n ? ' idle' : '')} onClick={() => setQs({ tr: room === r.room_id ? '' : r.room_id })} title={`${r.room} · 안에 ${r.in_n}${r.capacity ? `/${r.capacity}` : ''}${r.head_n ? ` · 이동 중 ${r.head_n}` : ''} — 누르면 이 실에 있거나 가는 중인 환자만`}>
+              {r.room} <b>{r.in_n}{r.capacity ? `/${r.capacity}` : ''}</b>{r.head_n > 0 && <em> +{r.head_n} 이동 중</em>}
             </button>
           )
         })}
