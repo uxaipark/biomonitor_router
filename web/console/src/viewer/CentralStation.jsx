@@ -157,8 +157,8 @@ export default function CentralStation({ rows, alarms, unit, onClose }) {
           <span className={'cs-alarms' + (nAlarms ? (silenced ? ' is-muted' : '') : ' ds-none')}>{nAlarms} alarm{nAlarms === 1 ? '' : 's'}{silenced ? ' · silenced' : ''}</span>
           <span className="cs-clock-wrap"><span className="cs-clock">{clock}</span><Latency /></span>
           <button className={'btn btn-secondary ds-icon' + (silenced ? ' on' : '')} onClick={() => setSilenced(!silenced)} title="알람 묵음 (전체) 켜기/끄기">{silenced ? BELL_OFF : BELL}</button>
-          {onClose && <button className="btn btn-secondary" onClick={onClose}>Close</button>}
         </div>
+        {onClose && <button className="btn btn-secondary cs-close" onClick={onClose}>Close</button>}
       </header>
       <main ref={gridRef} className={gridCls} style={gridStyle}>
         {n === 0 && <div className="cs-empty">표시할 환자가 없습니다.</div>}

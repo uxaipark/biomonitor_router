@@ -47,8 +47,8 @@
 .cs-legend{display:flex;gap:var(--space-4);font-size:12px;letter-spacing:.06em;text-transform:uppercase;flex:1;white-space:nowrap;min-width:0;overflow:hidden;flex-wrap:wrap}
 .cs-legend span{display:inline-flex;align-items:center;gap:6px}.cs-legend i{width:10px;height:10px;display:inline-block}
 @media (max-width:1560px){.cs-legend{display:none}}
-.cs-right{display:flex;align-items:center;gap:var(--space-4);font-size:13px;white-space:nowrap;margin-left:auto}
-.cs-right>.btn:last-child{margin-left:var(--space-4)} /* Close 는 오른쪽 끝, 나머지 조작과 간격을 둔다 */
+.cs-right{display:flex;align-items:center;gap:var(--space-4);font-size:13px;white-space:nowrap}
+.cs-close{margin-left:auto} /* Close 만 오른쪽 끝, 나머지(범례·조작)는 왼쪽에 모아 둔다 */
 .cs-presets{display:inline-flex;border:1px solid var(--color-divider);align-items:stretch}
 .cs-presets .btn{padding:4px 9px;font-size:12px;border:0;border-right:1px solid var(--color-divider);min-height:0}
 .cs-presets .btn:last-child{border-right:0}
