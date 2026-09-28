@@ -51,6 +51,24 @@ function runsFromSamples(rec, t0, t1) {
   return runs
 }
 const samplesIn = (runs) => runs.reduce((n, r) => n + (r.i1 - r.i0), 0)
+/** Parts of `runs` not covered by `base` (as sub-runs), so two sources can be overlaid without double drawing. */
+function clipRuns(runs, base) {
+  const cov = base.map((r) => [r.t0 - r.step, r.t0 + (r.i1 - r.i0) * r.step + r.step]).sort((a, b) => a[0] - b[0])
+  const out = []
+  for (const r of runs) {
+    let i = r.i0
+    while (i < r.i1) {
+      const t = r.t0 + (i - r.i0) * r.step
+      const c = cov.find(([a, b]) => t >= a && t < b)
+      if (c) { i = Math.max(i + 1, Math.ceil((c[1] - r.t0) / r.step) + r.i0); continue } // skip the covered stretch
+      let j = i + 1
+      while (j < r.i1) { const tj = r.t0 + (j - r.i0) * r.step; if (cov.some(([a, b]) => tj >= a && tj < b)) break; j++ }
+      out.push({ ...r, t0: t, i0: i, i1: j })
+      i = j
+    }
+  }
+  return out
+}
 
 /** Samples of one wave key inside [t0, t1): list of { t, v } runs (per segment, per axis). */
 function slice(chunks, key, axis, t0, t1) {
@@ -149,10 +167,13 @@ function Window({ t0, spanMs, loaded, pace, theme, onVisible, keys, fresh }) {
       if (!c) return
       // stored copy vs the live strip's handoff: take whichever covers more of this window (the store lags by
       // seconds right after a rollover; the handoff has gaps if the viewer stalled while it was live)
+      // the store copy may end early (writer lag) while the handoff has holes (frames the browser missed): draw
+      // the fuller one, then the other's runs clipped to what the first does not cover
       const pick = (axis) => {
         const stored = slice(loaded, row.key, axis, t0, t1)
         const live = runsFromSamples(fresh?.find((x) => x.key === row.key && (x.axis || 0) === axis), t0, t1)
-        return samplesIn(live) > samplesIn(stored) ? live : stored
+        const [base, extra] = samplesIn(live) > samplesIn(stored) ? [live, stored] : [stored, live]
+        return extra.length ? [...base, ...clipRuns(extra, base)] : base
       }
       const layers = (row.over || []).map((ax) => ({ runs: pick(ax), color: ACCEL_COLORS[ax] }))
       drawStrip(c, { runs: pick(row.axis || 0), layers, pace: row.key === 'ecg' ? pace : [], t0, spanMs, range: row.range, color: row.color, theme, lineWidth: row.lw, grid: !!row.grid })
@@ -171,7 +192,7 @@ function Window({ t0, spanMs, loaded, pace, theme, onVisible, keys, fresh }) {
  *  extends the trace through a persistent column tracer (no full redraws), the sweep bar is erased by restoring a
  *  grid slice, all on requestAnimationFrame. When the playout clock crosses the next span boundary the window rolls
  *  over and the completed one becomes the first stored strip (the parent refreshes the index and that chunk). */
-function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
+function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow, onHoles }) {
   const canvases = useRef([])
   const [t0, setT0] = useState(null)
   const rows = useMemo(() => {
@@ -189,7 +210,7 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
   const loadedRef = useRef(loaded); loadedRef.current = loaded
   useEffect(() => {
     // per row: canvas prep + persistent tracer state
-    const S = rows.map(() => ({ gen: 0, ctx: null, W: 0, H: 0, dpr: 1, grid: null, tracer: new ColumnTracer(), stroker: null, drawn: 0, pT: null, barX: null, seeded: false, t: [], v: [], lastAbs: null, fs: 250 }))
+    const S = rows.map(() => ({ gen: 0, ctx: null, W: 0, H: 0, dpr: 1, grid: null, tracer: new ColumnTracer(), stroker: null, drawn: 0, pT: null, barX: null, seeded: false, t: [], v: [], lastAbs: null, fs: 250, cov: [], scanAt: 0, filled: new Set() }))
     let cur = null, curAt = 0, paceSeen = null
     const pace = [], paceDrawn = new Set()
     const prep = (i) => {
@@ -223,7 +244,7 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
       }
       return resized
     }
-    const restart = (i) => { const st = S[i]; if (!st.ctx) return; if (rows[i].base == null) st.ctx.drawImage(st.grid, 0, 0, st.W, st.H); st.tracer.reset(); st.stroker.reset(); st.drawn = 0; st.pT = null; st.barX = null; st.seeded = false }
+    const restart = (i) => { const st = S[i]; if (!st.ctx) return; if (rows[i].base == null) st.ctx.drawImage(st.grid, 0, 0, st.W, st.H); st.tracer.reset(); st.stroker.reset(); st.drawn = 0; st.pT = null; st.barX = null; st.seeded = false; st.cov = []; st.scanAt = 0; st.filled = new Set() }
     const yOf = (st, range, v) => { const vm = Math.max(3, st.H * 0.1), [lo, hi] = range; return st.H - vm - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (st.H - 2 * vm) }
     const xOf = (st, t) => ((t - cur) / spanMs) * st.W
     const traceRuns = (i, runs) => {
@@ -238,6 +259,49 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
         }
       }
       st.stroker.end()
+    }
+    // draw runs with their own tracer (a hole filled in behind the live front must not break the front's continuity)
+    const traceFresh = (i, runs) => {
+      const st = S[i], row = rows[i], tracer = new ColumnTracer(), stroker = new ColumnStroker(st.ctx, st.dpr)
+      stroker.begin(row.color, row.lw)
+      let pT = null
+      for (const run of runs) {
+        for (let k = run.i0; k < run.i1; k++) {
+          const t = run.t0 + (k - run.i0) * run.step, v = run.data[k * run.axes + run.axis] * run.scale
+          tracer.point(xOf(st, t) * st.dpr, yOf(st, row.range, v) * st.dpr, pT != null && t - pT > run.step * 1.5, stroker.emit)
+          pT = t
+        }
+      }
+      if (tracer.col >= 0) tracer.flush(stroker.emit)
+      stroker.end()
+    }
+    const runCov = (runs) => runs.map((r) => [r.t0, r.t0 + (r.i1 - r.i0) * r.step])
+    // Holes in the live strip — frames the browser never got (WS lag, a stalled tab, more than the 8 s ring holds)
+    // — are filled from the store once they are old enough for the writer to have flushed them (≥ 6 s). The
+    // stored copy is complete (the router keeps every record), so the strip ends up whole instead of waiting for
+    // the rollover redraw. While the stored chunk lacks the piece, the parent is asked to re-read it.
+    const backfill = (i, T) => {
+      const st = S[i], row = rows[i]
+      if (!st.ctx || !st.seeded || !st.t.length) return
+      const step = 1000 / st.fs, tol = step * 1.5
+      const iv = [...st.cov, ...runCov(splitRuns(st))].sort((a, b) => a[0] - b[0])
+      const merged = []
+      for (const [a, b] of iv) { const m = merged[merged.length - 1]; if (m && a <= m[1] + tol) m[1] = Math.max(m[1], b); else merged.push([a, b]) }
+      const holes = []
+      if (merged.length && merged[0][0] > cur + 400) holes.push([cur, merged[0][0]])
+      for (let k = 1; k < merged.length; k++) if (merged[k][0] - merged[k - 1][1] > tol) holes.push([merged[k - 1][1], merged[k][0]])
+      const limit = T - 6000
+      let missing = false
+      for (const [a, b] of holes) {
+        if (b > limit) continue
+        const stored = slice(loadedRef.current, row.key, row.axis || 0, a, b)
+        const c = runCov(stored)
+        const key = `${Math.round(a)}:${stored.length ? Math.round(c[c.length - 1][1]) : 0}:${stored.length ? Math.round(c[0][0]) : 0}`
+        if (stored.length && !st.filled.has(key)) { traceFresh(i, stored); st.cov.push(...c); st.filled.add(key) }
+        const whole = stored.length && c[0][0] <= a + 2 * step && c[c.length - 1][1] >= b - 2 * step && stored.length === 1
+        if (!whole) missing = true
+      }
+      if (missing) onHoles?.(cur)
     }
     // append ring samples in [from, upTo] to each row's buffer (the rings are per wave key)
     const pull = (upTo, from) => {
@@ -292,12 +356,13 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
           const needSeed = ringStart > cur + 400
           const stored = needSeed ? slice(loadedRef.current, row.key, row.axis || 0, cur, ringStart) : []
           if (!needSeed || stored.length || performance.now() - curAt > 2500) {
-            if (stored.length) traceRuns(i, stored)
+            if (stored.length) { traceRuns(i, stored); st.cov.push(...runCov(stored)) }
             st.seeded = true
           } else return
         }
         // extend the trace with the samples not drawn yet (no sweep bar: erasing it would wipe the newest column)
         if (st.drawn < st.t.length) { traceRuns(i, splitRuns(st, st.drawn)); st.drawn = st.t.length }
+        if (performance.now() - st.scanAt > 1000) { st.scanAt = performance.now(); backfill(i, T) }
         if (row.key === 'ecg') {
           for (let j = 0; j < pace.length; j++) {
             const [t, ch] = pace[j]
@@ -322,7 +387,7 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow }) {
     }
     let raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [id, spanMs, theme, rows, onRollover, onWindow])
+  }, [id, spanMs, theme, rows, onRollover, onWindow, onHoles])
   return (
     <div className="hx-win hx-live">
       <div className="hx-win-t"><b>{t0 != null ? fmtTime(t0) : '--:--:--'}</b><span className="ds-dim"> ~ {t0 != null ? fmtTime(t0 + spanMs) : ''}</span><span className="hx-live-tag">LIVE</span></div>
@@ -408,6 +473,13 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
     }, 6000)
   }, [id, spanMs])
   const onWindow = useMemo(() => (w0) => { setLiveW0(w0); for (let c = Math.floor(w0 / CHUNK_MS); c <= Math.floor((w0 + spanMs - 1) / CHUNK_MS); c++) refetchChunk(c) }, [spanMs, id]) // eslint-disable-line react-hooks/exhaustive-deps
+  // the live strip found a hole the stored chunk does not cover yet: re-read that chunk, at most every 5 s
+  const holesAt = useRef(0)
+  const onHoles = useMemo(() => (w0) => {
+    if (performance.now() - holesAt.current < 5000) return
+    holesAt.current = performance.now()
+    for (let c = Math.floor(w0 / CHUNK_MS); c <= Math.floor((w0 + spanMs - 1) / CHUNK_MS); c++) refetchChunk(c)
+  }, [spanMs, id]) // eslint-disable-line react-hooks/exhaustive-deps
   // The list runs continuously back in time from `anchor` (null = follow the live window), across hour-file
   // boundaries — grouping by hour file made every strip vanish at the top of the hour. Hour buttons jump the
   // anchor; scrolling to the bottom extends the list further back.
@@ -444,7 +516,7 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
         return <button key={f.hour} className={cur ? 'on' : ''} title={`${localHour(f.hour).day} ${localHour(f.hour).hh}–${endH}시 · ${(f.bytes / 2 ** 20).toFixed(1)} MB${f.sealed ? ` · 봉인 ${f.sealed_ok === false ? 'CRC 오류' : 'CRC 정상'}` : ''}${f.where === 'backup' ? ' · 백업 서버에만 있음 (열면 받아 옵니다)' : f.where === 'restored' ? ' · 백업에서 받아 둔 파일' : ''}`} onClick={() => setAnchor(newest ? null : end)}>{f.where === 'backup' ? '☁ ' : f.where === 'restored' ? '↓ ' : ''}{n > 1 ? `${localHour(f.hour).hh}–${endH}시` : `${localHour(f.hour).hh}시`}</button>
       })}</div>
       <div className="hx-list" onScroll={onListScroll} style={{ '--hx-ecg': `${height}px`, '--hx-thin': `${Math.max(20, Math.round(height * 0.28))}px` }}>
-        {anchor == null && <LiveWindow id={id} spanMs={spanMs} theme={th} keys={keys.size ? keys : DEFAULT_KEYS} onRollover={onRollover} loaded={loaded} onWindow={onWindow} />}
+        {anchor == null && <LiveWindow id={id} spanMs={spanMs} theme={th} keys={keys.size ? keys : DEFAULT_KEYS} onRollover={onRollover} loaded={loaded} onWindow={onWindow} onHoles={onHoles} />}
         {windows.map((t0) => <Window key={t0} t0={t0} spanMs={spanMs} loaded={loaded} pace={pace} theme={th} onVisible={onVisible} keys={keys} fresh={fresh.get(t0)} />)}
         {!windows.length && <div className="ds-dim">저장된 구간이 없습니다.</div>}
         {windows.length >= count && <button className="btn btn-secondary" onClick={more}>더 보기</button>}

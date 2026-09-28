@@ -193,6 +193,12 @@
 
 - [2026-09-17 22:50 MAC] 라우터 P1 구현·검증 (48a3480).
 - [2026-09-17 23:20 MAC] RP5#2 이어 개발 준비: Linux sysmon(/proc), `rust-toolchain.toml`, `scripts/pi-dev-setup.sh`, `docs/RP5-DEV.md`, `CLAUDE.md`, 이 문서.
+### 이력 뷰어 LIVE 구간 빈 자리 채우기 (fitlet3)
+
+- 증상: 이력(History)의 LIVE 구간 중간이 몇 초씩 비고, 아래 저장 구간은 온전함. 저장 청크를 API 로 훑어 보니 구멍·중복 없음 → 원인은 브라우저 쪽. LIVE 구간은 브라우저 8초 링에서만 그리므로 브라우저가 못 받은 프레임(WS 지연·탭 멈춤)이 구멍으로 남고 롤오버(저장본으로 다시 그림)까지 그대로였다.
+- `viewer/History.jsx` LiveWindow: 1초마다 덮인 구간(seed 저장본 + 링 샘플)을 합쳐 구멍을 찾고, 6초 이상 지난 구멍은 저장 청크에서 잘라 별도 트레이서로 채운다(`backfill`, 앞 부분 seam 포함). 저장 청크에 아직 없으면 부모에 `onHoles` → 그 청크를 5초에 한 번 다시 읽는다.
+- 저장 구간(Window): 저장본 vs LIVE 인계본 중 하나만 고르던 것을 → 많은 쪽을 바탕으로 다른 쪽의 안 덮인 부분만 덧그린다(`clipRuns`). 저장본 꼬리가 늦고 인계본에 구멍이 있는 경우 둘 다 메워진다.
+
 ### 전광판(고정 디스플레이) 그룹 자동 생성 + 병원 지도 열기/설정 + 뷰어 전광판 트리 (fitlet3)
 
 - **라우터** `emu_link.rs::sync_board_groups` — EMR 동기화 루프에서 한 시간에 한 번 `/api/v1/emr/layout` 을 읽어 전광판 그룹을 만든다(없는 id 만 생성, 사용자가 고친 그룹은 보존). id 규칙(콘솔도 같은 규칙으로 위치→그룹): 간호사실 `board-ns-<ward>`(criteria ward) · 층 복도 `board-fl-<b>-<f>`(building+floor) · 응급실 `board-er-<b>-<f>`(room) · 로비 `board-lobby-<b>`(building). owner `전광판`, 설명은 "<건물> <층>F · <장소> · …" 로 시작. 현재 도면에서 144개(간호사실 92 · 층 복도 46 · 응급실 3 · 로비 3).
