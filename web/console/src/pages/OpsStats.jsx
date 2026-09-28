@@ -122,8 +122,7 @@ export default function OpsStats() {
         <Tile label="수집 커버리지" value={`${(cov.percent || 0).toFixed(1)}%`} sub={range === '5min' ? `${fmtNum(cov.sampled_samples || 0)} / ${fmtNum(cov.expected_samples || 0)} 샘플 (2초)` : `${fmtNum(cov.sampled_minutes || 0)} / ${fmtNum(cov.expected_minutes || 0)}분`} warn={(cov.percent || 0) < 99 && range !== 'hour' && range !== '5min'} />
         <Tile label="라우터 CPU" value={`${(tot.cpu_avg || 0).toFixed(1)}%`} sub={`최대 ${(tot.cpu_max || 0).toFixed(0)}% · 1코어=100`} warn={(tot.cpu_max || 0) > 300} />
         <Tile label="라우터 메모리" value={fmtBytes(tot.mem_avg || 0)} sub={`최대 ${fmtBytes(tot.mem_max || 0)}`} />
-        <Tile label="웹 뷰어 접속" value={stats ? fmtNum(stats.ws_sessions) : '—'} sub="지금 열려 있는 실시간 WS 세션 (뷰어·중앙 모니터·대시보드 지연 측정 포함)" />
-        <Tile label="전송 회선" value={stats ? fmtNum(stats.ws_subscribed_channels) : '—'} sub={stats ? `구독 중인 패치 · 그룹 ${fmtNum(stats.ws_subscribed_groups || 0)} · 게이트웨이 ${fmtNum(stats.ws_subscribed_gateways || 0)} · 송신 ${fmtBytes(stats.total_tx_bytes)}` : ''} />
+        <Tile label="웹 뷰어 / 전송 회선" value={stats ? `${fmtNum(stats.ws_sessions)} / ${fmtNum(stats.ws_subscribed_channels)}` : '—'} sub={stats ? `탭 단위 WS 세션 · 구독 패치 (그룹 ${fmtNum(stats.ws_subscribed_groups || 0)} · GW ${fmtNum(stats.ws_subscribed_gateways || 0)})` : ''} />
         <Tile label="전송 지연 (에뮬레이터→라우터)" value={stats?.latency?.n ? `${stats.latency.p50} ms` : '—'} sub={stats?.latency?.n ? `p95 ${stats.latency.p95} ms${stats.latency.offset_ms ? ` · 시계 보정 +${stats.latency.offset_ms} ms` : ''}` : '프레임 없음'} warn={(stats?.latency?.p95 || 0) > 2000} />
       </div>
       <div className="ops-row-label">게이트웨이 · 패치 · 데이터</div>
@@ -167,6 +166,15 @@ export default function OpsStats() {
           { key: 'connected', label: '수신 중 패치', color: '#3ddc84', area: true },
           { key: 'subs', label: '구독 채널', color: '#7cc4ff' },
           { key: 'ws', label: 'WS 세션', color: '#f5d442' },
+        ]} /></section>
+        <section><h4>웹 뷰어 · 전송 회선</h4><Chart points={pts} range={range} series={[
+          { key: 'ws', label: '웹 뷰어 (WS 세션, 탭 단위)', color: '#f5d442', area: true },
+          { key: 'subs', label: '전송 회선 (구독 패치)', color: '#7cc4ff' },
+        ]} /></section>
+        <section><h4>전송 지연 (ms)</h4><Chart points={pts} range={range} series={[
+          { key: 'lat_browser', label: '브라우저 최대 (종단 간)', color: '#ff9f6b', area: true },
+          { key: 'lat_p95', label: '에뮬레이터→라우터 p95', color: '#c8a2ff' },
+          { key: 'lat_p50', label: '에뮬레이터→라우터 p50', color: '#3ddc84' },
         ]} /></section>
         <section><h4>전송량</h4><Chart points={pts} range={range} series={[
           { key: 'rx_mb_h', label: '수신 MB/h', color: '#3ddc84', area: true },

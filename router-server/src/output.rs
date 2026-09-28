@@ -55,6 +55,8 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
         opened_at: std::time::Instant::now(),
         tx: env_tx,
         ctrl: ctrl_tx,
+        lat_e2e: std::sync::atomic::AtomicI64::new(-1),
+        lat_r2v: std::sync::atomic::AtomicI64::new(-1),
     });
     state.sessions.insert(sid, session.clone());
     state.ws_sessions.fetch_add(1, Ordering::Relaxed);
@@ -123,6 +125,10 @@ async fn client_task(state: Arc<AppState>, socket: WebSocket) {
                         for c in &ch_subs {
                             *state.sub_channels.entry(c.clone()).or_insert(0) += 1;
                         }
+                    }
+                    ClientMsg::Latency { e2e, r2v } => {
+                        session.lat_e2e.store(e2e.clamp(-1, 3_600_000), Ordering::Relaxed);
+                        session.lat_r2v.store(r2v.clamp(-1, 3_600_000), Ordering::Relaxed);
                     }
                     ClientMsg::UnsubscribeChannels {} => {
                         for c in ch_subs.drain() {

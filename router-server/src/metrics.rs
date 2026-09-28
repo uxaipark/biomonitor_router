@@ -49,6 +49,10 @@ struct Sample {
     lost: u64,
     lag: u64,
     drops: u64,
+    /// 전송 지연: 에뮬레이터→라우터 p50/p95(ms), 브라우저 보고 최대 종단 간(ms, -1 = 없음)
+    lat_p50: i64,
+    lat_p95: i64,
+    lat_browser: i64,
 }
 
 static RECENT: std::sync::LazyLock<Mutex<std::collections::VecDeque<Sample>>> =
@@ -64,7 +68,8 @@ CREATE TABLE IF NOT EXISTS metrics_min (
   ingest_conns INTEGER, ws_sessions INTEGER, ws_subs INTEGER, alarms_active INTEGER,
   store_q_max INTEGER,
   d_rx INTEGER, d_tx INTEGER, d_records INTEGER, d_lost INTEGER, d_lag INTEGER, d_drops INTEGER,
-  cpu_mhz REAL, cpu_proc_norm REAL
+  cpu_mhz REAL, cpu_proc_norm REAL,
+  lat_p50 REAL, lat_p95 REAL, lat_browser_max REAL
 );
 CREATE TABLE IF NOT EXISTS metrics_hour (
   ts INTEGER PRIMARY KEY, samples INTEGER,
@@ -75,7 +80,8 @@ CREATE TABLE IF NOT EXISTS metrics_hour (
   ingest_conns INTEGER, ws_sessions INTEGER, ws_subs INTEGER, alarms_active INTEGER,
   store_q_max INTEGER,
   d_rx INTEGER, d_tx INTEGER, d_records INTEGER, d_lost INTEGER, d_lag INTEGER, d_drops INTEGER,
-  cpu_mhz REAL, cpu_proc_norm REAL
+  cpu_mhz REAL, cpu_proc_norm REAL,
+  lat_p50 REAL, lat_p95 REAL, lat_browser_max REAL
 );
 CREATE TABLE IF NOT EXISTS incidents (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, kind TEXT NOT NULL,
@@ -105,7 +111,7 @@ impl Metrics {
         }
         // 2026-09-27: 클럭 열 추가 — 이미 있는 DB 는 ALTER (있으면 "duplicate column" 오류, 무시)
         for t in ["metrics_min", "metrics_hour"] {
-            for c in ["cpu_mhz REAL", "cpu_proc_norm REAL"] {
+            for c in ["cpu_mhz REAL", "cpu_proc_norm REAL", "lat_p50 REAL", "lat_p95 REAL", "lat_browser_max REAL"] {
                 let _ = db.execute(&format!("ALTER TABLE {t} ADD COLUMN {c}"), []);
             }
         }
@@ -164,6 +170,7 @@ pub fn run(state: Arc<AppState>) {
     // per-minute accumulators
     let (mut n, mut cpu_sum, mut cpu_max, mut sys_sum, mut q_max) = (0u32, 0f64, 0f64, 0f64, 0i64);
     let (mut mhz_sum, mut norm_sum) = (0f64, 0f64);
+    let (mut lat50_sum, mut lat95_max, mut latb_max, mut lat_n) = (0f64, -1i64, -1i64, 0u32);
     // the stall peak is tracked separately from the per-minute maximum, which resets on the minute boundary
     let (mut stall_open, mut stall_peak) = (false, 0i64);
 
@@ -172,6 +179,9 @@ pub fn run(state: Arc<AppState>) {
         let cpu = crate::sysmon::proc_cpu_percent() as f64;
         let sys = crate::sysmon::cpu_percent() as f64;
         let q = (state.store_tx.max_capacity() - state.store_tx.capacity()) as i64;
+        let lat = crate::latency::stats();
+        let (lat_p50, lat_p95) = (lat["p50"].as_i64().unwrap_or(-1), lat["p95"].as_i64().unwrap_or(-1));
+        let lat_browser = state.browser_latency_max().0.unwrap_or(-1);
         {
             let c = counters(&state);
             let (mem_proc, mem_used, mem_total) = crate::sysmon::memory_stats_native();
@@ -197,6 +207,9 @@ pub fn run(state: Arc<AppState>) {
                 lost: c.lost,
                 lag: c.lag,
                 drops: c.drops,
+                lat_p50,
+                lat_p95,
+                lat_browser,
             };
             let mut r = RECENT.lock().unwrap();
             if r.len() >= RECENT_CAP {
@@ -209,6 +222,12 @@ pub fn run(state: Arc<AppState>) {
         sys_sum += sys;
         mhz_sum += crate::sysmon::cpu_mhz() as f64;
         norm_sum += crate::sysmon::proc_cpu_percent_norm() as f64;
+        if lat_p50 >= 0 {
+            lat50_sum += lat_p50 as f64;
+            lat_n += 1;
+        }
+        lat95_max = lat95_max.max(lat_p95);
+        latb_max = latb_max.max(lat_browser);
         if cpu > cpu_max {
             cpu_max = cpu;
         }
@@ -270,10 +289,13 @@ pub fn run(state: Arc<AppState>) {
             d(c.drops, prev.drops),
             mhz_sum / n.max(1) as f64,
             norm_sum / n.max(1) as f64,
+            if lat_n > 0 { Some(lat50_sum / lat_n as f64) } else { None },
+            if lat95_max >= 0 { Some(lat95_max as f64) } else { None },
+            if latb_max >= 0 { Some(latb_max as f64) } else { None },
         ];
         if let Ok(db) = m.db.lock() {
             if let Err(e) = db.execute(
-                "INSERT OR REPLACE INTO metrics_min VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29)",
+                "INSERT OR REPLACE INTO metrics_min VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32)",
                 row,
             ) {
                 warn!("metrics insert: {}", e);
@@ -300,6 +322,10 @@ pub fn run(state: Arc<AppState>) {
         q_max = 0;
         mhz_sum = 0.0;
         norm_sum = 0.0;
+        lat50_sum = 0.0;
+        lat95_max = -1;
+        latb_max = -1;
+        lat_n = 0;
 
         let hour = ts / 3600;
         if hour != last_hour_rolled {
@@ -325,7 +351,7 @@ fn rollup(m: &Metrics, hour_ts: i64) {
                 AVG(patches), AVG(connected), MIN(connected), MAX(gw_total), AVG(gw_connected),
                 AVG(ingest_conns), AVG(ws_sessions), AVG(ws_subs), AVG(alarms_active),
                 MAX(store_q_max), SUM(d_rx), SUM(d_tx), SUM(d_records), SUM(d_lost), SUM(d_lag), SUM(d_drops),
-                AVG(cpu_mhz), AVG(cpu_proc_norm)
+                AVG(cpu_mhz), AVG(cpu_proc_norm), AVG(lat_p50), MAX(lat_p95), MAX(lat_browser_max)
          FROM metrics_min WHERE ts >= ?1 AND ts < ?1 + 3600",
         params![hour_ts],
     );
@@ -375,6 +401,8 @@ fn series_recent(m: &Metrics) -> serde_json::Value {
             "rx": d(s.rx, p.rx), "tx": d(s.tx, p.tx), "records": d(s.records, p.records),
             "lost": d(s.lost, p.lost), "lag": d(s.lag, p.lag), "drops": d(s.drops, p.drops),
             "samples": 1,
+            "lat_p50": if s.lat_p50 >= 0 { Some(s.lat_p50) } else { None }, "lat_p95": if s.lat_p95 >= 0 { Some(s.lat_p95) } else { None },
+            "lat_browser": if s.lat_browser >= 0 { Some(s.lat_browser) } else { None },
         }));
     }
     let n = ring.len().max(1) as f64;
@@ -449,7 +477,7 @@ pub fn series(m: &Metrics, range: &str) -> serde_json::Value {
                     AVG(patches), AVG(connected), MIN(connected), MAX(gw_total), AVG(gw_connected),
                     AVG(ingest_conns), AVG(ws_sessions), AVG(ws_subs), AVG(alarms_active),
                     MAX(store_q_max), SUM(d_rx), SUM(d_tx), SUM(d_records), SUM(d_lost), SUM(d_lag), SUM(d_drops),
-                    AVG(cpu_mhz), AVG(cpu_proc_norm)
+                    AVG(cpu_mhz), AVG(cpu_proc_norm), AVG(lat_p50), MAX(lat_p95), MAX(lat_browser_max)
              FROM metrics_min WHERE ts >= ?1",
             params![h],
         );
@@ -463,7 +491,7 @@ pub fn series(m: &Metrics, range: &str) -> serde_json::Value {
                 AVG(patches), AVG(connected), MIN(connected), AVG(gw_connected), MAX(gw_total),
                 AVG(ws_sessions), AVG(ws_subs), AVG(alarms_active), MAX(store_q_max),
                 SUM(d_rx), SUM(d_tx), SUM(d_records), SUM(d_lost), SUM(d_lag), SUM(d_drops), COUNT(*),
-                AVG(cpu_mhz), AVG(cpu_proc_norm)
+                AVG(cpu_mhz), AVG(cpu_proc_norm), AVG(lat_p50), MAX(lat_p95), MAX(lat_browser_max)
          FROM {t} WHERE ts >= ?1 GROUP BY bt ORDER BY bt",
         b = bucket,
         t = table
@@ -484,6 +512,7 @@ pub fn series(m: &Metrics, range: &str) -> serde_json::Value {
             "lost": r.get::<_, Option<f64>>(23)?, "lag": r.get::<_, Option<f64>>(24)?, "drops": r.get::<_, Option<f64>>(25)?,
             "samples": r.get::<_, i64>(26)?,
             "mhz": r.get::<_, Option<f64>>(27)?, "cpu_norm": r.get::<_, Option<f64>>(28)?,
+            "lat_p50": r.get::<_, Option<f64>>(29)?, "lat_p95": r.get::<_, Option<f64>>(30)?, "lat_browser": r.get::<_, Option<f64>>(31)?,
         }))
     });
     let points: Vec<serde_json::Value> = rows.map(|it| it.flatten().collect()).unwrap_or_default();

@@ -52,6 +52,11 @@ function noteLatency(recv, sentMs, items, offsetMs = 0, epoch = 0) {
   }
   lat.at = recv; lat.offset = offsetMs
 }
+// 5초마다 라우터에 이 탭의 지연을 보고 (운영 통계 '브라우저 최대' 선). 탭마다 WS 가 하나라 탭 단위로 집계된다.
+setInterval(() => {
+  const l = latencyNow()
+  if (l && ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: 'latency', e2e: l.e2e ?? -1, r2v: l.r2v ?? -1 })) } catch { /* ignore */ } }
+}, 5000)
 /** 이 브라우저의 보정값 (표시용) */
 export const browserLatencyOffset = () => ({ ...mine })
 /** 최근 40개 배치의 중앙값 (ms). 스트림이 2초 넘게 없으면 null */

@@ -61,6 +61,9 @@ pub struct Session {
     pub tx: mpsc::Sender<Arc<OutEnvelope>>,
     /// 알람·멤버십·채널 이벤트 큐. 파형과 분리해 두어야 폭주 중에도 알람이 버려지지 않는다.
     pub ctrl: mpsc::Sender<Arc<OutEnvelope>>,
+    /// 브라우저가 5초마다 보고하는 지연(ms): 종단 간(에뮬레이터→뷰어)·라우터→뷰어. -1 = 아직 없음. 운영 통계의 '브라우저 최대' 선.
+    pub lat_e2e: std::sync::atomic::AtomicI64,
+    pub lat_r2v: std::sync::atomic::AtomicI64,
 }
 
 impl Session {
@@ -545,6 +548,18 @@ impl AppState {
                 self.publish(&st.groups, &msg);
             }
         }
+    }
+
+    /// 모든 WS 세션이 보고한 브라우저 지연의 최대 (종단 간, 라우터→뷰어). 보고가 없으면 None
+    pub fn browser_latency_max(&self) -> (Option<i64>, Option<i64>) {
+        let (mut e2e, mut r2v) = (None, None);
+        for s in self.sessions.iter() {
+            let a = s.lat_e2e.load(std::sync::atomic::Ordering::Relaxed);
+            let b = s.lat_r2v.load(std::sync::atomic::Ordering::Relaxed);
+            if a >= 0 { e2e = Some(e2e.map_or(a, |x: i64| x.max(a))); }
+            if b >= 0 { r2v = Some(r2v.map_or(b, |x: i64| x.max(b))); }
+        }
+        (e2e, r2v)
     }
 
     /// 그룹 설정 변경 후 전체 채널 멤버십 재계산

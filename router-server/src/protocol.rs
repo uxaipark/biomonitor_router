@@ -343,4 +343,12 @@ pub enum ClientMsg {
     SubscribeChannels { channel_ids: Vec<String> },
     #[serde(rename = "unsubscribe_channels")]
     UnsubscribeChannels {},
+    /// 브라우저가 측정한 지연 보고 (ms, 5초마다): e2e = 에뮬레이터→뷰어, r2v = 라우터→뷰어. -1 = 없음
+    #[serde(rename = "latency")]
+    Latency {
+        #[serde(default)]
+        e2e: i64,
+        #[serde(default)]
+        r2v: i64,
+    },
 }
