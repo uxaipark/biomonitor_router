@@ -116,7 +116,7 @@ button.ghost.danger:hover { color: var(--err); }
 /* 저장된 그룹: 전광판 트리 (건물 → 층 → 전광판) */
 .vw-colh .seg { flex: none; }
 .vw-colh .seg button { padding: 3px 12px; font-size: 12px; white-space: nowrap; }
-.vw-gq { width: 84px; min-width: 0; flex: 0 1 84px; padding: 3px 8px; font-size: 12px; }
+.vw-gq { width: 130px; min-width: 0; flex: 0 1 130px; padding: 3px 8px; font-size: 12px; }
 .vw-list.saved { max-height: 340px; }
 .vw-tree { display: flex; flex-direction: column; gap: 2px; }
 .vw-tree.sub { margin-left: 14px; }
