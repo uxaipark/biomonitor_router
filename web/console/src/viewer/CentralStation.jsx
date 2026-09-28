@@ -155,8 +155,8 @@ export default function CentralStation({ rows, alarms, unit, onClose }) {
           </span>
           {pages > 1 && <span className="cs-pager"><button className="btn btn-secondary" onClick={() => setPage(Math.max(0, cur - 1))}>‹</button><span>{cur + 1} / {pages}</span><button className="btn btn-secondary" onClick={() => setPage(Math.min(pages - 1, cur + 1))}>›</button></span>}
           <span className={'cs-alarms' + (nAlarms ? (silenced ? ' is-muted' : '') : ' ds-none')}>{nAlarms} alarm{nAlarms === 1 ? '' : 's'}{silenced ? ' · silenced' : ''}</span>
-          <span className="cs-clock-wrap"><span className="cs-clock">{clock}</span><Latency /></span>
           <button className={'btn btn-secondary ds-icon' + (silenced ? ' on' : '')} onClick={() => setSilenced(!silenced)} title="알람 묵음 (전체) 켜기/끄기">{silenced ? BELL_OFF : BELL}</button>
+          <span className="cs-clock-wrap"><span className="cs-clock">{clock}</span><Latency /></span>
         </div>
         {onClose && <button className="btn btn-secondary cs-close" onClick={onClose}>Close</button>}
       </header>
