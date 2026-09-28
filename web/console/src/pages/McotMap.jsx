@@ -134,7 +134,9 @@ export default function McotMap({ alarms }) {
         <span className="mm-summary"><span>환자 <b>{shown.length}</b></span><span>알람 <b className={nAlarm ? 'err' : ''}>{nAlarm}</b></span><span>수신 없음 <b>{nStale}</b></span><span>이동 중 <b>{nMoving}</b></span><span>지역 <b>{regions.length}</b></span>{nNoGeo > 0 && <span className="muted">주소 없음 {nNoGeo}</span>}</span>
         <span className="spacer" />
         <input type="search" placeholder="이름 · 지역 · MRN" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button onClick={() => window.open(viewerUrl({ tpl: 'central', mode: 'mcot', label: 'MCOT 환자 전체' }), 'mcot:all')} disabled={!all.length}>중앙 모니터 (MCOT 전체)</button>
+        <button className="primary" disabled={!shown.length} title="지금 고른 탭(·검색)의 환자들로 중앙 모니터를 새 탭에 연다"
+          onClick={() => { const nm = NATION.find(([k]) => k === nation)?.[1] || '전체'; const label = `MCOT · ${nm}${qn ? ` · "${q.trim()}"` : ''}`; window.open(viewerUrl({ tpl: 'central', ids: shown.map((r) => r.channel_id), label }), `mcot:${nation}:${qn}`) }}>
+          중앙 모니터 ({NATION.find(([k]) => k === nation)?.[1] || '전체'} {shown.length}명)</button>
       </div>
       <div className="map-cols">
         <div className="mm-map">
