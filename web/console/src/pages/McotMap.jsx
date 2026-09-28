@@ -122,7 +122,7 @@ export default function McotMap({ alarms }) {
   return (
     <div className="page map-page" style={{ maxWidth: 'none' }}>
       <div className="mm-tools">
-        <h3 className="h" style={{ margin: 0 }}>MCOT 지도</h3>
+        <h3 className="h" style={{ margin: 0 }}>MCOT</h3>
         <span className="mm-summary"><span>환자 <b>{shown.length}</b></span><span>알람 <b className={nAlarm ? 'err' : ''}>{nAlarm}</b></span><span>수신 없음 <b>{nStale}</b></span><span>이동 중 <b>{nMoving}</b></span><span>지역 <b>{regions.length}</b></span>{nNoGeo > 0 && <span className="muted">주소 없음 {nNoGeo}</span>}</span>
         <span className="spacer" />
         <input type="search" placeholder="이름 · 지역 · MRN" value={q} onChange={(e) => setQ(e.target.value)} />

@@ -35,8 +35,8 @@ const PAGES = [
   ['#/alarms', '알람', Alarms, '모니터링', 'page.alarms'],
   ['#/patients', '환자', Patients, '모니터링', 'page.patients'],
   ['#/map', '병원 지도', MapPage, '모니터링', 'page.map'],
-  ['#/mcot', 'MCOT 지도', McotMap, '모니터링', 'page.mcot_map'],
   ['#/viewers', '뷰어', Viewers, '모니터링', 'page.viewers'],
+  ['#/mcot', 'MCOT', McotMap, '모니터링', 'page.mcot_map'],
   // 인프라 — 파이프라인·장비·기록 (운영 통계가 첫 화면; 권한이 없으면 볼 수 있는 첫 메뉴로)
   ['#/', '운영 통계', OpsStats, '인프라', 'page.ops'],
   ['#/gateways', '게이트웨이', Gateways, '인프라', 'page.gateways'],
