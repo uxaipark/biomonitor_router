@@ -43,7 +43,7 @@ const INDEX_PER_FLUSH: usize = 10;
 const RETIRE_AFTER: Duration = Duration::from_secs(900);
 /// 봉인 스레드 페이싱: 2시간 단위가 끝나면 2,000여 파일이 한꺼번에 닫혀 1분간 한 코어를 다 쓰던 것을, 초당 파일 수 제한 +
 /// 낮은 우선순위(nice)로 몇 분에 걸쳐 펼친다. 봉인 뒤에 백업이 시작되므로 그만큼 늦어질 뿐 결과는 같다.
-const SEAL_MAX_PER_SEC: u64 = 20;
+const SEAL_MAX_PER_SEC: u64 = 10;
 const SEAL_NICE: i32 = 10;
 
 /// Total bytes on disk (rec + rec.gz), maintained incrementally and rescanned every 10 minutes.
