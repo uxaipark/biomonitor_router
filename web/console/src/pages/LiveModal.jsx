@@ -192,7 +192,7 @@ export function LiveModal({ channelId, alarms, onClose, inline = false }) {
   // highlight the vital tile the alarm is about (alarm kinds: hr_*, spo2_*, resp_*, temp_*)
   const sevOf = (prefix) => (alarm?.kind?.startsWith(prefix) ? `sev-${alarm.severity}` : '')
 
-  const WW = inline ? 460 : 920, WH = inline ? 150 : 190, WS = inline ? 50 : 60
+  const WW = inline ? 280 : 920, WH = inline ? 120 : 190, WS = inline ? 44 : 60 // 인라인 패널(320px)에 맞춘 파형 폭
   const Wrap = ({ children }) => inline
     ? <div className={'lm lm-inline' + (alarm ? ` lm-sev-${alarm.severity}` : '')}>{children}</div>
     : <div className="modal-bg" onClick={onClose}><div className={'modal lm' + (alarm ? ` lm-sev-${alarm.severity}` : '')} onClick={(e) => e.stopPropagation()}>{children}</div></div>

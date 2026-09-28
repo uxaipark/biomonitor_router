@@ -211,7 +211,7 @@ canvas.wave { width: 100%; display: block; border-radius: 6px; }
 .rules label span { flex: 1; }
 .rules label input { min-width: 0; width: 90px; text-align: right; }
 
-.map-cols { display: grid; grid-template-columns: minmax(0, 1fr) 520px; gap: 12px; height: calc(100vh - 186px); min-height: 520px; } /* 오른쪽 패널 폭 고정 520px (환자 상세·목록 공통, 사용자 요청) */
+.map-cols { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; height: calc(100vh - 186px); min-height: 520px; } /* 오른쪽 패널 폭 320px 고정 (원래 폭, 환자 상세·목록 공통 — 사용자 요청) */
 @media (max-width: 1000px) { .map-cols { grid-template-columns: 1fr; height: auto; } }
 
 /* ── 층 평면도 (공공 안내도 스타일) ──────────────────────────────────────────
@@ -1296,6 +1296,8 @@ main.adm-main { padding: 0; }
 .lm-inline .lm-body { display: flex; flex-direction: column; }
 .lm-inline .lm-main { overflow: visible; padding: 10px 12px; }
 .lm-inline .lm-side { border-left: 0; border-top: 1px solid var(--line); padding: 10px 12px 14px; }
-.lm-inline .lm-vitals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.lm-inline .lm-vitals { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.lm-inline .lm-ids { flex-wrap: wrap; }
+.lm-inline .lm-dev { flex-wrap: wrap; }
 .lm-inline .lm-close { display: inline-flex; }
 @media (max-width: 1000px) { .map-cols { grid-template-columns: 1fr; height: auto; } }
