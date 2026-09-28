@@ -513,7 +513,8 @@ button.danger:hover { background: var(--err); color: #fff; }
 .pat.sev-critical .pat-halo { stroke: var(--sev-critical); } .pat.sev-medium .pat-halo { stroke: var(--sev-medium); } .pat.sev-low .pat-halo { stroke: var(--sev-low); }
 @keyframes pat-halo { 0% { r: .5; opacity: .95; } 100% { r: 1.1; opacity: 0; } }
 .plbl.left { text-anchor: end; }
-.plbl { font-size: .52px; fill: var(--plan-ink); text-anchor: start; paint-order: stroke; stroke: var(--plan-slab); stroke-width: .16; stroke-linejoin: round; pointer-events: none; }
+.plbl { font-size: .52px; fill: var(--plan-ink); text-anchor: start; paint-order: stroke; stroke: var(--plan-slab); stroke-width: .16; stroke-linejoin: round; pointer-events: auto; cursor: pointer; } /* 이름표도 클릭·호버 대상 (사용자 요청) */
+.plbl-bg { pointer-events: auto; cursor: pointer; }
 .legend .dot.q-good { background: var(--q-good); } .legend .dot.q-fair { background: var(--q-fair); } .legend .dot.q-weak { background: var(--q-weak); }
 .legend .dot.q-poor { background: var(--q-poor); } .legend .dot.q-lost { background: var(--q-lost); }
 
@@ -697,7 +698,7 @@ canvas.accel-plot { width: 100%; display: block; border-radius: 6px; }
 .pat.sev-critical .pat-beacon { animation-duration: .6s; }
 @keyframes pat-beacon { 50% { fill-opacity: .12; stroke-opacity: .35; } }
 .pat.urgent .pat-body { fill: var(--al); stroke: #fff; stroke-width: .09; }
-.plbl-bg { fill: var(--al); pointer-events: none; }
+.plbl-bg { fill: var(--al); }
 .pat.urgent .plbl { fill: #fff; font-weight: 700; stroke: none; }
 /* 확인(ack)한 알람은 깜박이지 않고 옅게 — 아직 아무도 보지 않은 환자가 먼저 눈에 띄도록 */
 .pat.urgent.acked .pat-beacon { animation: none; fill-opacity: .18; }
@@ -1301,3 +1302,28 @@ main.adm-main { padding: 0; }
 .lm-inline .lm-dev { flex-wrap: wrap; }
 .lm-inline .lm-close { display: inline-flex; }
 @media (max-width: 1000px) { .map-cols { grid-template-columns: 1fr; height: auto; } }
+/* 인라인 환자 패널(320px)용 축소 규칙 — 모달 크기 기준 스타일이 좁은 패널에서 넘치지 않게 */
+.lm.lm-inline { width: 100%; min-width: 0; max-width: 100%; height: auto; max-height: none; box-shadow: none; border: 1px solid var(--line); background: var(--panel); }
+.lm-inline .lm-head { flex-wrap: wrap; gap: 8px 10px; }
+.lm-inline .lm-avatar { width: 40px; height: 40px; }
+.lm-inline .lm-name h2 { font-size: 17px; }
+.lm-inline .lm-place { font-size: 13px; }
+.lm-inline .lm-ids { gap: 2px 10px; font-size: 12px; }
+.lm-inline .lm-actions { width: 100%; justify-content: space-between; }
+.lm-inline .lm-actions .seg button { padding: 4px 10px; font-size: 12px; }
+.lm-inline .lm-main { gap: 8px; }
+.lm-inline .lm-vital { padding: 6px 10px 7px; }
+.lm-inline .lm-vl { font-size: 11px; }
+.lm-inline .lm-vv { font-size: 24px; }
+.lm-inline .lm-vv small { font-size: 11px; margin-left: 3px; }
+.lm-inline .lm-panel { padding: 6px 8px 8px; }
+.lm-inline .lm-panel canvas { max-width: 100%; height: auto; }
+.lm-inline .lm-dev { gap: 6px 14px; padding: 8px 10px; }
+.lm-inline .lm-dev b { font-size: 13px; }
+.lm-inline .lm-side { gap: 10px; }
+.lm-inline .lm-dl { grid-template-columns: 78px 1fr; font-size: 12.5px; }
+.lm-inline .lm-alarm { grid-template-columns: auto 1fr; }
+.lm-inline .lm-alarm small { grid-column: 2; }
+.lm-inline .lm-dx b { font-size: 14px; }
+.lm-inline .lm-hx { min-height: 420px; }
+.map-side.wide { overflow: auto; }
