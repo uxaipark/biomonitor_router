@@ -307,10 +307,7 @@ export default function Viewers({ alarms }) {
           <div className="vw-colh"><span className="vw-n">3</span><h4>세부 대상 <span className="mono">{shown.length.toLocaleString()}</span>명</h4><span className="spacer" />
             <button onClick={() => openIds(crumbLast, shownIds)} disabled={!shown.length} title={`${tplName} 으로 바로 열기${overMax(shown.length)}`}>이 목록 바로 열기</button>
           </div>
-          <div className="vw-crumb"><span className="muted">{crumb}</span><span className="spacer" />
-            <button className="ghost" onClick={() => setSel(new Set(shownIds))} disabled={!shown.length}>모두 선택</button>
-            {selIds.length > 0 && <button className="ghost" onClick={() => setSel(new Set())}>해제</button>}
-          </div>
+          <div className="vw-crumb"><span className="muted">{crumb}</span></div>
           <div className="vw-list">
             {shown.map((r) => {
               const id = String(r.channel_id); const p = r.patient || {}
@@ -331,6 +328,9 @@ export default function Viewers({ alarms }) {
           </div>
           <div className="vw-foot">
             <span className="muted">선택 <b>{selIds.length}</b>명</span>
+            {selIds.length && selIds.length === shownIds.length
+              ? <button className="ghost small" onClick={() => setSel(new Set())} title="선택 해제">해제</button>
+              : <button className="ghost small" onClick={() => setSel(new Set(shownIds))} disabled={!shown.length} title="목록 전체 선택">모두 선택</button>}
             <span className="spacer" />
             <button disabled={!selIds.length} onClick={() => openIds('선택 환자', selIds)} title={`${tplName} 으로 바로 열기${overMax(selIds.length)}`}>선택 바로 열기</button>
             <button className="primary" disabled={!selIds.length || !canGroups} onClick={() => { addMembers(selIds); notify(`${selIds.length}명 담음`) }} title={canGroups ? '그룹 만들기에 담기' : '그룹 편집 권한 없음'}>그룹에 담기 →</button>
