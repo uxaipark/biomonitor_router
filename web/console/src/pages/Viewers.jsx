@@ -317,7 +317,10 @@ export default function Viewers({ alarms }) {
                   title={canGroups ? (on && selIds.length > 1 ? `선택 ${selIds.length}명 끌어서 그룹에 담기` : '끌어서 그룹에 담기') : undefined}>
                   <span className="vw-grip" aria-hidden>⋮⋮</span>
                   <input type="checkbox" checked={on} onChange={() => toggleSel(id)} onClick={(ev) => ev.stopPropagation()} aria-label={`${p.name || id} 선택`} />
-                  <span className="vw-pname"><b>{p.name || r.mrn || id}</b><small className="muted">{[wardText(p.ward), roomOnly(p.room || r.space), isAway(p, r.space) && `현재 ${r.space}`].filter(Boolean).join(' ')}</small></span>
+                  <span className="vw-pname">
+                    <span className="l1"><b>{p.name || r.mrn || id}</b><small className="muted mono">{r.mrn || id}</small>{p.pacemaker && <small className="vw-pace" title="페이스메이커">PM</small>}</span>
+                    <small className="muted l2">{[[wardText(p.ward), roomOnly(p.room || r.space)].filter(Boolean).join(' '), isAway(p, r.space) && `현재 ${r.space}`, p.doctor && (staff.get(p.doctor)?.name || p.doctor), p.department, p.diagnosis].filter(Boolean).join(' · ')}</small>
+                  </span>
                   {added && <span className="lk-pill vw-added" title="그룹 만들기에 담겨 있음">담김</span>}
                   {sv != null && <Pill tone={SEV[sv][1]}>{SEV[sv][0]}</Pill>}
                   <button className="vw-open" onClick={(ev) => { ev.stopPropagation(); openIds(p.name || id, [id]) }} title={`${tplName} 으로 바로 열기`}>열기</button>
