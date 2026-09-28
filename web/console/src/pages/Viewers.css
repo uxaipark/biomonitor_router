@@ -114,8 +114,9 @@ button.ghost.danger:hover { color: var(--err); }
 .vw-foot .ghost.small { padding: 3px 0; font-size: 12.5px; margin-left: 14px; width: 74px; text-align: center; } /* 모두 선택 ↔ 해제: 같은 자리, 같은 폭 */
 
 /* 저장된 그룹: 전광판 트리 (건물 → 층 → 전광판) */
-.vw-colh .seg button { padding: 2px 8px; font-size: 11.5px; }
-.vw-gq { width: 110px; padding: 3px 8px; font-size: 12px; }
+.vw-colh .seg { flex: none; }
+.vw-colh .seg button { padding: 3px 12px; font-size: 12px; white-space: nowrap; }
+.vw-gq { width: 84px; min-width: 0; flex: 0 1 84px; padding: 3px 8px; font-size: 12px; }
 .vw-list.saved { max-height: 340px; }
 .vw-tree { display: flex; flex-direction: column; gap: 2px; }
 .vw-tree.sub { margin-left: 14px; }
