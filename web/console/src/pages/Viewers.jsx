@@ -1,28 +1,27 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { can, useMe } from '../auth.js'
 import { api, usePoll } from '../api.js'
 import { TEMPLATES, viewerUrl } from '../viewer/templates.js'
-import { sortBy, wardText, wardRoom, roomText, gwLabel, isAway } from '../model.js'
-import Dropdown from '../Dropdown.jsx'
-import { Pill, go } from '../ListKit.jsx'
-import { RENDER_MODES, setRenderMode, useRenderMode } from '../settings.js'
+import { wardText, wardRoom, roomText, gwLabel, isAway } from '../model.js'
+import { Pill } from '../ListKit.jsx'
 import '../viewer/ds.css'
 import './Viewers.css'
 
 /**
- * 뷰어 실행기 — ① 묶을 기준 → ② 대상 선택 → ③ 템플릿으로 새 탭에서 열기.
- * ① 왼쪽: 병동·병실·게이트웨이·그룹, 담당·임상 기준(담당의·간호사·진료과목·주진단·페이스메이커·MCOT) — 기준마다 개수.
- * ② 가운데: 그 기준의 대상 표. 행의 '열기' 는 오른쪽에서 고른 템플릿으로 그 대상만 연다. 여러 행을 체크하면 환자 합집합을
- *    한 뷰어(패치 id 목록, `ids=`)로 연다 — 뷰어 URL 은 병동/게이트웨이 등 범위 값을 하나만 받지만 `ids` 는 여러 개를 받는다.
- * ③ 오른쪽: 템플릿(templates.js), 표시 옵션(밀도·알람 있는 환자만·파형 그리기), 선택 N개 · 새 탭에서 열기.
- * 즐겨찾기(★, localStorage viewers.fav)는 표 맨 앞에, 열어 둔 탭은 창 핸들로 추적해 "열려 있음" 과 상단 카운터에 보인다.
- * 그룹은 라우터 DB 의 사용자 정의 환자 집합 — 그룹 기준에서 만들기·편집·삭제(권한 action.groups_edit).
+ * 뷰어 — 바로 열기 + 그룹 만들기 (⑬ 화면).
+ * 바로 열기: 목록 옆 '열기' 로 그룹 없이 즉시 파형을 새 탭에 연다. 그룹으로 열기: 하위 대상(병동·병실 등)이나 세부 대상(환자)을
+ * 오른쪽 '그룹 만들기' 패널로 끌어 담고 저장한 뒤 연다.
+ * ① 그룹 기준(위치 / 담당·임상) → ② 그 기준의 하위 대상(값별 환자 수, 행 전체 끌기 가능, 클릭하면 좁히기) → ③ 세부 대상(환자, 체크·끌기·바로 열기).
+ * 오른쪽: 저장된 그룹(편집·열기) + 그룹 만들기(놓기 영역, 구성, 저장·저장하고 열기). 그룹은 라우터 DB 의 사용자 정의 환자 집합
+ * (GroupConfig.include 에 패치 id 목록) — 저장·편집·삭제는 권한 action.groups_edit.
+ * 모든 '열기' 는 상단 '열기 템플릿' 을 쓴다. 열어 둔 탭은 창 핸들로 추적해 상단 카운터에 보인다.
  */
 const KINDS = [
-  ['ward', '병동'], ['room', '병실'], ['doctor', '담당의'], ['nurse', '간호사'],
-  ['department', '진료과목'], ['diagnosis', '주진단'], ['pacemaker', '페이스메이커'], ['mcot', 'MCOT'], ['gw', '게이트웨이'], ['group', '그룹'],
+  ['ward', '병동'], ['room', '병실'], ['gw', '게이트웨이'],
+  ['doctor', '담당의'], ['nurse', '간호사'], ['department', '진료과목'], ['diagnosis', '주진단'], ['pacemaker', '페이스메이커'], ['mcot', 'MCOT'],
 ]
-const SCOPE_KEY = { ward: 'ward', room: 'room', doctor: 'doctor', nurse: 'nurse', department: 'dept', diagnosis: 'dx', gw: 'gw', group: 'group', pacemaker: 'ward', mcot: 'ward' }
+const KIND_GROUPS = [['위치', ['ward', 'room', 'gw']], ['담당 · 임상', ['doctor', 'nurse', 'department', 'diagnosis', 'pacemaker', 'mcot']]]
+const SCOPE_KEY = { ward: 'ward', room: 'room', doctor: 'doctor', nurse: 'nurse', department: 'dept', diagnosis: 'dx', gw: 'gw', pacemaker: 'ward', mcot: 'ward' }
 // boolean categories: rows are the wards holding such patients, plus an all-wards row (key '')
 const isPaced = (r) => (r.flags & 0x10) !== 0
 // MCOT (원외) is a gateway property: a 1-patient mobile gateway (type "mobile", building "원외(MCOT)"); the frames are identical
@@ -30,317 +29,369 @@ export const isMobileGw = (g) => g?.type === 'mobile' || /원외|MCOT/i.test(g?.
 const isMcot = (r, mobile) => mobile.has(r.gateway_id) || (!!r.patient?.mode && r.patient.mode !== 'inpatient')
 const BOOL_KIND = { pacemaker: { test: isPaced, scope: { paced: '1' }, all: '페이스메이커 환자 전체' }, mcot: { test: isMcot, scope: { mode: 'mcot' }, all: 'MCOT 환자 전체' } }
 const pref = (k, d) => { try { return localStorage.getItem(k) || d } catch { return d } }
+const SEV = { 3: ['위험', 'crit'], 2: ['높음', 'high'], 1: ['중간', 'med'], 0: ['낮음', 'low'] }
+const roomOnly = (id) => wardRoom(id)?.room || id || ''
+const shortTpl = (t) => t.name.split(' (')[0]
 
 export default function Viewers({ alarms }) {
-  const canGroups = can(useMe(), 'action.groups_edit', 2) // 그룹 만들기·편집·삭제
+  const canGroups = can(useMe(), 'action.groups_edit', 2) // 그룹 저장·편집·삭제
   const [rows, , refreshRows] = usePoll(api.channels, 10000)
   const [gws] = usePoll(api.gateways, 15000)
   const [groups, , refreshGroups] = usePoll(api.groups, 10000)
   const [staff, setStaff] = useState(new Map())
-  const [kind, setKind] = useState(() => pref('viewers.kind', 'ward'))
+  const [kind, setKind] = useState(() => (KINDS.some(([k]) => k === pref('viewers.kind', 'ward')) ? pref('viewers.kind', 'ward') : 'ward'))
   const [tpl, setTpl] = useState(() => pref('viewers.tpl', TEMPLATES[0].id))
-  const [q, setQ] = useState('')
-  const [subCat, setSubCat] = useState('') // sub-category ('' = all): ward → building, doctor/nurse → specialty
-  // sort per category, remembered: { ward: ['count','desc'], ... }
-  const [sorts, setSorts] = useState(() => { try { return JSON.parse(localStorage.getItem('viewers.sorts') || '{}') } catch { return {} } })
-  const sort = sorts[kind] || ['label', 'asc'] // [column, dir]; column: label | building | floor | count | alarms
-  const setSort = (v) => setSorts((o) => { const n = { ...o, [kind]: v }; try { localStorage.setItem('viewers.sorts', JSON.stringify(n)) } catch { /* ignore */ } return n })
-  const [editing, setEditing] = useState(null) // group being edited (null = closed, {} = new)
-  const [sel, setSel] = useState(() => new Set()) // ② 체크한 대상 키 (기준을 바꾸면 비움)
-  // ③ 표시 옵션 — 뷰어 URL 이 읽는 값이 아니라 여기서 적용하거나(알람만 → ids 로 걸러 열기, 파형 그리기 → settings.js 공유) 기억만 한다(밀도)
-  const [density, setDensity] = useState(() => pref('viewers.opt.density', 'compact'))
-  const [alarmOnly, setAlarmOnly] = useState(() => pref('viewers.opt.alarmOnly', '0') === '1')
-  const renderMode = useRenderMode()
-  useEffect(() => { try { localStorage.setItem('viewers.kind', kind); localStorage.setItem('viewers.tpl', tpl); localStorage.setItem('viewers.opt.density', density); localStorage.setItem('viewers.opt.alarmOnly', alarmOnly ? '1' : '0') } catch { /* ignore */ } }, [kind, tpl, density, alarmOnly])
+  const [val, setVal] = useState(null) // ② 고른 하위 대상 키 (null = 전체)
+  const [sub, setSub] = useState(null) // ② 하위 대상 안에서 더 좁힌 키
+  const [sel, setSel] = useState(() => new Set()) // ③ 체크한 환자(패치 id)
+  // 그룹 만들기 패널
+  const [members, setMembers] = useState([]) // 담긴 패치 id (순서 유지)
+  const [editing, setEditing] = useState(null) // 편집 중인 저장 그룹 (null = 새 그룹)
+  const [name, setName] = useState(null) // null = 기본 이름("새 그룹 N")
+  const [over, setOver] = useState(false) // 끌어서 패널 위에 있음
+  const [dragN, setDragN] = useState(0) // 끌고 있는 환자 수 (0 = 끌기 아님)
+  const [busy, setBusy] = useState(false)
+  const [toast, setToast] = useState('')
+  const toastT = useRef(null)
+  const notify = (msg) => { setToast(msg); clearTimeout(toastT.current); toastT.current = setTimeout(() => setToast(''), 2600) }
+  useEffect(() => () => clearTimeout(toastT.current), [])
+  useEffect(() => { try { localStorage.setItem('viewers.kind', kind); localStorage.setItem('viewers.tpl', tpl) } catch { /* ignore */ } }, [kind, tpl])
   useEffect(() => { api.staff().then((d) => setStaff(new Map((d?.staff || []).map((s) => [s.id, s])))).catch(() => {}) }, [])
-  useEffect(() => { setSel(new Set()) }, [kind])
+  useEffect(() => { setVal(null); setSub(null); setSel(new Set()) }, [kind])
 
   const live = useMemo(() => (rows || []).filter((r) => r.connected), [rows])
+  const byId = useMemo(() => new Map((rows || []).map((r) => [String(r.channel_id), r])), [rows])
   const mobile = useMemo(() => new Set((gws || []).filter(isMobileGw).map((g) => String(g.gw_id))), [gws])
   const alarmIds = useMemo(() => new Set((alarms?.alarms || []).map((a) => String(a.channel_id))), [alarms])
-  // 채널별 가장 높은 심각도 (알람 배지 색: critical/high → crit, medium → med, low → 중립)
+  // 채널별 가장 높은 심각도 (critical 3 · high 2 · medium 1 · low 0)
   const alarmSev = useMemo(() => {
     const rank = { critical: 3, high: 2, medium: 1, low: 0 }
     const m = new Map()
     for (const a of alarms?.alarms || []) { const id = String(a.channel_id); const r = rank[a.severity] ?? 0; if ((m.get(id) ?? -1) < r) m.set(id, r) }
     return m
   }, [alarms])
-  // 즐겨찾기 (scope:key), 브라우저에 기억
-  const [favs, setFavs] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('viewers.fav') || '[]')) } catch { return new Set() } })
-  const toggleFav = (k) => setFavs((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); try { localStorage.setItem('viewers.fav', JSON.stringify([...n])) } catch { /* ignore */ } return n })
-  // 열어 둔 뷰어 탭 (key → window): 닫혔는지 5초마다 확인해 "열려 있음" 표시와 상단 카운터를 갱신
-  const wins = React.useRef(new Map())
+  const sevOf = (id) => alarmSev.get(String(id))
+  // 열어 둔 뷰어 탭 (key → window): 닫혔는지 5초마다 확인해 상단 카운터를 갱신
+  const wins = useRef(new Map())
   const [, tickOpen] = useState(0)
   useEffect(() => { const t = setInterval(() => { let changed = false; for (const [k, w] of wins.current) if (!w || w.closed) { wins.current.delete(k); changed = true } if (changed) tickOpen((n) => n + 1) }, 5000); return () => clearInterval(t) }, [])
   const openTabs = [...wins.current.values()].filter((w) => w && !w.closed).length
   const staffLabel = (id) => { const s = staff.get(id); return s ? `${s.name} (${id})` : id }
   const staffSub = (id) => { const s = staff.get(id); return s ? [s.title, s.specialty, s.ward && `병동 ${s.ward}`].filter(Boolean).join(' · ') : '' }
 
-  // one list entry per distinct value of the chosen category, with connected-patient and alarm counts and member patch ids
+  // ② one entry per distinct value of the chosen category, with connected-patient and alarm counts and member patch ids
   const entries = useMemo(() => {
     const m = new Map()
     const add = (key, r, label, sub) => {
       if (!key) return
       if (!m.has(key)) m.set(key, { key, label: label || key, sub: sub || '', count: 0, alarms: 0, sev: -1, gws: new Set(), mobile: 0, members: [] })
-      const e = m.get(key); e.count++; e.members.push(String(r.channel_id)); if (alarmIds.has(r.channel_id)) { e.alarms++; e.sev = Math.max(e.sev, alarmSev.get(String(r.channel_id)) ?? 0) } if (r.gateway_id) { e.gws.add(r.gateway_id); if (mobile.has(r.gateway_id)) e.mobile++ }
-    }
-    if (kind === 'group') {
-      for (const g of groups || []) m.set(g.id, { key: g.id, label: g.name, sub: [g.description, g.owner && `작성 ${g.owner}`].filter(Boolean).join(' · '), count: 0, alarms: 0, sev: -1, gws: new Set(), mobile: 0, members: [], group: g })
-      for (const r of live) for (const gid of r.groups || []) { const e = m.get(gid); if (e) { e.count++; e.members.push(String(r.channel_id)); if (alarmIds.has(r.channel_id)) { e.alarms++; e.sev = Math.max(e.sev, alarmSev.get(String(r.channel_id)) ?? 0) } if (r.gateway_id) { e.gws.add(r.gateway_id); if (mobile.has(r.gateway_id)) e.mobile++ } } }
-      return [...m.values()].sort((a, b) => (a.key !== 'all') - (b.key !== 'all') || a.label.localeCompare(b.label, 'ko'))
+      const e = m.get(key); const id = String(r.channel_id)
+      e.count++; e.members.push(id); if (alarmIds.has(id)) { e.alarms++; e.sev = Math.max(e.sev, alarmSev.get(id) ?? 0) } if (r.gateway_id) { e.gws.add(r.gateway_id); if (mobile.has(r.gateway_id)) e.mobile++ }
     }
     if (BOOL_KIND[kind]) {
       const { test, all } = BOOL_KIND[kind]
       const hits = live.filter((r) => test(r, mobile))
       for (const r of hits) {
         const p = r.patient || {}
-        if (p.ward) { add(' ' + p.ward, r, p.ward, [p.building, p.floor && `${p.floor}F`].filter(Boolean).join(' ')); const e = m.get(' ' + p.ward); e.building = e.building || p.building || ''; e.floor = e.floor || p.floor || ''; continue }
+        if (p.ward) { add(' ' + p.ward, r, wardText(p.ward), [p.building, p.floor && `${p.floor}F`].filter(Boolean).join(' ')); continue }
         // outside the wards (MCOT): group by the patient's home region when the EMR provides it
-        if (p.home_region) { add(' ' + p.home_region, r, `외부 · ${p.home_region}`, '집주소 지역'); const e = m.get(' ' + p.home_region); e.region = p.home_region; continue }
+        if (p.home_region) { add(' ' + p.home_region, r, `외부 · ${p.home_region}`, '집주소 지역'); m.get(' ' + p.home_region).region = p.home_region; continue }
         add(' 기타', r, '병동 외부', '집주소 정보 없음')
-        const e = m.get(' 기타'); (e.ids = e.ids || []).push(r.channel_id) // nothing to scope by: open by patch ids
+        const e = m.get(' 기타'); (e.ids = e.ids || []).push(String(r.channel_id)) // nothing to scope by: open by patch ids
       }
       const v = [...m.values()].sort((a, b) => a.label.localeCompare(b.label, 'ko'))
-      const total = { key: '', label: all, sub: `${[...m.keys()].length}개 병동`, count: hits.length, alarms: hits.filter((r) => alarmIds.has(r.channel_id)).length, sev: Math.max(-1, ...hits.map((r) => alarmSev.get(String(r.channel_id)) ?? -1)), gws: new Set(hits.map((r) => r.gateway_id).filter(Boolean)), mobile: hits.filter((r) => mobile.has(r.gateway_id)).length, members: hits.map((r) => String(r.channel_id)) }
+      const hitIds = hits.map((r) => String(r.channel_id))
+      const total = { key: '', label: all, sub: `${m.size}개 병동`, count: hits.length, alarms: hitIds.filter((id) => alarmIds.has(id)).length, sev: Math.max(-1, ...hitIds.map((id) => alarmSev.get(id) ?? -1)), gws: new Set(hits.map((r) => r.gateway_id).filter(Boolean)), mobile: hits.filter((r) => mobile.has(r.gateway_id)).length, members: hitIds }
       return [total, ...v.map((e) => ({ ...e, key: e.key.trim() }))]
     }
     for (const r of live) {
       const p = r.patient || {}
-      if (kind === 'ward') { add(p.ward, r, p.ward, ''); const e = m.get(p.ward); if (e) { e.building = e.building || p.building || ''; e.floor = e.floor || p.floor || ''; e.sub2 = e.building } }
+      if (kind === 'ward') add(p.ward, r, wardText(p.ward), [p.building, p.floor && `${p.floor}F`].filter(Boolean).join(' '))
       else if (kind === 'room') {
-        // 입원 병실 + (다르면) 지금 있는 공간 — 검사실·투석실 같은 비병실 공간도 모니터 목록에 나온다
-        add(p.room || r.space, r, p.room || r.space, p.ward && `병동 ${p.ward}`)
-        const e = m.get(p.room || r.space); if (e) { e.building = e.building || p.building || ''; e.floor = e.floor || p.floor || '' }
+        // 입원 병실 + (다르면) 지금 있는 공간 — 검사실·투석실 같은 비병실 공간도 목록에 나온다
+        add(p.room || r.space, r, roomText(p.room || r.space), '')
         if (isAway(p, r.space)) add(r.space, r, r.space, '현재 위치')
       }
-      else if (kind === 'doctor') { add(p.doctor, r, staffLabel(p.doctor), staffSub(p.doctor)); const e = m.get(p.doctor); if (e) e.sub2 = staff.get(p.doctor)?.specialty || '' }
-      else if (kind === 'nurse') { add(p.nurse, r, staffLabel(p.nurse), staffSub(p.nurse)); const e = m.get(p.nurse); if (e) e.sub2 = staff.get(p.nurse)?.specialty || '' }
+      else if (kind === 'doctor') add(p.doctor, r, staffLabel(p.doctor), staffSub(p.doctor))
+      else if (kind === 'nurse') add(p.nurse, r, staffLabel(p.nurse), staffSub(p.nurse))
       else if (kind === 'department') add(p.department, r)
       else if (kind === 'diagnosis') add(p.diagnosis, r)
-      else if (kind === 'gw') { const g = (gws || []).find((x) => String(x.gw_id) === r.gateway_id); add(r.gateway_id, r, `#${r.gateway_id}${g?.name ? ' ' + gwLabel(g.name) : ''}`, g ? [g.location?.room, g.type].filter(Boolean).join(' · ') : ''); const e = m.get(r.gateway_id); if (e && g) { e.building = g.location?.building || ''; e.floor = g.location?.floor || '' } }
+      else if (kind === 'gw') { const g = (gws || []).find((x) => String(x.gw_id) === r.gateway_id); add(r.gateway_id, r, `#${r.gateway_id}${g?.name ? ' ' + gwLabel(g.name) : ''}`, g ? [g.location?.building, g.location?.room, g.type].filter(Boolean).join(' · ') : '') }
     }
     const v = [...m.values()]
     if (kind === 'gw') v.sort((a, b) => Number(a.key) - Number(b.key))
     else v.sort((a, b) => a.label.localeCompare(b.label, 'ko'))
     return v
-  }, [kind, live, groups, gws, staff, alarmIds, alarmSev, mobile])
-  // sub-category buttons: ward → building, doctor/nurse → specialty
-  const SUB_LABEL = { ward: '건물', doctor: '진료과목', nurse: '진료과목' }
-  const subCats = useMemo(() => {
-    if (!SUB_LABEL[kind]) return []
-    const c = new Map()
-    for (const e of entries) { const b = e.sub2 || '기타'; const n = c.get(b) || { rows: 0, patients: 0 }; n.rows++; n.patients += e.count; c.set(b, n) }
-    return [...c].sort((a, b) => a[0].localeCompare(b[0], 'ko')).map(([name, n]) => ({ name, ...n }))
-  }, [kind, entries])
-  const shown = useMemo(() => {
-    const needle = q.trim().toLowerCase()
-    let v = needle ? entries.filter((e) => [e.key, e.label, e.sub].some((x) => String(x || '').toLowerCase().includes(needle))) : entries
-    if (SUB_LABEL[kind] && subCat) v = v.filter((e) => (e.sub2 || '기타') === subCat)
-    const key = sort[0] === 'floor' ? (e) => Number(e.floor) || 0 : sort[0] === 'building' ? (e) => e.building || '' : sort[0] === 'label' && kind === 'gw' ? (e) => Number(e.key) : sort[0]
-    let sorted = sortBy(v, key, sort[1])
-    if (sort[0] === 'alarms') sorted = [...sorted].sort((a, b) => (b.alarms - a.alarms) * (sort[1] === 'desc' ? 1 : -1) || a.label.localeCompare(b.label, 'ko'))
-    // 즐겨찾기(★)는 항상 앞, 전체(모든 환자) 행은 그 다음
-    const favKey = (e) => `${kind}:${e.key}`
-    const top = (e) => (favs.has(favKey(e)) ? 0 : (kind === 'group' && e.key === 'all') || (BOOL_KIND[kind] && e.key === '') ? 1 : 2)
-    return [...sorted].sort((a, b) => top(a) - top(b))
-  }, [entries, q, sort, kind, subCat, favs])
+  }, [kind, live, gws, staff, alarmIds, alarmSev, mobile])
   const kindCounts = useMemo(() => {
     const c = {}
     for (const [k] of KINDS) {
-      if (k === 'group') { c[k] = (groups || []).length; continue }
       if (BOOL_KIND[k]) { c[k] = live.filter((r) => BOOL_KIND[k].test(r, mobile)).length; continue }
       const s = new Set()
       for (const r of live) { const p = r.patient || {}; const v = k === 'gw' ? r.gateway_id : k === 'room' ? (p.room || r.space) : p[k]; if (v) s.add(v); if (k === 'room' && isAway(p, r.space)) s.add(r.space) }
       c[k] = s.size
     }
     return c
-  }, [live, groups, mobile])
+  }, [live, mobile])
 
   const kindLabel = KINDS.find(([k]) => k === kind)[1]
   const tplObj = TEMPLATES.find((t) => t.id === tpl) || TEMPLATES[0]
-  const urlFor = (e, t) => viewerUrl({ tpl: t, ...(BOOL_KIND[kind]?.scope || {}), ...(e.ids ? { ids: e.ids } : e.region ? { region: e.region } : { [SCOPE_KEY[kind]]: e.key }), label: BOOL_KIND[kind] ? (e.key ? `${kindLabel} · 병동 ${e.label}` : e.label) : `${kindLabel} ${e.label}` })
-  const winKey = (e, t) => `${kind}:${e.key}:${t}`
+  const tplName = shortTpl(tplObj)
+  const picked = val != null ? entries.find((e) => e.key === val) || null : null
+  // 하위 대상 안의 2단계: 병실 → 없음, 병동(·페이스메이커·MCOT) → 병실, 그 밖(담당의·게이트웨이 등) → 병동
+  const hasSub = kind !== 'room'
+  const subOf = (r) => (kind === 'ward' || BOOL_KIND[kind] ? (r.patient?.room || r.space || '') : (r.patient?.ward || ''))
+  const subLabel = (k) => (!k ? '기타' : kind === 'ward' || BOOL_KIND[kind] ? roomOnly(k) : wardText(k))
+  const subs = useMemo(() => {
+    if (!picked || !hasSub) return []
+    const m = new Map()
+    for (const id of picked.members) { const r = byId.get(id); if (!r) continue; const k = subOf(r); if (!m.has(k)) m.set(k, { key: k, label: subLabel(k), ids: [] }); m.get(k).ids.push(id) }
+    return [...m.values()].sort((a, b) => a.label.localeCompare(b.label, 'ko'))
+  }, [picked, hasSub, byId, kind]) // eslint-disable-line react-hooks/exhaustive-deps
+  // ③ 세부 대상: 고른 값(·좁힌 값)의 환자, 아무것도 안 골랐으면 연결된 환자 전체
+  const shown = useMemo(() => {
+    let list = picked ? picked.members.map((id) => byId.get(id)).filter(Boolean) : live
+    if (picked && hasSub && sub != null) list = list.filter((r) => subOf(r) === sub)
+    const k = (r) => `${r.patient?.ward || '~'} ${r.patient?.room || r.space || '~'} ${r.patient?.name || ''}`
+    return [...list].sort((a, b) => k(a).localeCompare(k(b), 'ko'))
+  }, [picked, sub, hasSub, live, byId, kind]) // eslint-disable-line react-hooks/exhaustive-deps
+  const crumb = picked ? `${picked.label}${hasSub && sub != null ? ' › ' + subLabel(sub) : ''}` : `${kindLabel} 전체`
+  const crumbLast = picked ? (hasSub && sub != null ? `${picked.label} ${subLabel(sub)}` : picked.label) : `${kindLabel} 전체`
+  const shownIds = shown.map((r) => String(r.channel_id))
+  const selIds = shownIds.filter((id) => sel.has(id))
+  const memberSet = useMemo(() => new Set(members), [members])
+
+  // ---- 열기 ----
   const launch = (url, k) => {
     const w = wins.current.get(k)
     if (w && !w.closed) { try { w.focus() } catch { /* ignore */ } return }
-    // noopener 를 빼야 핸들을 쥐고 "열려 있음" 을 알 수 있다 (같은 출처의 우리 뷰어 탭이라 위험 없음)
+    // noopener 를 빼야 핸들을 쥐고 열린 탭 수를 셀 수 있다 (같은 출처의 우리 뷰어 탭이라 위험 없음)
     const nw = window.open(url, '_blank')
     if (nw) { wins.current.set(k, nw); tickOpen((n) => n + 1) }
   }
-  // 행 하나 열기: 알람만 이면 그 대상의 알람 환자 id 목록으로, 아니면 범위 값으로
-  const open = (e, t = tpl) => {
-    if (alarmOnly) {
-      const ids = e.members.filter((id) => alarmIds.has(id))
-      if (!ids.length) { window.alert('알람 있는 환자가 없습니다.'); return }
-      launch(viewerUrl({ tpl: t, ids, label: `${e.label} · 알람 ${ids.length}명` }), `${kind}:${e.key}:alarm:${t}`)
-      return
-    }
-    launch(urlFor(e, t), winKey(e, t))
+  const said = (label, n) => notify(`새 탭에서 열림 · ${label} · ${n.toLocaleString()}명 · ${tplName}`)
+  // ② 하위 대상 한 행: 범위 값으로 연다 (뷰어 URL 은 병동/게이트웨이 등 범위 값을 하나 받는다)
+  const openEntry = (e) => {
+    const label = BOOL_KIND[kind] ? (e.key ? `${kindLabel} · ${e.label}` : e.label) : `${kindLabel} ${e.label}`
+    launch(viewerUrl({ tpl, ...(BOOL_KIND[kind]?.scope || {}), ...(e.ids ? { ids: e.ids } : e.region ? { region: e.region } : { [SCOPE_KEY[kind]]: e.key }), label }), `${kind}:${e.key}:${tpl}`)
+    said(label, e.count)
   }
-  // 전체 연결 환자 (범위 없음)
-  const openAll = (t = tpl) => {
-    if (alarmOnly) { const ids = live.filter((r) => alarmIds.has(r.channel_id)).map((r) => String(r.channel_id)); if (!ids.length) { window.alert('알람 있는 환자가 없습니다.'); return } launch(viewerUrl({ tpl: t, ids, label: `알람 환자 ${ids.length}명` }), `all:alarm:${t}`); return }
-    launch(viewerUrl({ tpl: t, label: '전체 환자' }), `all:${t}`)
+  // 환자 id 목록으로 연다 (부분 집합·선택·그룹 후보)
+  const openIds = (label, ids) => {
+    const u = [...new Set(ids)]
+    if (!u.length) { window.alert('열 환자가 없습니다.') ; return }
+    launch(viewerUrl({ tpl, ids: u, label }), `ids:${[...u].sort().join(',')}:${tpl}`)
+    said(label, u.length)
   }
-  // 체크한 대상들을 하나의 뷰어로: 환자 합집합을 ids 로 (뷰어 URL 의 범위 값은 하나만 받으므로 ids 가 유일한 합집합 방법)
-  const selEntries = shown.filter((e) => sel.has(e.key))
-  const selIds = useMemo(() => { const s = new Set(); for (const e of selEntries) for (const id of e.members) if (!alarmOnly || alarmIds.has(id)) s.add(id); return [...s] }, [selEntries, alarmOnly, alarmIds])
-  const openSelected = () => {
-    if (sel.has('*all*')) { openAll(); return }
-    if (selEntries.length === 1) { open(selEntries[0]); return }
-    if (!selIds.length) { window.alert(alarmOnly ? '선택한 대상에 알람 있는 환자가 없습니다.' : '선택한 대상에 연결된 환자가 없습니다.'); return }
-    const label = `${kindLabel} ${selEntries.map((e) => e.label).slice(0, 4).join(' + ')}${selEntries.length > 4 ? ` 외 ${selEntries.length - 4}` : ''}${alarmOnly ? ' · 알람만' : ''}`
-    launch(viewerUrl({ tpl, ids: selIds, label }), `multi:${kind}:${[...sel].sort().join(',')}:${alarmOnly ? 'a' : ''}:${tpl}`)
+  const openGroup = (g) => { launch(viewerUrl({ tpl, group: g.id, label: g.name }), `group:${g.id}:${tpl}`); said(g.name, groupCount(g)) }
+  const overMax = (n) => (tplObj.maxRows && n > tplObj.maxRows ? ` (템플릿 최대 ${tplObj.maxRows}명)` : '')
+
+  // ---- 끌어 놓기 (HTML5 drag: text/plain = 패치 id 목록) ----
+  const startDrag = (ids, ev) => { ev.dataTransfer.setData('text/plain', ids.join(',')); ev.dataTransfer.effectAllowed = 'copy'; setDragN(ids.length) }
+  const endDrag = () => { setDragN(0); setOver(false) }
+  const addMembers = (ids) => {
+    setMembers((o) => { const s = new Set(o); const n = [...o]; for (const id of ids) if (id && !s.has(id)) { s.add(id); n.push(id) } return n })
+    setSel(new Set())
   }
-  const openHandle = (e) => { for (const t of TEMPLATES) for (const k of [winKey(e, t.id), `${kind}:${e.key}:alarm:${t.id}`]) { const w = wins.current.get(k); if (w && !w.closed) return () => { try { w.focus() } catch { /* ignore */ } } } return null }
-  const allOpen = (() => { for (const t of TEMPLATES) for (const k of [`all:${t.id}`, `all:alarm:${t.id}`]) { const w = wins.current.get(k); if (w && !w.closed) return () => { try { w.focus() } catch { /* ignore */ } } } return null })()
-  // 환자 목록으로 가는 범위 매핑 (있는 것만)
-  const listParams = (e) => {
-    if (kind === 'ward' && e.key) return { ward: e.key }
-    if (kind === 'room' && e.key) return { room: e.key }
-    if (kind === 'gw' && e.key) return { gw: e.key }
-    if (kind === 'doctor' && e.key) return { doctor: e.key }
-    if (kind === 'nurse' && e.key) return { nurse: e.key }
-    if (kind === 'group' && e.key) return { group: e.key }
-    return null
+  const onDragOver = (ev) => { if (!canGroups) return; ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; if (!over) setOver(true) }
+  const onDragLeave = (ev) => { if (ev.currentTarget.contains(ev.relatedTarget)) return; setOver(false) }
+  const onDrop = (ev) => {
+    ev.preventDefault(); setOver(false); setDragN(0)
+    if (!canGroups) return
+    const ids = (ev.dataTransfer.getData('text/plain') || '').split(',').map((x) => x.trim()).filter(Boolean)
+    if (ids.length) { addMembers(ids); notify(`${ids.length}명 담음`) }
   }
-  const badgeTone = (e) => (e.alarms ? (e.sev >= 2 ? 'crit' : e.sev === 1 ? 'med' : 'low') : '')
+
+  // ---- 저장된 그룹 · 그룹 만들기 ----
+  const groupMembers = (g) => { const s = new Set(live.filter((r) => (r.groups || []).includes(g.id)).map((r) => String(r.channel_id))); for (const id of g.include || []) s.add(String(id)); return [...s] }
+  const groupCount = (g) => (g.id === 'all' ? live.length : groupMembers(g).length)
+  const defaultName = `새 그룹 ${(groups || []).length + 1}`
+  const nameShown = name == null ? defaultName : name
+  const modeLabel = editing ? `편집 중 · ${editing.name}` : '새 그룹'
+  const editGroup = (g) => { setEditing(g); setName(g.name); setMembers(groupMembers(g)); setSel(new Set()) }
+  const clearBuilder = () => { setMembers([]); setEditing(null); setName(null) }
+  const who = (id) => { const r = byId.get(id); const p = r?.patient || {}; return { name: p.name || r?.mrn || `패치 ${id}`, place: [wardText(p.ward), roomOnly(p.room || r?.space)].filter(Boolean).join(' '), off: !!r && !r.connected, unknown: !r } }
+  const mix = useMemo(() => { const m = new Map(); for (const id of members) { const p = byId.get(id)?.patient; const w = p?.ward ? wardText(p.ward) : '기타'; m.set(w, (m.get(w) || 0) + 1) } return [...m].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ko')) }, [members, byId])
+  const save = async (andOpen) => {
+    if (!canGroups || !members.length || busy) return
+    const nm = nameShown.trim() || defaultName
+    const body = editing
+      ? { ...editing, name: nm, criteria: editing.criteria || {}, include: members, exclude: editing.exclude || [] }
+      : { id: 'g-' + Date.now().toString(36), name: nm, description: '', owner: '', criteria: {}, include: members, exclude: [] }
+    setBusy(true)
+    try {
+      if (editing) await api.updateGroup(editing.id, body); else await api.createGroup(body)
+      refreshGroups?.(); setTimeout(() => refreshRows?.(), 1200)
+      notify(`그룹 저장됨 · ${nm} · ${members.length}명`)
+      if (andOpen) { launch(viewerUrl({ tpl, ids: members, label: nm }), `group:${body.id}:${tpl}`) }
+      clearBuilder()
+    } catch (e) { window.alert('저장 실패: ' + e.message) } finally { setBusy(false) }
+  }
   const removeGroup = async (g) => {
     if (!window.confirm(`그룹 "${g.name}" 을(를) 삭제할까요?`)) return
-    try { await api.deleteGroup(g.id); refreshGroups?.(); setTimeout(() => refreshRows?.(), 1200) } catch (e) { window.alert('삭제 실패: ' + e.message) }
+    try { await api.deleteGroup(g.id); refreshGroups?.(); setTimeout(() => refreshRows?.(), 1200); if (editing?.id === g.id) clearBuilder(); notify(`그룹 삭제됨 · ${g.name}`) } catch (e) { window.alert('삭제 실패: ' + e.message) }
   }
-  const toggleSel = (k) => setSel((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n })
-  const Th = ({ col, children, num }) => <th className={'sortable' + (num ? ' num' : '') + (sort[0] === col ? ' on' : '')} onClick={() => setSort([col, sort[0] === col && sort[1] === 'asc' ? 'desc' : 'asc'])}>{children}{sort[0] === col ? (sort[1] === 'asc' ? ' ▲' : ' ▼') : ''}</th>
-  const KIND_GROUPS = [['위치 · 장비', ['ward', 'room', 'gw', 'group']], ['담당 · 임상 기준', ['doctor', 'nurse', 'department', 'diagnosis', 'pacemaker', 'mcot']]]
-  const liveAlarms = live.filter((r) => alarmIds.has(r.channel_id)).length
-  const selCount = sel.has('*all*') ? 1 : selEntries.length
-  const selPatients = sel.has('*all*') ? (alarmOnly ? liveAlarms : live.length) : selIds.length
-  const overMax = tplObj.maxRows && selPatients > tplObj.maxRows
+  const toggleSel = (id) => setSel((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const dropText = over ? (dragN ? `놓으면 ${dragN}명 담기` : '여기에 놓아 담기') : dragN ? '여기에 놓아 담기' : members.length ? '여기에 더 놓기' : '하위 대상(병동·병실 등)을 통째로, 또는 세부 대상(환자)을 끌어 놓으세요'
 
   return (
-    <div className="page vw">
+    <div className="page vw" onDragEnd={endDrag}>
       <div className="vw-head">
         <h2 className="h">뷰어</h2>
-        <span className="muted vw-steps"><b>①</b> 묶을 기준 → <b>②</b> 대상 선택 → <b>③</b> 템플릿으로 새 탭에서 열기</span>
+        <span className="vw-how">
+          <span><b>바로 열기</b> — 목록 옆 <i>열기</i>, 그룹 없이 즉시 파형</span>
+          <em>또는</em>
+          <span><b>그룹으로 열기</b> — 오른쪽으로 끌어 저장 후 열기</span>
+        </span>
         <span className="spacer" />
+        <span className="vw-tplsel" title="모든 '열기' 버튼이 쓰는 템플릿">
+          <span className="muted">열기 템플릿</span>
+          <span className="seg">{TEMPLATES.map((t) => <button key={t.id} className={tpl === t.id ? 'active' : ''} onClick={() => setTpl(t.id)} title={`${t.audience || ''}${t.maxRows ? ` · 최대 ${t.maxRows}명` : ''}`}>{shortTpl(t)}</button>)}</span>
+        </span>
         <span className={'pill ' + (openTabs ? 'ok' : '')} title="이 콘솔에서 연 뷰어 탭 (닫히면 5초 안에 줄어듭니다)">열린 뷰어 탭 <b>{openTabs}</b></span>
       </div>
 
       <div className="vw-launch">
-        {/* ① 묶을 기준 */}
-        <aside className="vw-col vw-kinds" aria-label="묶을 기준">
-          <h4>① 묶을 기준</h4>
+        {/* ① 그룹 기준 */}
+        <aside className="vw-col" aria-label="그룹 기준">
+          <div className="vw-colh"><span className="vw-n">1</span><h4>그룹 기준</h4></div>
           {KIND_GROUPS.map(([title, keys]) => (
             <div key={title} className="vw-kgrp">
               <div className="vw-klabel">{title}</div>
               {keys.map((k) => { const l = KINDS.find(([x]) => x === k)[1]; return (
-                <button key={k} className={'vw-kind' + (kind === k ? ' on' : '')} onClick={() => { setKind(k); setQ(''); setSubCat('') }}>
+                <button key={k} className={'vw-kind' + (kind === k ? ' on' : '')} onClick={() => setKind(k)}>
                   <span>{l}</span><b className="mono">{(kindCounts[k] ?? 0).toLocaleString()}</b>
                 </button>) })}
             </div>
           ))}
         </aside>
 
-        {/* ② 대상 선택 */}
-        <section className="vw-col vw-targets" aria-label="대상 선택">
-          <div className="vw-th">
-            <h4>② 대상 선택 <small className="muted">{kindLabel} · 표시 {shown.length.toLocaleString()}개</small></h4>
-            <span className="spacer" />
-            <input className="vw-q" placeholder={`${kindLabel} 검색`} value={q} onChange={(e) => setQ(e.target.value)} />
-            {kind === 'group' && canGroups && <button className="primary" onClick={() => setEditing({})}>＋ 새 그룹</button>}
+        {/* ② 하위 대상 */}
+        <section className="vw-col" aria-label="하위 대상">
+          <div className="vw-colh"><span className="vw-n">2</span><h4>{kindLabel} · 하위 대상</h4><small className="muted">{entries.length.toLocaleString()}개</small></div>
+          <div className="vw-hint muted">클릭: 좁히기 · 끌기: 통째로 그룹에</div>
+          <div className="vw-list">
+            {entries.map((e) => {
+              const on = val === e.key
+              return (
+                <React.Fragment key={e.key || '*'}>
+                  <div className={'vw-val' + (on && sub == null ? ' on' : '') + (on ? ' open' : '') + (e.alarms ? (e.sev >= 2 ? ' has-crit' : ' has-alarm') : '')} draggable={canGroups} onDragStart={(ev) => startDrag(e.members, ev)}
+                    onClick={() => { setVal(on ? null : e.key); setSub(null); setSel(new Set()) }} title={canGroups ? '끌어서 그룹에 담기' : undefined}>
+                    <span className="vw-grip" aria-hidden>⋮⋮</span>
+                    <span className="vw-vname"><b>{e.label}</b>{e.sub && <small className="muted">{e.sub}</small>}</span>
+                    {e.alarms > 0 && <Pill tone={e.sev >= 3 ? 'crit' : e.sev === 2 ? 'high' : 'med'} title="알람 있는 환자">{e.alarms}</Pill>}
+                    <b className="vw-cnt mono">{e.count.toLocaleString()}</b>
+                    <button className="vw-open" onClick={(ev) => { ev.stopPropagation(); openEntry(e) }} title={`${tplName} 으로 바로 열기${overMax(e.count)}`}>열기</button>
+                  </div>
+                  {on && subs.map((s) => {
+                    const son = sub === s.key
+                    return (
+                      <div key={s.key || '~'} className={'vw-val sub' + (son ? ' on' : '')} draggable={canGroups} onDragStart={(ev) => { ev.stopPropagation(); startDrag(s.ids, ev) }}
+                        onClick={(ev) => { ev.stopPropagation(); setSub(son ? null : s.key); setSel(new Set()) }}>
+                        <span className="vw-grip" aria-hidden>⋮⋮</span>
+                        <span className="vw-vname">└ {s.label}</span>
+                        <b className="vw-cnt mono">{s.ids.length.toLocaleString()}</b>
+                        <button className="vw-open" onClick={(ev) => { ev.stopPropagation(); openIds(`${e.label} ${s.label}`, s.ids) }} title={`${tplName} 으로 바로 열기`}>열기</button>
+                      </div>
+                    )
+                  })}
+                </React.Fragment>
+              )
+            })}
+            {!entries.length && <div className="vw-empty muted">표시할 항목이 없습니다. 환자 연결 상태를 먼저 확인하세요.</div>}
           </div>
-          {SUB_LABEL[kind] && subCats.length > 0 && (
-            <div className="toolbar sub vw-subcat">
-              <span className="muted">{SUB_LABEL[kind]}</span>
-              <span className="seg wrap">
-                <button className={subCat === '' ? 'active' : ''} onClick={() => setSubCat('')}>전체<small className="muted"> {entries.length}</small></button>
-                {subCats.map((b) => <button key={b.name} className={subCat === b.name ? 'active' : ''} onClick={() => setSubCat(b.name)} title={`${b.rows}개 ${kindLabel} · ${b.patients}명`}>{b.name}<small className="muted"> {b.rows}</small></button>)}
-              </span>
-            </div>
-          )}
-          <div className="vw-tblwrap">
-            <table className="tbl dense vw-tbl">
-              <thead><tr>
-                <th className="chk"><input type="checkbox" aria-label="모두 선택" checked={shown.length > 0 && shown.every((e) => sel.has(e.key))} onChange={(ev) => setSel(ev.target.checked ? new Set(shown.map((e) => e.key)) : new Set())} /></th>
-                <th className="star" />
-                <Th col="label">{kind === 'group' ? '그룹' : kind === 'gw' ? '게이트웨이' : kindLabel}</Th>
-                {['ward', 'room', 'gw', 'pacemaker', 'mcot'].includes(kind) && <><Th col="building">건물</Th><Th col="floor" num>층</Th></>}
-                <Th col="count" num>환자</Th>
-                <Th col="alarms" num>알람</Th>
-                <th>상태</th>
-                <th className="act" />
-              </tr></thead>
-              <tbody>
-                {!BOOL_KIND[kind] && kind !== 'group' && (
-                  <tr className={'vw-all' + (sel.has('*all*') ? ' selected' : '')}>
-                    <td className="chk"><input type="checkbox" checked={sel.has('*all*')} onChange={() => setSel((o) => (o.has('*all*') ? new Set() : new Set(['*all*'])))} aria-label="전체 연결 환자 선택" /></td>
-                    <td className="star" />
-                    <td><b>전체 연결 환자</b><small className="muted"> 범위 없이 모두</small></td>
-                    {['ward', 'room', 'gw'].includes(kind) && <><td /><td /></>}
-                    <td className="num mono">{live.length.toLocaleString()}</td>
-                    <td className="num">{liveAlarms ? <Pill tone={liveAlarms ? 'med' : ''}>{liveAlarms}</Pill> : <span className="muted">0</span>}</td>
-                    <td>{allOpen ? <a className="lk-link" onClick={allOpen}>열려 있음</a> : <span className="muted">—</span>}</td>
-                    <td className="act"><button onClick={() => openAll()} title={tplObj.name}>열기</button></td>
-                  </tr>
-                )}
-                {shown.map((e) => {
-                  const fk = `${kind}:${e.key}`
-                  const lp = listParams(e)
-                  const oh = openHandle(e)
-                  const title = kind === 'ward' && e.key && wardText(e.label) !== e.label ? <>{wardText(e.label)} <small className="mono muted">{e.label}</small></> : kind === 'room' && wardRoom(e.label) ? <>{roomText(e.label)} <small className="mono muted">{e.label}</small></> : e.label
-                  const sub = [e.sub, kind === 'group' ? describeGroup(e.group) : '', e.mobile ? `이동형 ${e.mobile}` : '', kind !== 'gw' && e.gws.size ? `GW ${e.gws.size}` : ''].filter(Boolean).join(' · ')
-                  return (
-                    <tr key={e.key} className={(sel.has(e.key) ? 'selected' : '') + (e.alarms ? (e.sev >= 2 ? ' has-crit' : ' has-alarm') : '')} onClick={() => toggleSel(e.key)}>
-                      <td className="chk" onClick={(ev) => ev.stopPropagation()}><input type="checkbox" checked={sel.has(e.key)} onChange={() => toggleSel(e.key)} aria-label={`${e.label} 선택`} /></td>
-                      <td className="star" onClick={(ev) => ev.stopPropagation()}><button className={'lk-star' + (favs.has(fk) ? ' on' : '')} onClick={() => toggleFav(fk)} title={favs.has(fk) ? '즐겨찾기 해제' : '즐겨찾기'}>★</button></td>
-                      <td className="name"><b>{title}</b>{sub && <small className="muted">{sub}</small>}</td>
-                      {['ward', 'room', 'gw', 'pacemaker', 'mcot'].includes(kind) && <><td>{e.building || <span className="muted">—</span>}</td><td className="num mono">{e.floor ? `${e.floor}F` : ''}</td></>}
-                      <td className="num mono">{e.count.toLocaleString()}</td>
-                      <td className="num">{e.alarms ? <Pill tone={badgeTone(e)}>{e.alarms}</Pill> : <span className="muted">0</span>}</td>
-                      <td>{oh ? <a className="lk-link" onClick={(ev) => { ev.stopPropagation(); oh() }}>열려 있음</a> : <span className="muted">—</span>}</td>
-                      <td className="act" onClick={(ev) => ev.stopPropagation()}>
-                        <button onClick={() => open(e)} title={`${tplObj.name} 으로 열기`}>열기</button>
-                        {lp && <button className="ghost" onClick={() => go('#/patients', lp)} title="환자 목록에서 보기">목록</button>}
-                        {kind === 'group' && canGroups && <button className="ghost" onClick={() => setEditing(e.group)}>편집</button>}
-                        {kind === 'group' && canGroups && e.key !== 'all' && <button className="ghost danger" onClick={() => removeGroup(e.group)}>삭제</button>}
-                      </td>
-                    </tr>
-                  )
-                })}
-                {!shown.length && <tr><td colSpan={9} className="muted vw-empty">{kind === 'group' ? '그룹이 없습니다. "새 그룹"으로 만드세요.' : '표시할 항목이 없습니다. 환자 연결 상태를 먼저 확인하세요.'}</td></tr>}
-              </tbody>
-            </table>
-          </div>
-          <p className="muted vw-note">여러 행을 체크해 한 뷰어에 합쳐 열 수 있습니다(환자 합집합을 패치 목록으로 엽니다). 행의 <b>열기</b> 는 오른쪽에서 고른 템플릿을 씁니다. ★ 즐겨찾기는 맨 위에 옵니다.</p>
         </section>
 
-        {/* ③ 템플릿 · 표시 옵션 */}
-        <aside className="vw-col vw-tpl" aria-label="템플릿">
-          <h4>③ 템플릿</h4>
-          <div className="vw-tpls" role="radiogroup">
-            {TEMPLATES.map((t) => (
-              <label key={t.id} className={'vw-tplcard' + (tpl === t.id ? ' on' : '')}>
-                <input type="radio" name="vw-tpl" checked={tpl === t.id} onChange={() => setTpl(t.id)} />
-                <span className="vw-tplname">{t.name.split(' (')[0]}{t.name.includes('(') && <small className="muted"> {t.name.slice(t.name.indexOf('(') + 1, -1)}</small>}</span>
-                <small className="muted">{t.audience}{t.maxRows ? ` · 최대 ${t.maxRows}명` : ''}</small>
-              </label>
-            ))}
+        {/* ③ 세부 대상 */}
+        <section className="vw-col" aria-label="세부 대상">
+          <div className="vw-colh"><span className="vw-n">3</span><h4>세부 대상 <span className="mono">{shown.length.toLocaleString()}</span>명</h4><span className="spacer" />
+            <button onClick={() => openIds(crumbLast, shownIds)} disabled={!shown.length} title={`${tplName} 으로 바로 열기${overMax(shown.length)}`}>이 목록 바로 열기</button>
           </div>
-          <h4>표시 옵션</h4>
-          <div className="vw-opts">
-            <div className="vw-opt"><span>밀도</span><span className="seg">{[['normal', '크게'], ['compact', '보통'], ['dense', '촘촘']].map(([v, l]) => <button key={v} className={density === v ? 'active' : ''} onClick={() => setDensity(v)}>{l}</button>)}</span></div>
-            <label className="vw-opt chk"><input type="checkbox" checked={alarmOnly} onChange={(e) => setAlarmOnly(e.target.checked)} /> 알람 있는 환자만</label>
-            <div className="vw-opt"><span>파형 그리기</span><span className="seg">{RENDER_MODES.map(([v, l]) => <button key={v} className={renderMode === v ? 'active' : ''} onClick={() => setRenderMode(v)} title="열린 뷰어 탭에도 바로 적용">{l}</button>)}</span></div>
-            <a className="lk-link small" href="#/settings/viewer">뷰어 설정 →</a>
+          <div className="vw-crumb"><span className="muted">{crumb}</span><span className="spacer" />
+            <button className="ghost" onClick={() => setSel(new Set(shownIds))} disabled={!shown.length}>모두 선택</button>
+            {selIds.length > 0 && <button className="ghost" onClick={() => setSel(new Set())}>해제</button>}
+          </div>
+          <div className="vw-list">
+            {shown.map((r) => {
+              const id = String(r.channel_id); const p = r.patient || {}
+              const on = sel.has(id); const sv = sevOf(id); const added = memberSet.has(id)
+              return (
+                <div key={id} className={'vw-pt' + (on ? ' on' : '') + (added ? ' added' : '')} draggable={canGroups} onDragStart={(ev) => startDrag(on && selIds.length > 1 ? selIds : [id], ev)} onClick={() => toggleSel(id)}
+                  title={canGroups ? (on && selIds.length > 1 ? `선택 ${selIds.length}명 끌어서 그룹에 담기` : '끌어서 그룹에 담기') : undefined}>
+                  <span className="vw-grip" aria-hidden>⋮⋮</span>
+                  <input type="checkbox" checked={on} onChange={() => toggleSel(id)} onClick={(ev) => ev.stopPropagation()} aria-label={`${p.name || id} 선택`} />
+                  <span className="vw-pname"><b>{p.name || r.mrn || id}</b><small className="muted">{[wardText(p.ward), roomOnly(p.room || r.space), isAway(p, r.space) && `현재 ${r.space}`].filter(Boolean).join(' ')}</small></span>
+                  {added && <span className="lk-pill vw-added" title="그룹 만들기에 담겨 있음">담김</span>}
+                  {sv != null && <Pill tone={SEV[sv][1]}>{SEV[sv][0]}</Pill>}
+                  <button className="vw-open" onClick={(ev) => { ev.stopPropagation(); openIds(p.name || id, [id]) }} title={`${tplName} 으로 바로 열기`}>열기</button>
+                </div>
+              )
+            })}
+            {!shown.length && <div className="vw-empty muted">환자가 없습니다.</div>}
           </div>
           <div className="vw-foot">
-            <div className="muted small">선택 <b>{selCount}</b>개{selCount ? ` · 환자 ${selPatients.toLocaleString()}명` : ''}{alarmOnly ? ' · 알람만' : ''}</div>
-            {overMax && <div className="warn small">템플릿 최대 {tplObj.maxRows}명 — 앞의 {tplObj.maxRows}명만 보입니다</div>}
-            <button className="primary vw-go" disabled={!selCount} onClick={openSelected}>새 탭에서 열기</button>
+            <span className="muted">선택 <b>{selIds.length}</b>명</span>
+            <span className="spacer" />
+            <button disabled={!selIds.length} onClick={() => openIds('선택 환자', selIds)} title={`${tplName} 으로 바로 열기${overMax(selIds.length)}`}>선택 바로 열기</button>
+            <button className="primary" disabled={!selIds.length || !canGroups} onClick={() => { addMembers(selIds); notify(`${selIds.length}명 담음`) }} title={canGroups ? '그룹 만들기에 담기' : '그룹 편집 권한 없음'}>그룹에 담기 →</button>
           </div>
+        </section>
+
+        {/* 저장된 그룹 · 그룹 만들기 */}
+        <aside className="vw-right" aria-label="그룹">
+          <section className="vw-col">
+            <div className="vw-colh"><h4>저장된 그룹 <span className="mono">{(groups || []).length}</span></h4></div>
+            <div className="vw-list saved">
+              {(groups || []).map((g, i) => (
+                <div key={g.id} className={'vw-saved' + (editing?.id === g.id ? ' on' : '')}>
+                  <i className="vw-dot" style={{ background: `hsl(${(i * 47) % 360} 60% 55%)` }} />
+                  <span className="vw-vname"><b>{g.name}</b><small className="muted">{describeGroup(g)}</small></span>
+                  <b className="vw-cnt mono">{groupCount(g).toLocaleString()}명</b>
+                  {canGroups && g.id !== 'all' && <button className="ghost" onClick={() => editGroup(g)}>편집</button>}
+                  <button className="vw-open" onClick={() => openGroup(g)} title={`${tplName} 으로 열기`}>열기</button>
+                </div>
+              ))}
+              {!(groups || []).length && <div className="vw-empty muted">저장된 그룹이 없습니다. 아래에서 만드세요.</div>}
+            </div>
+          </section>
+
+          <section className={'vw-col vw-builder' + (over ? ' hot' : '') + (dragN ? ' dragging' : '')} onDragOver={onDragOver} onDragEnter={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} aria-label="그룹 만들기">
+            <div className="vw-colh"><h4>그룹 만들기</h4><small className={'vw-mode' + (editing ? ' edit' : '')}>{modeLabel}</small></div>
+            {!canGroups && <div className="vw-hint warn">읽기 전용 — 그룹 저장·편집 권한(action.groups_edit)이 없습니다. 바로 열기는 쓸 수 있습니다.</div>}
+            <div className="vw-name">
+              <input value={nameShown} onChange={(e) => setName(e.target.value)} placeholder="그룹 이름" disabled={!canGroups} aria-label="그룹 이름" />
+              <b className="mono">{members.length.toLocaleString()}</b><span className="muted">명</span>
+            </div>
+            <div className="vw-mix">
+              <span className="muted">구성</span>
+              {mix.length ? mix.map(([w, n]) => <span key={w} className="lk-pill">{w} <b>{n}</b></span>) : <span className="muted">아직 비어 있음</span>}
+            </div>
+            {editing && Object.keys(editing.criteria || {}).length > 0 && <div className="vw-hint muted">속성 조건({describeGroup({ criteria: editing.criteria })})에 맞는 환자도 자동 포함됩니다.</div>}
+            {members.length > 0 && (
+              <div className="vw-list members">
+                {members.map((id) => { const w = who(id); const sv = sevOf(id); return (
+                  <div key={id} className="vw-mem">
+                    <i className={'vw-dot sev' + (sv ?? -1)} />
+                    <span className="vw-vname"><b>{w.name}</b><small className="muted">{w.place}{w.off ? ' · 해제' : ''}{w.unknown ? ' · 목록에 없음' : ''}</small></span>
+                    <button className="ghost vw-x" onClick={() => setMembers((o) => o.filter((x) => x !== id))} disabled={!canGroups} title="빼기">×</button>
+                  </div>) })}
+              </div>
+            )}
+            <div className={'vw-drop' + (members.length ? '' : ' big')}>
+              <b>{dropText}</b>
+              {!members.length && !dragN && <small className="muted">②의 행(병동·병실·담당의 …)이나 ③의 환자를 끌어 놓거나, 체크 후 "그룹에 담기 →"</small>}
+            </div>
+            <div className="vw-foot">
+              {editing && canGroups && <button className="ghost danger" onClick={() => removeGroup(editing)} disabled={busy}>삭제</button>}
+              <button className="ghost" onClick={clearBuilder} disabled={!members.length && !editing}>비우기</button>
+              <span className="spacer" />
+              <button onClick={() => save(false)} disabled={!members.length || !canGroups || busy}>그룹 저장</button>
+              <button className="primary" onClick={() => save(true)} disabled={!members.length || !canGroups || busy} title={`저장 후 ${tplName} 으로 열기${overMax(members.length)}`}>저장하고 열기</button>
+            </div>
+          </section>
         </aside>
       </div>
-      {editing && <GroupEditor group={editing} rows={rows || []} staff={staff} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refreshGroups?.(); setTimeout(() => refreshRows?.(), 1200) }} />}
+      {toast && <div className="vw-toast" role="status">{toast}</div>}
     </div>
   )
 }
@@ -348,79 +399,8 @@ export default function Viewers({ alarms }) {
 const CRIT_LABEL = { building: '건물', floor: '층', ward: '병동', zone: '구역', room: '병실', doctor: '담당의', department: '진료과', nurse: '간호사', diagnosis: '주진단' }
 function describeGroup(g) {
   if (!g) return ''
-  const parts = Object.entries(g.criteria || {}).map(([k, v]) => `${CRIT_LABEL[k] || k}: ${v.join('/')}`)
+  const parts = Object.entries(g.criteria || {}).map(([k, v]) => `${CRIT_LABEL[k] || k}: ${[].concat(v).join('/')}`)
   if (g.include?.length) parts.push(`환자 ${g.include.length}명 지정`)
   if (g.exclude?.length) parts.push(`제외 ${g.exclude.length}명`)
   return parts.length ? parts.join(' · ') : (g.id === 'all' ? '모든 환자' : '조건 없음')
-}
-
-/** Group create / edit modal: name, memo, owner, and the member list built by searching patients. */
-function GroupEditor({ group, rows, staff, onClose, onSaved }) {
-  const isNew = !group.id
-  const [name, setName] = useState(group.name || '')
-  const [description, setDescription] = useState(group.description || '')
-  const [owner, setOwner] = useState(group.owner || '')
-  const [include, setInclude] = useState(() => [...(group.include || [])])
-  const [search, setSearch] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  const byId = useMemo(() => new Map(rows.map((r) => [String(r.channel_id), r])), [rows])
-  const hasCriteria = Object.keys(group.criteria || {}).length > 0
-  const who = (id) => {
-    const r = byId.get(id); const p = r?.patient || {}
-    return { name: p.name || r?.mrn || id, sub: [p.ward, p.room || r?.space, r?.mrn, `패치 ${id}`, r && !r.connected && '해제'].filter(Boolean).join(' · ') }
-  }
-  const results = useMemo(() => {
-    const needle = search.trim().toLowerCase()
-    if (!needle) return []
-    const inc = new Set(include)
-    return rows.filter((r) => !inc.has(String(r.channel_id)) && [r.patient?.name, r.mrn, r.channel_id, r.patient?.room, r.patient?.ward, r.patient?.doctor, staff.get(r.patient?.doctor)?.name]
-      .some((x) => String(x || '').toLowerCase().includes(needle))).slice(0, 60)
-  }, [search, rows, include, staff])
-  const save = async () => {
-    if (!name.trim()) { setErr('그룹 이름을 입력하세요.'); return }
-    setBusy(true); setErr('')
-    const body = { ...group, id: group.id || 'g-' + Date.now().toString(36), name: name.trim(), description, owner, criteria: group.criteria || {}, include, exclude: group.exclude || [] }
-    try {
-      if (isNew) await api.createGroup(body); else await api.updateGroup(group.id, body)
-      onSaved()
-    } catch (e) { setErr('저장 실패: ' + e.message) } finally { setBusy(false) }
-  }
-  return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className="modal" style={{ width: 'min(1000px, 100%)' }} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head"><h2>{isNew ? '새 그룹' : `그룹 편집 · ${group.name}`}</h2><span className="spacer" /><button className="icon" onClick={onClose}>✕</button></div>
-        <div className="grp-form">
-          <label>이름</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 심전도 집중 관찰" autoFocus />
-          <label>설명</label><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="메모 (선택)" />
-          <label>작성자</label><input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="이름 또는 부서 (선택)" />
-          {hasCriteria && <><label>속성 조건</label><span className="muted">{describeGroup(group)} — 조건에 맞는 환자도 자동 포함됩니다</span></>}
-        </div>
-        <div className="grp-cols">
-          <div className="grp-col">
-            <h4>환자 검색 · 이름 / MRN / 패치 / 병실 / 담당의</h4>
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="검색어 입력" style={{ width: '100%' }} />
-            <div className="grp-list" style={{ marginTop: 6 }}>
-              {results.map((r) => { const w = who(String(r.channel_id)); return <div key={r.channel_id} className="row"><span className="who"><b>{w.name}</b><small>{w.sub}</small></span><button onClick={() => setInclude([...include, String(r.channel_id)])}>추가</button></div> })}
-              {search.trim() && !results.length && <div className="row muted">검색 결과 없음</div>}
-              {!search.trim() && <div className="row muted">검색어를 입력하면 환자 목록이 나옵니다 (최대 60명)</div>}
-            </div>
-          </div>
-          <div className="grp-col">
-            <h4>그룹 환자 · {include.length}명</h4>
-            <div className="grp-list">
-              {include.map((id) => { const w = who(id); return <div key={id} className="row"><span className="who"><b>{w.name}</b><small>{w.sub}</small></span><button onClick={() => setInclude(include.filter((x) => x !== id))}>빼기</button></div> })}
-              {!include.length && <div className="row muted">아직 담긴 환자가 없습니다{hasCriteria ? ' (속성 조건 멤버는 자동 포함)' : ''}.</div>}
-            </div>
-          </div>
-        </div>
-        {err && <p className="err">{err}</p>}
-        <div className="toolbar" style={{ marginTop: 12, marginBottom: 0 }}>
-          <span className="spacer" />
-          <button onClick={onClose} disabled={busy}>취소</button>
-          <button className="primary" onClick={save} disabled={busy}>{isNew ? '만들기' : '저장'}</button>
-        </div>
-      </div>
-    </div>
-  )
 }

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { alarmIndex, gatewayAlarmIndex, GW_STATUS, SEV_LABEL, wardText, wardRoom, patchLife, fmtDays, gwLabel, nowPlace } from '../model.js'
 import { LiveModal } from './LiveModal.jsx'
+import MapPatientPanel from './MapPatientPanel.jsx'
 import { WaveCard } from '../WaveCard.jsx'
 import { claimLive, releaseLive } from '../ws.js'
 import { useMe } from '../auth.js'
@@ -254,6 +255,7 @@ export default function MapPage({ alarms, hash }) {
   const listIds = (pick?.patient ? [] : pickPatients).map((p) => String(p.channel_id)).join(',')
   useEffect(() => { if (!listIds) { releaseLive('map-side'); return } claimLive('map-side', listIds.split(',')); return () => releaseLive('map-side') }, [listIds])
   const [, mapTick] = useState(0)
+  const [hx, setHx] = useState(null) // 이력 모달(실시간 창의 이력 탭)
   useEffect(() => { if (!listIds) return; const t = setInterval(() => mapTick((x) => x + 1), 500); return () => clearInterval(t) }, [listIds])
   if (err) return <div className="page"><p className="err">도면을 불러오지 못했습니다: {err} (에뮬레이터 연결 확인)</p></div>
   if (!layout || !cur) return <div className="page"><p className="muted">도면 불러오는 중…</p></div>
@@ -430,10 +432,11 @@ export default function MapPage({ alarms, hash }) {
           alarm={tip.kind === 'pat' ? aidx.get(tip.id) : gidx.get(tip.id)} platform={!me?.user?.tenant_id} />}
         {pick?.patient && (
           <aside className="map-side wide">
-            {pick.back && <button className="map-back" onClick={() => setPick(pick.back)}>← {pick.back.room ? `${pick.back.room} 환자 목록` : pick.back.gw ? `게이트웨이 ${pick.back.gw} 환자 목록` : '목록'}</button>}
-            <LiveModal inline channelId={pick.patient} alarms={alarms} onClose={() => setPick(pick.back || null)} />
+            <MapPatientPanel channelId={pick.patient} alarms={alarms} onClose={() => setPick(pick.back || null)} onHistory={() => setHx(pick.patient)}
+              onBack={pick.back ? () => setPick(pick.back) : null} backLabel={pick.back?.room ? `${pick.back.room} 환자 목록` : pick.back?.gw ? `게이트웨이 ${pick.back.gw} 환자 목록` : '목록'} />
           </aside>
         )}
+        {hx && <LiveModal channelId={hx} alarms={alarms} initialHistory onClose={() => setHx(null)} />}
         <aside className="map-side" hidden={!!pick?.patient}>
           {pickRoom && <><h4>{pickRoom.id} <small>{pickRoom.kind} · {pickRoom.ward}</small></h4><small className="muted">게이트웨이 {pickRoom.gateway ? '있음' : '없음'} · 침대 {pickRoom.beds?.length || 0}</small></>}
           {pickGw && <><h4>{gwLabel(pickGw.id)} <small>{pickGw.type}</small></h4><GwInfo g={gwById.get(String(pickGw.gw_no))} />

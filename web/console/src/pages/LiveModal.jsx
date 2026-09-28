@@ -50,7 +50,7 @@ const POSTURE = { supine: '앙와위', prone: '복와위', left: '좌측와위',
  * 순서는 보는 사람에 따라: 병원 계정(의료진·IT) = 입원 기록 → 임상 → 기기·전송(맨 아래),
  * 플랫폼 계정(수퍼 어드민·시스템 관리자·리셀러·영업) = 패치 사양·센서 → 임상 → 입원 기록.
  */
-function EmrPanel({ emr, p, row, platform, onMap }) {
+export function EmrPanel({ emr, p, row, platform, onMap }) {
   const rt = emr.runtime || {}
   const adm = emr.admission || {}
   const mon = adm.monitoring || {}
@@ -136,8 +136,8 @@ function EmrPanel({ emr, p, row, platform, onMap }) {
 
 /** One patient in detail: header (who / where / status), live vitals and waves (or the stored history), and
  *  side cards with alarms, the EMR profile (via the router's EMR proxy) and the storage index. */
-/** inline = 모달 대신 패널로(병원 지도 오른쪽): 배경·중앙 정렬 없이 한 열로 길게, 파형 폭은 패널에 맞춤 */
-export function LiveModal({ channelId, alarms, onClose, inline = false }) {
+/** initialHistory = 열자마자 '이력' 탭 (병원 지도 패널의 이력 버튼) */
+export function LiveModal({ channelId, alarms, onClose, initialHistory = false }) {
   // only this patch's row (the full list is ~1.7 MB for 2,100 patches)
   const [rows] = usePoll(() => api.channelsScoped(`ids=${encodeURIComponent(channelId)}`), 3000, [channelId])
   const row = useMemo(() => (rows || []).find((r) => r.channel_id === channelId), [rows, channelId])
@@ -145,7 +145,7 @@ export function LiveModal({ channelId, alarms, onClose, inline = false }) {
   const bio = canBio(me), phi = canPhi(me)
   const [idx] = usePoll(() => (bio ? api.patch(channelId) : Promise.resolve(null)), 10000, [channelId, bio])
   const [emr, setEmr] = useState(null)
-  const [history, setHistory] = useState(false)
+  const [history, setHistory] = useState(!!initialHistory)
   const [, tick] = useState(0)
   const aidx = useMemo(() => alarmIndex(alarms?.alarms), [alarms])
   const mine = (alarms?.alarms || []).filter((a) => a.channel_id === channelId)
@@ -167,7 +167,7 @@ export function LiveModal({ channelId, alarms, onClose, inline = false }) {
     const t = setInterval(load, 10000)
     return () => { alive = false; clearInterval(t) }
   }, [pid])
-  if (!row) return inline ? <div className="lm lm-inline"><p className="muted">패치 {channelId} 정보를 불러오는 중…</p></div> : <div className="modal-bg" onClick={onClose}><div className="modal lm"><p className="muted">패치 {channelId} 정보를 불러오는 중…</p></div></div>
+  if (!row) return <div className="modal-bg" onClick={onClose}><div className="modal lm"><p className="muted">패치 {channelId} 정보를 불러오는 중…</p></div></div>
 
   const live = latest.get(channelId)
   const waves = row.channels || []
@@ -192,12 +192,10 @@ export function LiveModal({ channelId, alarms, onClose, inline = false }) {
   // highlight the vital tile the alarm is about (alarm kinds: hr_*, spo2_*, resp_*, temp_*)
   const sevOf = (prefix) => (alarm?.kind?.startsWith(prefix) ? `sev-${alarm.severity}` : '')
 
-  const WW = inline ? 280 : 920, WH = inline ? 120 : 190, WS = inline ? 44 : 60 // 인라인 패널(320px)에 맞춘 파형 폭
-  const Wrap = ({ children }) => inline
-    ? <div className={'lm lm-inline' + (alarm ? ` lm-sev-${alarm.severity}` : '')}>{children}</div>
-    : <div className="modal-bg" onClick={onClose}><div className={'modal lm' + (alarm ? ` lm-sev-${alarm.severity}` : '')} onClick={(e) => e.stopPropagation()}>{children}</div></div>
+  const WW = 920, WH = 190, WS = 60
   return (
-    <Wrap>
+    <div className="modal-bg" onClick={onClose}>
+      <div className={'modal lm' + (alarm ? ` lm-sev-${alarm.severity}` : '')} onClick={(e) => e.stopPropagation()}>
         <header className="lm-head">
           {pid && phi ? <img className="lm-avatar" src={`/api/emr/patients/${pid}/avatar.svg`} alt="" /> : <div className="lm-avatar" />}
           <div className="lm-who">
@@ -302,6 +300,7 @@ export function LiveModal({ channelId, alarms, onClose, inline = false }) {
             </section>
           </aside>
         </div>
-    </Wrap>
+      </div>
+    </div>
   )
 }

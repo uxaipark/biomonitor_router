@@ -1292,38 +1292,43 @@ main.adm-main { padding: 0; }
 .map-plist { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .map-plist-head { display: flex; align-items: baseline; gap: 8px; padding: 2px 2px 0; }
 .map-plist .card.dense { cursor: pointer; }
-.lm.lm-inline { display: flex; flex-direction: column; border-radius: 10px; overflow: visible; }
-.lm-inline .lm-head { padding: 10px 12px 8px; border-radius: 10px 10px 0 0; position: sticky; top: 0; z-index: 2; }
-.lm-inline .lm-body { display: flex; flex-direction: column; }
-.lm-inline .lm-main { overflow: visible; padding: 10px 12px; }
-.lm-inline .lm-side { border-left: 0; border-top: 1px solid var(--line); padding: 10px 12px 14px; }
-.lm-inline .lm-vitals { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.lm-inline .lm-ids { flex-wrap: wrap; }
-.lm-inline .lm-dev { flex-wrap: wrap; }
-.lm-inline .lm-close { display: inline-flex; }
 @media (max-width: 1000px) { .map-cols { grid-template-columns: 1fr; height: auto; } }
-/* 인라인 환자 패널(320px)용 축소 규칙 — 모달 크기 기준 스타일이 좁은 패널에서 넘치지 않게 */
-.lm.lm-inline { width: 100%; min-width: 0; max-width: 100%; height: auto; max-height: none; box-shadow: none; border: 1px solid var(--line); background: var(--panel); }
-.lm-inline .lm-head { flex-wrap: wrap; gap: 8px 10px; }
-.lm-inline .lm-avatar { width: 40px; height: 40px; }
-.lm-inline .lm-name h2 { font-size: 17px; }
-.lm-inline .lm-place { font-size: 13px; }
-.lm-inline .lm-ids { gap: 2px 10px; font-size: 12px; }
-.lm-inline .lm-actions { width: 100%; justify-content: space-between; }
-.lm-inline .lm-actions .seg button { padding: 4px 10px; font-size: 12px; }
-.lm-inline .lm-main { gap: 8px; }
-.lm-inline .lm-vital { padding: 6px 10px 7px; }
-.lm-inline .lm-vl { font-size: 11px; }
-.lm-inline .lm-vv { font-size: 24px; }
-.lm-inline .lm-vv small { font-size: 11px; margin-left: 3px; }
-.lm-inline .lm-panel { padding: 6px 8px 8px; }
-.lm-inline .lm-panel canvas { max-width: 100%; height: auto; }
-.lm-inline .lm-dev { gap: 6px 14px; padding: 8px 10px; }
-.lm-inline .lm-dev b { font-size: 13px; }
-.lm-inline .lm-side { gap: 10px; }
-.lm-inline .lm-dl { grid-template-columns: 78px 1fr; font-size: 12.5px; }
-.lm-inline .lm-alarm { grid-template-columns: auto 1fr; }
-.lm-inline .lm-alarm small { grid-column: 2; }
-.lm-inline .lm-dx b { font-size: 14px; }
-.lm-inline .lm-hx { min-height: 420px; }
-.map-side.wide { overflow: auto; }
+
+/* 병원 지도 · 환자 상세 패널 (MapPatientPanel): 평평한 구획, 파형은 패널 폭 그대로 */
+.map-side.wide { padding: 0; overflow: auto; }
+.mp { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 14px; }
+.mp-top { display: flex; align-items: center; gap: 8px; position: sticky; top: 0; background: var(--panel); padding: 2px 0 6px; border-bottom: 1px solid var(--line); z-index: 2; }
+.mp-top .mp-name { font-size: 16px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-top button { padding: 3px 9px; font-size: 12px; }
+.mp-top .mp-back { padding: 2px 7px; }
+.mp-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.mp-tags:empty { display: none; }
+.mp-place { font-size: 13px; font-weight: 600; }
+.mp-ids { font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+.mp-vitals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin-top: 4px; }
+.mp-vital { display: flex; flex-direction: column; align-items: center; padding: 5px 2px 4px; border-radius: 6px; background: var(--panel2); border-top: 2px solid var(--vc, var(--line)); }
+.mp-vital small { font-size: 10.5px; color: var(--muted); }
+.mp-vital b { font-size: 20px; line-height: 1.05; font-variant-numeric: tabular-nums; color: var(--vc, var(--text)); }
+.mp-vital i { font-style: normal; font-size: 10px; color: var(--muted); }
+.mp-vital.hr { --vc: #3ddc84; } .mp-vital.spo2 { --vc: #7cc4ff; } .mp-vital.rr { --vc: #f5d442; } .mp-vital.temp { --vc: #ff9f6b; } .mp-vital.glu { --vc: #c8a2ff; }
+.mp-vital.sev-critical { --vc: var(--sev-critical); background: color-mix(in srgb, var(--sev-critical) 16%, var(--panel2)); }
+.mp-vital.sev-high { --vc: var(--sev-high); background: color-mix(in srgb, var(--sev-high) 14%, var(--panel2)); }
+.mp-vital.sev-medium { --vc: var(--sev-medium); }
+.mp-wave { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.mp-wave canvas.wave { width: 100%; border-radius: 4px; }
+.mp-wl { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.mp-wl.sub { margin-top: 2px; font-size: 11.5px; color: var(--muted); }
+.mp-dev { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 8px; font-size: 12px; padding: 6px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin-top: 4px; }
+.mp-dev span { display: flex; flex-direction: column; min-width: 0; }
+.mp-dev small { color: var(--muted); font-size: 10.5px; }
+.mp-dev b { font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-dev b.low { color: var(--sev-high); }
+.mp-sec h5 { margin: 6px 0 4px; font-size: 12px; color: var(--muted); font-weight: 700; letter-spacing: .03em; display: flex; gap: 6px; }
+.mp-alarm { display: grid; grid-template-columns: auto 1fr; gap: 2px 6px; align-items: center; font-size: 12.5px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.mp-alarm small { grid-column: 2; }
+/* 환자 정보(EmrPanel)는 모달 스타일을 좁은 폭에 맞춰 */
+.mp-emr .lm-dl { grid-template-columns: 74px 1fr; font-size: 12px; }
+.mp-emr .lm-dl dt, .mp-emr .lm-dl dd { padding: 4px 0; }
+.mp-emr .lm-sub { margin: 10px 0 2px; padding: 5px 0 4px; font-size: 11.5px; }
+.mp-emr .lm-dx b { font-size: 13px; }
+.mp-noaccess { padding: 8px 0; }
