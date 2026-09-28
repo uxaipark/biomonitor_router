@@ -6,8 +6,12 @@ export const WS_URL = (BASE ? BASE.replace(/^http/, 'ws') : `${location.protocol
 // 401 = not logged in / session expired → the app shows the login screen (auth.js listens)
 const authLost = (r) => { if (r.status === 401) window.dispatchEvent(new CustomEvent('auth-lost')) }
 
+// 모니터링 뷰어(#/viewer…)에서 나가는 요청에는 표식을 붙인다 → 라우터가 그 세션을 자동 로그아웃 대상에서 뺀다(30일씩 연장)
+const isViewer = () => location.hash.startsWith('#/viewer')
+const hdrs = (extra) => ({ ...(isViewer() ? { 'X-Viewer-Display': '1' } : {}), ...(extra || {}) })
+
 export async function get(path) {
-  const r = await fetch(BASE + path, { credentials: 'same-origin' })
+  const r = await fetch(BASE + path, { credentials: 'same-origin', headers: hdrs() })
   if (!r.ok) {
     authLost(r)
     let msg = `${path}: HTTP ${r.status}`
@@ -21,7 +25,7 @@ export async function send(method, path, body) {
   const r = await fetch(BASE + path, {
     credentials: 'same-origin',
     method,
-    headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
+    headers: hdrs(body !== undefined ? { 'content-type': 'application/json' } : undefined),
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
   if (!r.ok) {

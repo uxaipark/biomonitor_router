@@ -192,6 +192,8 @@ const K_DEV: &str = "auth.dev_mode";
 const K_SITE: &str = "site.tenant_id";
 const GLOBAL: &str = "*";
 const SESSION_MS: u64 = 12 * 3600 * 1000;
+/// 모니터링 뷰어(전광판·중앙 모니터·1인 뷰어) 세션: 자동 로그아웃 대상이 아니다 — 요청에 `X-Viewer-Display: 1` 이 오면 만료를 30일씩 미룬다
+const DISPLAY_MS: u64 = 30 * 24 * 3600 * 1000;
 /// 시험용 계정 PIN 자릿수 / 기본값 (`ROUTER_TEST_PIN` 으로 변경)
 pub const TEST_PIN_LEN: usize = 8;
 pub const DEFAULT_TEST_PIN: &str = "95305449";
@@ -556,9 +558,15 @@ impl Auth {
 
     /// 쿠키 또는 Bearer 토큰 → 요청 주체
     pub fn resolve(&self, token: &str) -> Option<Principal> {
+        self.resolve_ext(token, false).map(|(p, _)| p)
+    }
+
+    /// `display` = 모니터링 뷰어 요청: 만료를 30일로 미룬다. 두 번째 값은 이번에 만료를 늘렸을 때 쿠키를 다시 써야 하는 Max-Age(초)
+    /// — 브라우저 쿠키는 로그인 때의 Max-Age 로 굳어 있어 서버가 세션을 늘려도 쿠키가 먼저 죽는다(그게 12시간 자동 로그아웃의 정체).
+    pub fn resolve_ext(&self, token: &str, display: bool) -> Option<(Principal, Option<u64>)> {
         if let Some(st) = &self.service_token {
             if constant_eq(token.as_bytes(), st.as_bytes()) {
-                return Some(self.service_principal());
+                return Some((self.service_principal(), None));
             }
         }
         let h = sha_hex(token.as_bytes());
@@ -573,15 +581,18 @@ impl Auth {
         if !u.active {
             return None;
         }
-        // 사용 중이면 만료를 늘린다 (1분에 한 번만 DB 기록)
-        if exp - now < SESSION_MS - 60_000 {
-            let ne = now + SESSION_MS;
+        // 사용 중이면 만료를 늘린다 (1분에 한 번만 DB 기록); 뷰어는 30일
+        let ttl = if display { DISPLAY_MS } else { SESSION_MS };
+        let mut refresh = None;
+        if exp < now + ttl - 60_000 {
+            let ne = now + ttl;
             self.sessions.lock().unwrap().insert(h.clone(), (uid, ne, ctx.clone()));
             if let Ok(db) = self.db.lock() {
                 let _ = db.execute("UPDATE sessions SET expires_ms = ?1 WHERE token_hash = ?2", params![ne as i64, h]);
             }
+            refresh = Some(ttl / 1000);
         }
-        Some(self.principal_of(u, ctx.as_deref()))
+        Some((self.principal_of(u, ctx.as_deref()), refresh))
     }
 
     /// 병원 ID + 아이디 + 비밀번호. 병원 계정은 자기 병원 ID 로만, 플랫폼 계정은 병원 ID 를 비우거나(플랫폼)
@@ -1628,7 +1639,9 @@ pub async fn guard(State(state): State<Arc<AppState>>, mut req: Request, next: N
         return next.run(req).await;
     }
     let Some(tok) = token_of(&req) else { return deny(StatusCode::UNAUTHORIZED, "로그인이 필요합니다") };
-    let Some(p) = state.auth.resolve(&tok) else { return deny(StatusCode::UNAUTHORIZED, "세션이 만료되었습니다. 다시 로그인하세요") };
+    let display = req.headers().get("x-viewer-display").map(|v| v == "1").unwrap_or(false);
+    let from_cookie = req.headers().get(header::AUTHORIZATION).is_none();
+    let Some((p, refresh)) = state.auth.resolve_ext(&tok, display) else { return deny(StatusCode::UNAUTHORIZED, "세션이 만료되었습니다. 다시 로그인하세요") };
     if !tenant_free(&path) {
         let site = state.auth.site_tenant();
         if !p.can_access(&site) {
@@ -1644,15 +1657,26 @@ pub async fn guard(State(state): State<Arc<AppState>>, mut req: Request, next: N
         return deny(StatusCode::FORBIDDEN, "실시간 스트림은 개인정보 권한도 필요합니다");
     }
     req.extensions_mut().insert(p);
-    next.run(req).await
+    let mut resp = next.run(req).await;
+    // 세션을 늘린 요청이면 쿠키도 같은 수명으로 다시 써 준다 (WS 업그레이드 응답에는 붙이지 않는다)
+    if let (Some(secs), true, false) = (refresh, from_cookie, path == "/ws") {
+        if let Ok(v) = header::HeaderValue::from_str(&session_cookie_ttl(&tok, secs)) {
+            resp.headers_mut().append(header::SET_COOKIE, v);
+        }
+    }
+    resp
 }
 
 pub fn session_cookie(token: &str, clear: bool) -> String {
     if clear {
         format!("{COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0")
     } else {
-        format!("{COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}", SESSION_MS / 1000)
+        session_cookie_ttl(token, SESSION_MS / 1000)
     }
+}
+
+pub fn session_cookie_ttl(token: &str, max_age_s: u64) -> String {
+    format!("{COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age_s}")
 }
 
 pub fn cookie_token(headers: &axum::http::HeaderMap) -> Option<String> {

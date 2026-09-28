@@ -193,6 +193,11 @@
 
 - [2026-09-17 22:50 MAC] 라우터 P1 구현·검증 (48a3480).
 - [2026-09-17 23:20 MAC] RP5#2 이어 개발 준비: Linux sysmon(/proc), `rust-toolchain.toml`, `scripts/pi-dev-setup.sh`, `docs/RP5-DEV.md`, `CLAUDE.md`, 이 문서.
+### 모니터링 뷰어 세션 자동 로그아웃 제외 + 쿠키 수명 갱신 (fitlet3)
+
+- 자동 로그아웃의 정체: 서버 세션은 요청마다 12시간으로 미뤄졌지만(슬라이딩) 브라우저 쿠키는 로그인 때의 `Max-Age=12h` 로 굳어 있어 활동 여부와 상관없이 12시간 뒤 쿠키가 먼저 죽어 401 → 로그인 화면. `guard` 가 세션을 늘린 응답에 같은 수명의 `Set-Cookie` 를 다시 붙인다(`resolve_ext` 가 갱신 여부 반환, 1분에 한 번).
+- 뷰어(`#/viewer…`)에서 나가는 요청은 `X-Viewer-Display: 1` 헤더(api.js) → 그 세션은 만료를 30일(`DISPLAY_MS`)씩 미루고 쿠키도 30일로. 같은 브라우저 프로필의 콘솔 탭도 같은 쿠키를 쓰므로 함께 길어진다(전광판 PC 는 보통 전용). 명시적 로그아웃은 그대로 세션을 지운다.
+
 ### 계정별 UI 선호 저장(라우터 DB) + MCOT 지역 탭 기억 (fitlet3)
 
 - `GET/PUT /api/auth/prefs` — 로그인 계정별 키·값(JSON) 저장, 표 `user_prefs(user_id,key,value,updated_ms)` (auth DB). PUT 은 병합, `null` 은 삭제, 키 64자·값 4 KB 제한, 서비스 토큰 불가. `auth.rs::prefs_get/prefs_set`, `auth_api.rs`. 콘솔 `api.auth.prefs()/setPrefs()`.
