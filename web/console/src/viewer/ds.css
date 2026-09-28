@@ -176,6 +176,7 @@
 .vm-tile .vm-lim{grid-row:1/4;grid-column:2;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end;font-size:12px;opacity:.7;padding-left:var(--space-3)}
 .vm-tile .vm-val{display:flex;align-items:baseline;gap:var(--space-2);line-height:1}
 .vm-tile .vm-val b{font-family:var(--font-heading);font-weight:800;font-size:clamp(34px,min(4.6vw,7vh),58px);letter-spacing:-.03em}
+.vm-tile:not(.is-alarm) .vm-lab b,.vm-tile:not(.is-alarm) .vm-val b,.vm-tile:not(.is-alarm) .vm-val u,.vm-tile:not(.is-alarm) .vm-foot svg{color:var(--vc,inherit)}
 .vm-tile .vm-val b.ds-none{opacity:.35}
 .vm-tile .vm-val u{text-decoration:none;font-family:var(--font-heading);font-weight:800;font-size:22px;opacity:.75}
 .vm-tile .vm-foot{display:flex;align-items:center;gap:var(--space-3);font-size:12px;opacity:.7;min-width:0}

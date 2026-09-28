@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import Sweep from './Sweep.jsx'
 import HistoryPanel from './History.jsx'
-import { LIMITS, BAT_LOW, VM_TH, monAlarm, alarmKey } from './central.js'
+import { LIMITS, BAT_LOW, VM_TH, CS_C, CS_C_LIGHT, monAlarm, alarmKey } from './central.js'
 import { latest, latencyNow } from '../ws.js'
 import { api, usePoll, fmtTime } from '../api.js'
 import { alarmIndex } from '../model.js'
@@ -17,10 +17,10 @@ function Latency() {
   return <span className="vm-latency" title={t}>LATENCY : {l ? `${l.e2e}ms` : '--ms'}</span>
 }
 
-function VmTile({ k, label, unit, hi, lo, note, val, fmt, flag, alarmColor, spark }) {
+function VmTile({ k, label, unit, hi, lo, note, val, fmt, flag, alarmColor, spark, color }) {
   const isAlarm = flag === k
   return (
-    <div className={'vm-tile' + (isAlarm ? ' is-alarm' + (alarmColor === 'yellow' ? ' is-yellow' : '') : '')}>
+    <div className={'vm-tile' + (isAlarm ? ' is-alarm' + (alarmColor === 'yellow' ? ' is-yellow' : '') : '')} style={color ? { '--vc': color } : undefined}>
       <div className="vm-lab"><b>{label}</b><span className="ds-dim">{unit}</span></div>
       <div className="vm-lim"><span>{hi}</span><span>{lo}</span></div>
       <div className="vm-val"><b className={val == null ? 'ds-none' : ''}>{val == null ? '--' : <Dec v={fmt ? fmt(val) : val} />}</b><u>{val != null ? unit : ''}</u></div>
@@ -70,14 +70,15 @@ export default function BedViewer({ row, alarms, unit, onBack }) {
   // trend table: one row per minute over the last hour of samples (the emulator's 6 h hourly table has no router-side source yet)
   const trend = []
   for (let i = hist.length - 1; i >= 0 && trend.length < 12; i -= 12) trend.push(hist[i])
+  const C = night ? CS_C : CS_C_LIGHT // 중앙 모니터와 같은 수치 컬러 코딩
   const tiles = (
     <>
-          <VmTile k="hr" label="HR" unit="bpm" hi={LIMITS.hr[1]} lo={LIMITS.hr[0]} note="ECG · Lead II" val={v.hr} flag={flag} alarmColor={a[0]} spark={spark('hr')} />
-          <VmTile k="spo2" label="SpO₂" unit="%" hi="100" lo={LIMITS.spo2[0]} note={ch.includes('ppg') ? 'PPG' : 'Patch'} val={v.spo2} flag={flag} alarmColor={a[0]} spark={spark('spo2')} />
-          <VmTile k="rr" label="RR" unit="/min" hi={LIMITS.rr[1]} lo={LIMITS.rr[0]} note={ch.includes('resp_wave') ? 'Capacitive' : 'Derived'} val={v.resp} flag={flag} alarmColor={a[0]} spark={spark('resp')} />
-          <VmTile k="nibp" label="NIBP" unit="mmHg" hi={LIMITS.nibp[1]} lo={LIMITS.nibp[0]} note="No cuff" val={null} flag={flag} alarmColor={a[0]} spark="" />
-          <VmTile k="temp" label="Temp" unit="°C" hi={LIMITS.temp[1]} lo={LIMITS.temp[0]} note="Skin patch" val={v.temp} fmt={(x) => x.toFixed(1)} flag={flag} alarmColor={a[0]} spark={spark('temp')} />
-          <VmTile k="gl" label="GLU" unit="mg/dL" hi={LIMITS.gl[1]} lo={LIMITS.gl[0]} note="CGM" val={v.glucose} fmt={(x) => x.toFixed(0)} flag={flag} alarmColor={a[0]} spark={spark('glucose')} />
+          <VmTile k="hr" color={C.hr} label="HR" unit="bpm" hi={LIMITS.hr[1]} lo={LIMITS.hr[0]} note="ECG · Lead II" val={v.hr} flag={flag} alarmColor={a[0]} spark={spark('hr')} />
+          <VmTile k="spo2" color={C.spo2} label="SpO₂" unit="%" hi="100" lo={LIMITS.spo2[0]} note={ch.includes('ppg') ? 'PPG' : 'Patch'} val={v.spo2} flag={flag} alarmColor={a[0]} spark={spark('spo2')} />
+          <VmTile k="rr" color={C.rr} label="RR" unit="/min" hi={LIMITS.rr[1]} lo={LIMITS.rr[0]} note={ch.includes('resp_wave') ? 'Capacitive' : 'Derived'} val={v.resp} flag={flag} alarmColor={a[0]} spark={spark('resp')} />
+          <VmTile k="nibp" color={C.nibp} label="NIBP" unit="mmHg" hi={LIMITS.nibp[1]} lo={LIMITS.nibp[0]} note="No cuff" val={null} flag={flag} alarmColor={a[0]} spark="" />
+          <VmTile k="temp" color={C.temp} label="Temp" unit="°C" hi={LIMITS.temp[1]} lo={LIMITS.temp[0]} note="Skin patch" val={v.temp} fmt={(x) => x.toFixed(1)} flag={flag} alarmColor={a[0]} spark={spark('temp')} />
+          <VmTile k="gl" color={C.gl} label="GLU" unit="mg/dL" hi={LIMITS.gl[1]} lo={LIMITS.gl[0]} note="CGM" val={v.glucose} fmt={(x) => x.toFixed(0)} flag={flag} alarmColor={a[0]} spark={spark('glucose')} />
     </>
   )
   return (

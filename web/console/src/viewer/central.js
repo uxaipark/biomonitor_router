@@ -1,6 +1,8 @@
 // Central Station logic ported from the emulator (emulator/web/static/app.js: CS_PRESETS, csAutoGrid, csLayout,
 // monAlarm, shortAlarm). Pure functions: the React component applies the returned CSS variables / classes.
 export const CS_C = { hr: '#3ddc84', spo2: '#38c8f0', rr: '#f5d33d', nibp: '#ff8a3d', temp: '#e8e8e8', gl: '#d9a5ff' }
+// 같은 컬러 코딩의 라이트 배경용(단일 침상 뷰어 Night 해제 시): 밝은 바탕에서 읽히도록 어둡게
+export const CS_C_LIGHT = { hr: '#178f4c', spo2: '#0b86ad', rr: '#a8850a', nibp: '#d15a12', temp: '#3a3837', gl: '#7d3fc4' }
 export const LIMITS = { hr: [50, 120], spo2: [90, 100], rr: [8, 30], nibp: [90, 160], temp: [35.5, 38.5], gl: [70, 250] }
 export const BAT_LOW = 15
 export const CS_TH = { bg: '#000', grid: 'rgba(243,242,242,.10)', paceLine: ['#ffe34d', '#ffffff', '#ff9783'] }
