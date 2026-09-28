@@ -27,3 +27,5 @@
 .mm-region .n { font-variant-numeric: tabular-nums; font-weight: 600; }
 .mm-summary { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; margin: 4px 0 8px; }
 .mm-summary b { font-variant-numeric: tabular-nums; }
+.mm-nation button small { font-weight: 400; opacity: .7; margin-left: 2px; font-variant-numeric: tabular-nums; }
+.mm-nation button.active small { opacity: .9; }

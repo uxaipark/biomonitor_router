@@ -9,7 +9,7 @@ import { LiveModal } from './LiveModal.jsx'
 import MapPatientPanel from './MapPatientPanel.jsx'
 import { isMobileGw } from './Viewers.jsx'
 import { viewerUrl } from '../viewer/templates.js'
-import { locate } from '../geo/korea.js'
+import { locate, SIDO } from '../geo/korea.js'
 
 const SEV_RANK = { critical: 4, high: 3, medium: 2, low: 1 }
 const TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
@@ -42,8 +42,14 @@ export default function McotMap({ alarms }) {
   const aidx = useMemo(() => alarmIndex(alarms?.alarms), [alarms])
   const mobile = useMemo(() => new Set((gws || []).filter(isMobileGw).map((g) => String(g.gw_id))), [gws])
   const all = useMemo(() => (rows || []).filter((r) => r.connected !== false && (mobile.has(String(r.gateway_id)) || (r.patient?.mode && r.patient.mode !== 'inpatient'))).map((r) => ({ ...r, geo: geoOf(r) })), [rows, mobile])
+  // 주요 국가 탭: 전체 · 한국 · 미국 · 일본 · 기타(그 밖의 나라 + 주소 없음)
+  const [nation, setNation] = useState('all')
+  const countryOf = (r) => (r.geo ? (SIDO[r.geo.sido] ? '한국' : r.geo.sido) : '')
+  const NATION = [['all', '전체', () => true], ['KR', '한국', (c) => c === '한국'], ['US', '미국', (c) => c === '미국'], ['JP', '일본', (c) => c === '일본'], ['other', '기타', (c) => c !== '한국' && c !== '미국' && c !== '일본']]
+  const nationCounts = useMemo(() => Object.fromEntries(NATION.map(([k, , f]) => [k, all.filter((r) => f(countryOf(r))).length])), [all]) // eslint-disable-line react-hooks/exhaustive-deps
+  const byNation = useMemo(() => { const f = NATION.find(([k]) => k === nation)?.[2] || (() => true); return all.filter((r) => f(countryOf(r))) }, [all, nation]) // eslint-disable-line react-hooks/exhaustive-deps
   const qn = q.trim().toLowerCase()
-  const shown = useMemo(() => !qn ? all : all.filter((r) => [r.patient?.name, r.patient?.home_region, r.patient?.home_address, r.mrn, r.channel_id].some((x) => String(x || '').toLowerCase().includes(qn))), [all, qn])
+  const shown = useMemo(() => !qn ? byNation : byNation.filter((r) => [r.patient?.name, r.patient?.home_region, r.patient?.home_address, r.mrn, r.channel_id].some((x) => String(x || '').toLowerCase().includes(qn))), [byNation, qn])
   const regions = useMemo(() => {
     const m = new Map()
     for (const r of shown) {
@@ -109,6 +115,8 @@ export default function McotMap({ alarms }) {
     if (!fitted.current && shown.some((r) => r.geo)) { fitted.current = true; fitAll() }
   }, [shown, aidx, pick?.patient, ready]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 5000); return () => clearInterval(t) }, []) // 툴팁 수치 갱신용
+  const nationRef = useRef('all')
+  useEffect(() => { if (nationRef.current !== nation) { nationRef.current = nation; setPick(null); setTimeout(fitAll, 30) } }, [nation, shown]) // eslint-disable-line react-hooks/exhaustive-deps
   const fitAll = () => { const map = mapRef.current, L = Lref.current; const pts = shown.filter((r) => r.geo).map((r) => r.geo.ll); if (map && L && pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.12), { maxZoom: 9 }) }
   const flyTo = (ll, z) => mapRef.current?.flyTo(ll, z, { duration: 0.6 })
 
@@ -125,6 +133,7 @@ export default function McotMap({ alarms }) {
         <h3 className="h" style={{ margin: 0 }}>MCOT</h3>
         <span className="mm-summary"><span>환자 <b>{shown.length}</b></span><span>알람 <b className={nAlarm ? 'err' : ''}>{nAlarm}</b></span><span>수신 없음 <b>{nStale}</b></span><span>이동 중 <b>{nMoving}</b></span><span>지역 <b>{regions.length}</b></span>{nNoGeo > 0 && <span className="muted">주소 없음 {nNoGeo}</span>}</span>
         <span className="spacer" />
+        <span className="seg mm-nation">{NATION.map(([k, l]) => <button key={k} className={nation === k ? 'active' : ''} onClick={() => setNation(k)}>{l} <small>{nationCounts[k] ?? 0}</small></button>)}</span>
         <input type="search" placeholder="이름 · 지역 · MRN" value={q} onChange={(e) => setQ(e.target.value)} />
         <span className="seg"><button onClick={fitAll} title="핀이 모두 보이게">전체</button><button onClick={() => flyTo(KOREA.center, KOREA.zoom)}>한국</button><button onClick={() => mapRef.current?.fitWorld({ animate: true })} title="세계 지도 한 바퀴가 화면에 맞게">세계</button></span>
         <button onClick={() => window.open(viewerUrl({ tpl: 'central', mode: 'mcot', label: 'MCOT 환자 전체' }), 'mcot:all')} disabled={!all.length}>중앙 모니터 (MCOT 전체)</button>
