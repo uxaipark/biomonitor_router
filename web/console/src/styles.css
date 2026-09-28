@@ -1274,3 +1274,13 @@ main.adm-main { padding: 0; }
 .adm-side a .hint { margin-left: auto; font-size: 11px; color: var(--muted); }
 .adm-content { min-width: 0; }
 @media (max-width: 900px) { .adm-shell { grid-template-columns: 1fr; } .adm-side { position: static; max-height: none; flex-direction: row; flex-wrap: wrap; gap: 8px 18px; border-right: 0; border-bottom: 1px solid var(--line); } .adm-side-grp { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; } }
+
+/* 이동 중 환자 · 검사실 칩을 건물별로 묶음 (구분선 + 건물 라벨) */
+.trips-rooms { display: flex; flex-direction: column; gap: 0; }
+.tr-bld { display: grid; grid-template-columns: 118px 1fr; gap: 6px 10px; align-items: start; padding: 6px 0; border-top: 1px solid var(--line); }
+.tr-bld:first-child { border-top: 0; padding-top: 0; }
+.tr-bld-label { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .03em; padding-top: 5px; white-space: nowrap; }
+.tr-bld-label b { color: var(--text); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.tr-bld-label em { font-style: normal; color: var(--accent); margin-left: 3px; font-weight: 600; }
+.tr-bld-rooms { display: flex; flex-wrap: wrap; gap: 6px; }
+@media (max-width: 700px) { .tr-bld { grid-template-columns: 1fr; } }

@@ -68,15 +68,34 @@ export default function Trips({ bedIndex }) {
         {Object.keys(KIND).concat(Object.keys(kindCounts).filter((k) => !KIND[k])).filter((k) => kindCounts[k] > 0).map((k) => <button key={k} className={kind === k ? 'on' : ''} onClick={() => setQs({ tk: kind === k ? '' : k })}>{KIND[k] || k} {kindCounts[k]}</button>)}
         {shadowN > 0 && <button className={'warn' + (kind === 'shadow' ? ' on' : '')} onClick={() => setQs({ tk: kind === 'shadow' ? '' : 'shadow' })}>음영 {shadowN}</button>}
       </div>
+      {/* 검사·치료실 칩: 건물별로 묶고 구분선 — 이름 첫 단어(본관·별관·신관)가 건물 */}
       <div className="trips-rooms">
-        {roomStat.filter((r) => r.in_n > 0 || r.head_n > 0 || r.capacity > 0).map((r) => {
-          const full = r.capacity > 0 && r.in_n >= r.capacity
-          return (
-            <button key={r.room_id} className={'tr-room' + (full ? ' full' : '') + (room === r.room_id ? ' on' : '') + (!r.in_n && !r.head_n ? ' idle' : '')} onClick={() => setQs({ tr: room === r.room_id ? '' : r.room_id })} title={`${r.room} · 안에 ${r.in_n}${r.capacity ? `/${r.capacity}` : ''}${r.head_n ? ` · 이동 중 ${r.head_n}` : ''} — 누르면 이 실에 있거나 가는 중인 환자만`}>
-              {r.room} <b>{r.in_n}{r.capacity ? `/${r.capacity}` : ''}</b>{r.head_n > 0 && <em> +{r.head_n} 이동 중</em>}
-            </button>
-          )
-        })}
+        {(() => {
+          const list = roomStat.filter((r) => r.in_n > 0 || r.head_n > 0 || r.capacity > 0)
+          const groups = []
+          for (const r of list) {
+            const b = (r.room || '').split(' ')[0] || '기타'
+            let g = groups.find((x) => x.name === b)
+            if (!g) { g = { name: b, rooms: [], in_n: 0, head_n: 0 }; groups.push(g) }
+            g.rooms.push(r); g.in_n += r.in_n; g.head_n += r.head_n
+          }
+          return groups.map((g) => (
+            <div key={g.name} className="tr-bld">
+              <div className="tr-bld-label" title={`${g.name} — 안에 ${g.in_n}${g.head_n ? ` · 이동 중 ${g.head_n}` : ''}`}>{g.name} <b>{g.in_n}</b>{g.head_n > 0 && <em>+{g.head_n}</em>}</div>
+              <div className="tr-bld-rooms">
+                {g.rooms.map((r) => {
+                  const full = r.capacity > 0 && r.in_n >= r.capacity
+                  const label = shortOf(r) || r.room
+                  return (
+                    <button key={r.room_id} className={'tr-room' + (full ? ' full' : '') + (room === r.room_id ? ' on' : '') + (!r.in_n && !r.head_n ? ' idle' : '')} onClick={() => setQs({ tr: room === r.room_id ? '' : r.room_id })} title={`${r.room} · 안에 ${r.in_n}${r.capacity ? `/${r.capacity}` : ''}${r.head_n ? ` · 이동 중 ${r.head_n}` : ''} — 누르면 이 실에 있거나 가는 중인 환자만`}>
+                      {label} <b>{r.in_n}{r.capacity ? `/${r.capacity}` : ''}</b>{r.head_n > 0 && <em> +{r.head_n}</em>}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))
+        })()}
       </div>
       <div className="lk-main">
         <table className="tbl fixed trips-tbl" style={{ minWidth: tableMin(W, 260) }}>
