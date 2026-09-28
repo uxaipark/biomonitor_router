@@ -119,7 +119,7 @@ ROUTER_EMULATOR_ADDR=192.168.0.125:5445 ROUTER_STORE_DIR=/data/store ROUTER_STOR
   `it.admin`/`It!2026`, `dr.kim`·`dr.lee`/`Doctor!2026`, `nurse.lee`·`nurse.choi`/`Nurse!2026`, `staff.park`/`Staff!2026`.
   플랫폼: `superadmin`/`Super!2026`, `sysadmin`/`Sys!2026`, `reseller1`/`Resell!2026`(H001·H002·H003), `sales1`/`Sales!2026`(H001·H003).
   개발 모드에서 병원을 새로 만들면 그 병원의 시험용 계정도 함께 만들어진다.
-* API: `POST /api/auth/login`(`{tenant, username, password}`)`|logout|password`, `GET /api/auth/me|test-accounts`, `/api/admin/users[/{id}[/reset_password]]`,
+* API: `POST /api/auth/login`(`{tenant, username, password}`)`|logout|password`, `GET /api/auth/me|test-accounts`, `GET|PUT /api/auth/prefs`(계정별 UI 선호, JSON 병합), `/api/admin/users[/{id}[/reset_password]]`,
   `/api/admin/tenants[/{id}]`, `GET|PUT /api/admin/permissions`, `GET /api/admin/permissions/versions`, `PUT /api/admin/dev_mode`, `GET /api/admin/audit`.
 
 ### EMR 연동 (2026-09-24, 운영관리 › EMR 연동)

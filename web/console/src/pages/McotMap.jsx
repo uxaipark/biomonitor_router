@@ -45,6 +45,9 @@ export default function McotMap({ alarms }) {
   const all = useMemo(() => (rows || []).filter((r) => r.connected !== false && (mobile.has(String(r.gateway_id)) || (r.patient?.mode && r.patient.mode !== 'inpatient'))).map((r) => ({ ...r, geo: geoOf(r) })), [rows, mobile])
   // 주요 국가 탭: 전체 · 한국 · 미국 · 일본 · 기타(그 밖의 나라 + 주소 없음)
   const [nation, setNation] = useState('all')
+  // 탭 선택은 계정별로 라우터 DB 에 저장(브라우저 저장소 아님) → 새로고침·다른 기기에서도 마지막 탭으로
+  useEffect(() => { let ok = true; api.auth.prefs().then((p) => { const v = p?.['mcot.nation']; if (ok && typeof v === 'string' && ['all', 'KR', 'US', 'JP', 'other'].includes(v)) setNation(v) }).catch(() => {}); return () => { ok = false } }, [])
+  const pickNation = (k) => { setNation(k); api.auth.setPrefs({ 'mcot.nation': k }).catch(() => {}) }
   const countryOf = (r) => (r.geo ? (SIDO[r.geo.sido] ? '한국' : r.geo.sido) : '')
   const NATION = [['all', '전체', () => true], ['KR', '한국', (c) => c === '한국'], ['US', '미국', (c) => c === '미국'], ['JP', '일본', (c) => c === '일본'], ['other', '기타', (c) => c !== '한국' && c !== '미국' && c !== '일본']]
   const nationCounts = useMemo(() => Object.fromEntries(NATION.map(([k, , f]) => [k, all.filter((r) => f(countryOf(r))).length])), [all]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -166,7 +169,7 @@ export default function McotMap({ alarms }) {
           </aside>
         ) : (
           <aside className="map-side">
-            <div className="seg mm-nation">{NATION.map(([k, l]) => <button key={k} className={nation === k ? 'active' : ''} onClick={() => { if (nation === k) fitAll(); else setNation(k) }} title={nation === k ? '다시 누르면 핀에 맞춤' : undefined}>{l}<small>{nationCounts[k] ?? 0}</small></button>)}</div>
+            <div className="seg mm-nation">{NATION.map(([k, l]) => <button key={k} className={nation === k ? 'active' : ''} onClick={() => { if (nation === k) fitAll(); else pickNation(k) }} title={nation === k ? '다시 누르면 핀에 맞춤' : undefined}>{l}<small>{nationCounts[k] ?? 0}</small></button>)}</div>
             <h4>지역별 <small>{regions.length}곳 · {shown.length}명</small></h4>
             <p className="muted small" style={{ margin: '0 0 6px' }}>누르면 그 지역 환자 목록 · 지도의 핀을 눌러도 상세</p>
             {regions.map((g) => (

@@ -17,6 +17,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/me", get(me))
         .route("/api/auth/password", post(change_password))
+        .route("/api/auth/prefs", get(prefs_get).put(prefs_set))
         .route("/api/auth/test-accounts", get(test_accounts))
         .route("/api/admin/users", get(users).post(user_create))
         .route("/api/admin/users/test-pins", get(test_pins).put(test_pins_save))
@@ -92,6 +93,25 @@ async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respo
 
 async fn me(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> Response {
     Json(state.auth.me(&p)).into_response()
+}
+
+/// 계정별 UI 선호 (GET 전체 / PUT 병합) — 서비스 토큰에는 없다
+async fn prefs_get(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> Response {
+    let st = state.clone();
+    let m = tokio::task::spawn_blocking(move || st.auth.prefs_get(p.user_id)).await.unwrap_or_default();
+    Json(serde_json::Value::Object(m)).into_response()
+}
+
+async fn prefs_set(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(b): Json<serde_json::Value>) -> Response {
+    let Some(patch) = b.as_object().cloned() else { return (StatusCode::BAD_REQUEST, "객체를 보내세요").into_response() };
+    if p.service {
+        return (StatusCode::FORBIDDEN, "서비스 토큰은 선호를 저장할 수 없습니다").into_response();
+    }
+    let st = state.clone();
+    match tokio::task::spawn_blocking(move || st.auth.prefs_set(p.user_id, &patch).map(|_| st.auth.prefs_get(p.user_id))).await.unwrap_or(Err("failed".into())) {
+        Ok(m) => Json(serde_json::Value::Object(m)).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
 }
 
 #[derive(Deserialize)]

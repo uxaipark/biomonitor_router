@@ -86,6 +86,8 @@ export const api = {
     logout: () => send('POST', '/api/auth/logout'),
     password: (old, nw) => send('POST', '/api/auth/password', { old, new: nw }),
     testAccounts: () => get('/api/auth/test-accounts'),
+    prefs: () => get('/api/auth/prefs'), // 계정별 UI 선호 (라우터 DB)
+    setPrefs: (patch) => send('PUT', '/api/auth/prefs', patch),
   },
   security: {
     get: () => get('/api/security'),

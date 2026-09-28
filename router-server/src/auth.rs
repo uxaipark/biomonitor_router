@@ -168,6 +168,7 @@ impl Principal {
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS user_prefs (user_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_ms INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, key));
 CREATE TABLE IF NOT EXISTS tenants (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'hospital', region TEXT NOT NULL DEFAULT '',
   contact TEXT NOT NULL DEFAULT '', reseller TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1, created_ms INTEGER NOT NULL);
@@ -747,6 +748,45 @@ impl Auth {
         if let Ok(db) = self.db.lock() {
             let _ = db.execute("DELETE FROM sessions WHERE user_id = ?1", params![uid]);
         }
+    }
+
+    /// 계정별 UI 선호(예: MCOT 지역 탭) — 브라우저가 아니라 라우터 DB 에 남아 다른 기기·새로고침에도 유지된다. 값은 JSON.
+    pub fn prefs_get(&self, user_id: i64) -> serde_json::Map<String, serde_json::Value> {
+        let db = self.db.lock().unwrap();
+        let mut out = serde_json::Map::new();
+        if let Ok(mut st) = db.prepare("SELECT key, value FROM user_prefs WHERE user_id = ?1") {
+            if let Ok(rows) = st.query_map(params![user_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
+                for (k, v) in rows.flatten() {
+                    out.insert(k, serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v)));
+                }
+            }
+        }
+        out
+    }
+
+    /// 병합 저장: 넘어온 키만 바꾸고 `null` 은 지운다. 키 64자·값 4 KB 로 제한.
+    pub fn prefs_set(&self, user_id: i64, patch: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+        let db = self.db.lock().unwrap();
+        let now = crate::protocol::now_ms() as i64;
+        for (k, v) in patch {
+            if k.is_empty() || k.len() > 64 {
+                return Err("잘못된 키".into());
+            }
+            if v.is_null() {
+                db.execute("DELETE FROM user_prefs WHERE user_id = ?1 AND key = ?2", params![user_id, k]).map_err(|e| e.to_string())?;
+                continue;
+            }
+            let val = v.to_string();
+            if val.len() > 4096 {
+                return Err("값이 너무 깁니다".into());
+            }
+            db.execute(
+                "INSERT INTO user_prefs (user_id, key, value, updated_ms) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_ms = excluded.updated_ms",
+                params![user_id, k, val, now],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 
     pub fn change_password(&self, p: &Principal, old: &str, new: &str) -> Result<(), String> {

@@ -193,6 +193,11 @@
 
 - [2026-09-17 22:50 MAC] 라우터 P1 구현·검증 (48a3480).
 - [2026-09-17 23:20 MAC] RP5#2 이어 개발 준비: Linux sysmon(/proc), `rust-toolchain.toml`, `scripts/pi-dev-setup.sh`, `docs/RP5-DEV.md`, `CLAUDE.md`, 이 문서.
+### 계정별 UI 선호 저장(라우터 DB) + MCOT 지역 탭 기억 (fitlet3)
+
+- `GET/PUT /api/auth/prefs` — 로그인 계정별 키·값(JSON) 저장, 표 `user_prefs(user_id,key,value,updated_ms)` (auth DB). PUT 은 병합, `null` 은 삭제, 키 64자·값 4 KB 제한, 서비스 토큰 불가. `auth.rs::prefs_get/prefs_set`, `auth_api.rs`. 콘솔 `api.auth.prefs()/setPrefs()`.
+- MCOT 지역 탭(`mcot.nation`: all/KR/US/JP/other)을 탭 클릭 때 저장하고, 페이지가 뜰 때 읽어 복원(브라우저 저장소 아님 — 다른 기기·새로고침에도 유지). 다른 화면의 선호도 같은 API 로 붙이면 된다.
+
 ### MCOT 지도 해외 거주자 매핑 (fitlet3)
 
 - 해외 주소(에뮬레이터: home_region "미국 Texas", home_address "미국 · Houston, Texas")는 국내 시도 표에 없어 핀이 빠졌다(50명 중 14명: 미국·브라질·독일·멕시코·칠레·이탈리아). `geo/world.js` 추가 — 국가(한글) 66개 중심, 지역·도시(영문 소문자) 약 330개 근사 좌표. `locate(region, address)` 가 국내 시도가 아니면 도시 > 지역 > 국가 순으로 찾고, 국가만 아는 경우는 점선 핀(exact:false). 지역 목록 키는 "국가 도시".
