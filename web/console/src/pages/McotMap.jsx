@@ -65,8 +65,11 @@ export default function McotMap({ alarms }) {
     import('leaflet').then(({ default: L }) => {
       if (dead || !elRef.current) return
       Lref.current = L
-      const map = L.map(elRef.current, { worldCopyJump: true, minZoom: 2, zoomControl: true }).setView(KOREA.center, KOREA.zoom)
-      const tiles = L.tileLayer(TILES, { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' })
+      // 세계를 한 번만: 타일 반복(noWrap) 없이, 최소 줌은 컨테이너 폭에 세계 한 바퀴가 딱 맞는 값(0.25 단위) — 세계 버튼과
+      // 처음 '전체 맞춤'이 같은 배율이 되고, 미국이 양쪽에 두 번 보이는 과도한 줌아웃이 없다
+      const minZoomFor = (w) => Math.max(1, Math.ceil(Math.log2(Math.max(256, w) / 256) * 4) / 4)
+      const map = L.map(elRef.current, { worldCopyJump: false, zoomSnap: 0.25, zoomDelta: 0.5, minZoom: minZoomFor(elRef.current.clientWidth), maxBounds: [[-85, -180], [85, 180]], maxBoundsViscosity: 1, zoomControl: true }).setView(KOREA.center, KOREA.zoom)
+      const tiles = L.tileLayer(TILES, { maxZoom: 19, noWrap: true, bounds: [[-85, -180], [85, 180]], attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' })
       let errs = 0, oks = 0
       tiles.on('tileerror', () => { errs++; if (errs >= 4 && !oks) setOffline(true) })
       tiles.on('tileload', () => { oks++; setOffline(false) })
@@ -74,7 +77,7 @@ export default function McotMap({ alarms }) {
       layerRef.current = L.layerGroup().addTo(map)
       mapRef.current = map
       setTimeout(() => map.invalidateSize(), 50)
-      ro = new ResizeObserver(() => map.invalidateSize()); ro.observe(elRef.current)
+      ro = new ResizeObserver(() => { map.invalidateSize(); map.setMinZoom(minZoomFor(elRef.current?.clientWidth || 256)) }); ro.observe(elRef.current)
       setReady(true)
     })
     return () => { dead = true; ro?.disconnect(); mapRef.current?.remove(); mapRef.current = null; markers.current.clear() }
@@ -106,7 +109,7 @@ export default function McotMap({ alarms }) {
     if (!fitted.current && shown.some((r) => r.geo)) { fitted.current = true; fitAll() }
   }, [shown, aidx, pick?.patient, ready]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 5000); return () => clearInterval(t) }, []) // 툴팁 수치 갱신용
-  const fitAll = () => { const map = mapRef.current, L = Lref.current; const pts = shown.filter((r) => r.geo).map((r) => r.geo.ll); if (map && L && pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.15), { maxZoom: 9 }) }
+  const fitAll = () => { const map = mapRef.current, L = Lref.current; const pts = shown.filter((r) => r.geo).map((r) => r.geo.ll); if (map && L && pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.12), { maxZoom: 9 }) }
   const flyTo = (ll, z) => mapRef.current?.flyTo(ll, z, { duration: 0.6 })
 
   // 오른쪽 패널 목록의 파형 구독
@@ -123,7 +126,7 @@ export default function McotMap({ alarms }) {
         <span className="mm-summary"><span>환자 <b>{shown.length}</b></span><span>알람 <b className={nAlarm ? 'err' : ''}>{nAlarm}</b></span><span>수신 없음 <b>{nStale}</b></span><span>이동 중 <b>{nMoving}</b></span><span>지역 <b>{regions.length}</b></span>{nNoGeo > 0 && <span className="muted">주소 없음 {nNoGeo}</span>}</span>
         <span className="spacer" />
         <input type="search" placeholder="이름 · 지역 · MRN" value={q} onChange={(e) => setQ(e.target.value)} />
-        <span className="seg"><button onClick={fitAll} title="핀이 모두 보이게">전체</button><button onClick={() => flyTo(KOREA.center, KOREA.zoom)}>한국</button><button onClick={() => flyTo([20, 60], 2)}>세계</button></span>
+        <span className="seg"><button onClick={fitAll} title="핀이 모두 보이게">전체</button><button onClick={() => flyTo(KOREA.center, KOREA.zoom)}>한국</button><button onClick={() => mapRef.current?.fitWorld({ animate: true })} title="세계 지도 한 바퀴가 화면에 맞게">세계</button></span>
         <button onClick={() => window.open(viewerUrl({ tpl: 'central', mode: 'mcot', label: 'MCOT 환자 전체' }), 'mcot:all')} disabled={!all.length}>중앙 모니터 (MCOT 전체)</button>
       </div>
       <div className="map-cols">
