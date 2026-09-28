@@ -192,8 +192,11 @@ const K_DEV: &str = "auth.dev_mode";
 const K_SITE: &str = "site.tenant_id";
 const GLOBAL: &str = "*";
 const SESSION_MS: u64 = 12 * 3600 * 1000;
-/// 모니터링 뷰어(전광판·중앙 모니터·1인 뷰어) 세션: 자동 로그아웃 대상이 아니다 — 요청에 `X-Viewer-Display: 1` 이 오면 만료를 30일씩 미룬다
-const DISPLAY_MS: u64 = 30 * 24 * 3600 * 1000;
+/// 모니터링 뷰어(전광판·중앙 모니터·1인 뷰어) 세션: 자동 로그아웃 대상이 아니다 — 요청에 `X-Viewer-Display: 1` 이 오면 만료를 1년씩 미룬다.
+/// 뷰어는 몇 초마다 요청하므로 다시 실행하기 전까지 몇 년이든 이어진다(브라우저 쿠키 수명 상한이 400일이라 1년 단위로 갱신).
+const DISPLAY_MS: u64 = 365 * 24 * 3600 * 1000;
+/// 뷰어 전용 토큰(로그인 쿠키와 별개, 로그아웃해도 살아 있음): 10년
+const DISPLAY_TOKEN_MS: u64 = 3650 * 24 * 3600 * 1000;
 /// 시험용 계정 PIN 자릿수 / 기본값 (`ROUTER_TEST_PIN` 으로 변경)
 pub const TEST_PIN_LEN: usize = 8;
 pub const DEFAULT_TEST_PIN: &str = "95305449";
@@ -312,6 +315,7 @@ impl Auth {
         if let Err(e) = db.execute_batch(SCHEMA) {
             warn!("auth schema: {}", e);
         }
+        let _ = db.execute("ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT ''", []); // 이미 있으면 오류 → 무시
         let get = |k: &str| -> Option<String> {
             db.query_row("SELECT value FROM settings WHERE key = ?1", params![k], |r| r.get::<_, String>(0)).ok()
         };
@@ -752,6 +756,27 @@ impl Auth {
         if let Ok(db) = self.db.lock() {
             let _ = db.execute("DELETE FROM sessions WHERE token_hash = ?1", params![h]);
         }
+    }
+
+    /// 뷰어 전용 토큰: 로그인한 계정으로 만들고 브라우저(localStorage)가 간직한다. 쿠키 세션과 별개라 로그아웃해도 뷰어는 계속
+    /// 동작한다. 계정 비활성화·관리자 비밀번호 초기화(drop_sessions_of)에는 함께 지워진다.
+    pub fn create_display_token(&self, p: &Principal) -> Result<(String, u64), String> {
+        if p.service {
+            return Err("서비스 토큰으로는 만들 수 없습니다".into());
+        }
+        let now = now_ms();
+        let token = format!("dsp{}", random_hex(32));
+        let h = sha_hex(token.as_bytes());
+        let exp = now + DISPLAY_TOKEN_MS;
+        if let Ok(db) = self.db.lock() {
+            db.execute(
+                "INSERT INTO sessions (token_hash, user_id, created_ms, expires_ms, tenant, kind) VALUES (?1, ?2, ?3, ?4, ?5, 'display')",
+                params![h, p.user_id, now as i64, exp as i64, p.context],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        self.sessions.lock().unwrap().insert(h, (p.user_id, exp, p.context.clone()));
+        Ok((token, exp))
     }
 
     fn drop_sessions_of(&self, uid: i64) {
@@ -1609,6 +1634,18 @@ fn token_of(req: &Request) -> Option<String> {
     if let Some(h) = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
         if let Some(t) = h.strip_prefix("Bearer ") {
             return Some(t.trim().to_string());
+        }
+    }
+    if req.uri().path() == "/ws" {
+        // 뷰어 전용 토큰으로 여는 실시간 스트림: 브라우저 WebSocket 은 헤더를 못 붙이므로 쿼리로
+        if let Some(q) = req.uri().query() {
+            for kv in q.split('&') {
+                if let Some(v) = kv.strip_prefix("token=") {
+                    if !v.is_empty() {
+                        return Some(v.to_string());
+                    }
+                }
+            }
         }
     }
     let cookies = req.headers().get_all(header::COOKIE);

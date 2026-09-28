@@ -3,12 +3,19 @@
 const BASE = import.meta.env.VITE_ROUTER || ''
 export const WS_URL = (BASE ? BASE.replace(/^http/, 'ws') : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`) + '/ws'
 
-// 401 = not logged in / session expired → the app shows the login screen (auth.js listens)
-const authLost = (r) => { if (r.status === 401) window.dispatchEvent(new CustomEvent('auth-lost')) }
-
-// 모니터링 뷰어(#/viewer…)에서 나가는 요청에는 표식을 붙인다 → 라우터가 그 세션을 자동 로그아웃 대상에서 뺀다(30일씩 연장)
+// 뷰어 전용 토큰: 뷰어(#/viewer…)가 로그인 상태에서 한 번 발급받아 이 브라우저에 간직한다. 로그인 쿠키와 별개라
+// 사용자가 로그아웃해도 뷰어는 계속 동작한다(다시 실행할 때도 그대로). 401 이 나면(토큰 폐기) 버리고 쿠키로 되돌아간다.
+const DT_KEY = 'viewer.token'
+export const displayToken = () => { try { return localStorage.getItem(DT_KEY) || '' } catch { return '' } }
+export const setDisplayToken = (t) => { try { if (t) localStorage.setItem(DT_KEY, t); else localStorage.removeItem(DT_KEY) } catch { /* ignore */ } }
 const isViewer = () => location.hash.startsWith('#/viewer')
-const hdrs = (extra) => ({ ...(isViewer() ? { 'X-Viewer-Display': '1' } : {}), ...(extra || {}) })
+export const wsUrl = () => WS_URL + (isViewer() && displayToken() ? `?token=${encodeURIComponent(displayToken())}` : '')
+
+// 401 = not logged in / session expired → the app shows the login screen (auth.js listens)
+const authLost = (r) => { if (r.status === 401) { if (isViewer() && displayToken()) setDisplayToken(''); window.dispatchEvent(new CustomEvent('auth-lost')) } }
+
+// 모니터링 뷰어(#/viewer…)에서 나가는 요청: 표식 헤더(세션 자동 로그아웃 제외) + 뷰어 전용 토큰이 있으면 그걸로 인증
+const hdrs = (extra) => ({ ...(isViewer() ? { 'X-Viewer-Display': '1', ...(displayToken() ? { Authorization: `Bearer ${displayToken()}` } : {}) } : {}), ...(extra || {}) })
 
 export async function get(path) {
   const r = await fetch(BASE + path, { credentials: 'same-origin', headers: hdrs() })
@@ -90,6 +97,7 @@ export const api = {
     logout: () => send('POST', '/api/auth/logout'),
     password: (old, nw) => send('POST', '/api/auth/password', { old, new: nw }),
     testAccounts: () => get('/api/auth/test-accounts'),
+    displayToken: () => send('POST', '/api/auth/display-token'), // 뷰어 전용 토큰 발급
     prefs: () => get('/api/auth/prefs'), // 계정별 UI 선호 (라우터 DB)
     setPrefs: (patch) => send('PUT', '/api/auth/prefs', patch),
   },

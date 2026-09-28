@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { api, usePoll } from './api.js'
+import { api, displayToken, setDisplayToken, usePoll } from './api.js'
 import { onWs, setWsAllowed, subscribeGroup, wsStatus } from './ws.js'
 import { MeContext, can, canBio, canPhi } from './auth.js'
 import Login from './pages/Login.jsx'
@@ -119,19 +119,31 @@ export const appTitle = (u) => (u?.tenant_id ? 'Patient Monitor' : 'Biomonitor R
 
 export default function App() {
   const [me, setMe] = useState(undefined) // undefined = 확인 중, null = 로그인 필요
+  // 뷰어(#/viewer…)는 무중단: 세션이 끊겨도(401) 로그인 화면으로 바꾸지 않고 화면을 유지한 채 15초마다 세션을 다시 확인한다
+  const [authLost, setAuthLost] = useState(false)
   useEffect(() => {
     api.auth.me().then(setMe).catch(() => setMe(null))
-    const lost = () => setMe(null)
+    const lost = () => { if (location.hash.startsWith('#/viewer')) setAuthLost(true); else setMe(null) }
     window.addEventListener('auth-lost', lost)
     return () => window.removeEventListener('auth-lost', lost)
   }, [])
+  useEffect(() => {
+    if (!authLost) return
+    const t = setInterval(() => api.auth.me().then((m) => { setMe(m); setAuthLost(false) }).catch(() => {}), 15000)
+    return () => clearInterval(t)
+  }, [authLost])
+  // 뷰어가 로그인 상태로 떠 있으면 뷰어 전용 토큰을 한 번 발급받아 둔다 → 로그아웃 뒤에도, 다시 실행해도 세션 없이 동작
+  useEffect(() => {
+    if (!me || !location.hash.startsWith('#/viewer') || displayToken()) return
+    api.auth.displayToken().then((r) => { if (r?.token) setDisplayToken(r.token) }).catch(() => {})
+  }, [me])
   useEffect(() => { setWsAllowed(!!me && canBio(me) && canPhi(me)) }, [me])
   useTheme()
   // 병원 계정(소속 병원이 있는 계정)으로 들어오면 제품 이름을 Patient Monitor 로, 플랫폼 계정은 Biomonitor Router 그대로
   useEffect(() => { if (me) document.title = appTitle(me.user) }, [me]) // 로그인 전 제목은 Login 이 정한다
   if (me === undefined) return <div className="boot muted">확인 중…</div>
   if (!me) return <Login onLogin={setMe} />
-  return <MeContext.Provider value={me}><Console me={me} setMe={setMe} /></MeContext.Provider>
+  return <MeContext.Provider value={me}><Console me={me} setMe={setMe} authLost={authLost} /></MeContext.Provider>
 }
 
 /** 다른 병원 계정이 이 라우터의 데이터 화면에 들어왔을 때 */
@@ -150,7 +162,7 @@ function NoAccess({ label }) {
   return <div className="page"><div className="panel no-access"><h3>{label}</h3><p>이 계정에는 이 화면을 볼 권한이 없습니다. 필요하면 관리자(권한 설정)에게 요청하세요.</p></div></div>
 }
 
-function Console({ me, setMe }) {
+function Console({ me, setMe, authLost }) {
   const hash = useHash()
   const [theme, setTheme] = useTheme()
   const [health, , refreshHealth] = usePoll(api.health, 5000)
@@ -206,6 +218,7 @@ function Console({ me, setMe }) {
   // Viewer templates run full-screen without the console chrome (opened in their own tab).
   if (base === '#/viewer') {
     return <>
+      {authLost && <div className="viewer-lost">세션이 끊겼습니다 (다른 곳에서 로그아웃했거나 계정이 바뀜) — 화면은 유지하고 15초마다 다시 확인합니다. 새로 로그인하려면 새로고침하세요.</div>}
       <Viewer alarms={alarms} hash={hash} />
       {modal && <LiveModal channelId={modal.channel_id} alarms={alarms} onClose={() => setModal(null)} />}
     </>

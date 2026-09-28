@@ -1360,3 +1360,6 @@ main.adm-main { padding: 0; }
 .map-board small { font-size: 11.5px; line-height: 1.4; }
 .map-board-btns { display: flex; gap: 6px; margin-top: 2px; }
 .map-board-btns button { padding: 4px 14px; }
+
+/* 뷰어 세션 끊김 배너 (뷰어는 로그인 화면으로 바뀌지 않는다) */
+.viewer-lost { position: fixed; left: 50%; top: 8px; transform: translateX(-50%); z-index: 1000; background: #7a1d1d; color: #fff; padding: 6px 14px; border-radius: 8px; font-size: 12.5px; box-shadow: 0 4px 14px rgba(0,0,0,.4); }

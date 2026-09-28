@@ -18,6 +18,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/auth/me", get(me))
         .route("/api/auth/password", post(change_password))
         .route("/api/auth/prefs", get(prefs_get).put(prefs_set))
+        .route("/api/auth/display-token", post(display_token))
         .route("/api/auth/test-accounts", get(test_accounts))
         .route("/api/admin/users", get(users).post(user_create))
         .route("/api/admin/users/test-pins", get(test_pins).put(test_pins_save))
@@ -93,6 +94,17 @@ async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respo
 
 async fn me(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> Response {
     Json(state.auth.me(&p)).into_response()
+}
+
+/// 뷰어 전용 토큰 발급 (로그인 상태에서 뷰어가 한 번 호출) — 이후 뷰어는 쿠키 없이도 이 토큰으로 동작한다
+async fn display_token(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> Response {
+    match state.auth.create_display_token(&p) {
+        Ok((token, exp)) => {
+            state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "display_token", "뷰어 전용 토큰 발급");
+            Json(serde_json::json!({ "token": token, "expires_ms": exp })).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
 }
 
 /// 계정별 UI 선호 (GET 전체 / PUT 병합) — 서비스 토큰에는 없다

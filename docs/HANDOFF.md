@@ -193,6 +193,12 @@
 
 - [2026-09-17 22:50 MAC] 라우터 P1 구현·검증 (48a3480).
 - [2026-09-17 23:20 MAC] RP5#2 이어 개발 준비: Linux sysmon(/proc), `rust-toolchain.toml`, `scripts/pi-dev-setup.sh`, `docs/RP5-DEV.md`, `CLAUDE.md`, 이 문서.
+### 뷰어 전용 토큰 — 로그아웃·재실행에도 뷰어 무중단 (fitlet3)
+
+- `POST /api/auth/display-token`(로그인 상태) → `dsp…` 토큰(10년, sessions.kind='display', 감사 `display_token`). 뷰어(`#/viewer…`)가 떠 있고 토큰이 없으면 App 이 한 번 발급받아 `localStorage['viewer.token']` 에 간직. 이후 뷰어의 모든 요청은 `Authorization: Bearer`, WS 는 `/ws?token=`(브라우저 WebSocket 은 헤더 불가 → `token_of` 가 /ws 에서만 쿼리 허용). 로그아웃은 쿠키 세션만 지우므로 뷰어는 계속 동작하고, 브라우저를 다시 열어도 토큰으로 바로 뜬다. 계정 비활성화·관리자 비밀번호 초기화(`drop_sessions_of`)는 토큰도 지운다. 뷰어에서 401 이면 토큰을 버리고 쿠키로 되돌아간 뒤 15초마다 재확인(로그인 화면으로 바꾸지 않음, 상단 배너).
+- 뷰어 표식 세션(`X-Viewer-Display`) 연장은 1년(`DISPLAY_MS`) 단위. `authLost` 상태를 `Console` 에 prop 으로 넘기지 않아 뷰어가 ReferenceError 로 죽었던 것 수정.
+- 실측: 발급 → 로그아웃 → 쿠키 401 / Bearer 200 / `/ws?token=` 101.
+
 ### 모니터링 뷰어 세션 자동 로그아웃 제외 + 쿠키 수명 갱신 (fitlet3)
 
 - 자동 로그아웃의 정체: 서버 세션은 요청마다 12시간으로 미뤄졌지만(슬라이딩) 브라우저 쿠키는 로그인 때의 `Max-Age=12h` 로 굳어 있어 활동 여부와 상관없이 12시간 뒤 쿠키가 먼저 죽어 401 → 로그인 화면. `guard` 가 세션을 늘린 응답에 같은 수명의 `Set-Cookie` 를 다시 붙인다(`resolve_ext` 가 갱신 여부 반환, 1분에 한 번).

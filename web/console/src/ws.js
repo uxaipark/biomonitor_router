@@ -2,7 +2,7 @@
 //  * stream_batch v2 binary frames → waveform rings (waveStore) + latest vitals/flags per patch
 //  * alarm / membership / channel_event text messages → listeners
 // Subscriptions are reference-counted so several views can share the socket.
-import { WS_URL } from './api.js'
+import { wsUrl } from './api.js'
 import { appendSamples } from './waveStore.js'
 
 const td = new TextDecoder()
@@ -136,7 +136,7 @@ function open() {
   if (!allowed) return
   if (ws && (ws.readyState === 0 || ws.readyState === 1)) return
   setStatus('connecting')
-  try { ws = new WebSocket(WS_URL) } catch { scheduleRetry(); return }
+  try { ws = new WebSocket(wsUrl()) } catch { scheduleRetry(); return }
   ws.binaryType = 'arraybuffer'
   ws.onopen = () => {
     retry = 0
