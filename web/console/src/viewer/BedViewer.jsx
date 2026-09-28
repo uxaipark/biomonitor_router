@@ -32,7 +32,7 @@ function VmTile({ k, label, unit, hi, lo, note, val, fmt, flag, alarmColor, spar
 /** Single-bed viewer (Vitals Monitor Viewer): three large traces, six vital tiles, 6 h trend, events. */
 export default function BedViewer({ row, alarms, unit, onBack }) {
   const id = row?.channel_id
-  const [night, setNight] = useState(() => { try { return localStorage.getItem('vm:night') === '1' } catch { return false } })
+  const [night, setNight] = useState(() => { try { return localStorage.getItem('vm:night') !== '0' } catch { return true } }) // 기본 다크(Night); 사용자가 끈 경우만 라이트
   const [silenced, setSilenced] = useState(false)
   const [history, setHistory] = useState(false) // stored-waveform mode instead of the live traces
   const [emr, setEmr] = useState(null)
