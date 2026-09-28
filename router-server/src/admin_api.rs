@@ -580,6 +580,8 @@ struct Stats {
     /// 열린 출력 WS 세션 수 / 채널 단위로 구독된 패치 수 (세션 간 중복 제외)
     ws_sessions: u64,
     ws_subscribed_channels: usize,
+    ws_subscribed_groups: usize,
+    ws_subscribed_gateways: usize,
     /// 저장 큐에 대기 중인 op 수 (상한 262,144; 0 근처가 정상)
     store_queue: usize,
     /// 라우터 프로세스 메모리 (working set)
@@ -668,6 +670,8 @@ async fn stats(State(state): State<Arc<AppState>>) -> Json<Stats> {
         ws_ctrl_dropped: state.ws_ctrl_dropped.load(Ordering::Relaxed),
         ws_sessions: state.ws_sessions.load(Ordering::Relaxed),
         ws_subscribed_channels: state.sub_channels.len(),
+        ws_subscribed_groups: state.sub_groups.len(),
+        ws_subscribed_gateways: state.sub_gateways.len(),
         store_queue: state.store_tx.max_capacity() - state.store_tx.capacity(),
         mem_process_bytes: mem_process,
         mem_sys_used_bytes: mem_used,

@@ -83,6 +83,7 @@ export default function Dashboard({ alarms }) {
         <Tile label="알람" value={fmtNum(s.active)} sub={`위험 ${s.critical || 0} · 높음 ${s.high || 0} · 중간 ${s.medium || 0} · 낮음 ${s.low || 0}`} cls={s.critical ? 'crit' : s.high ? 'err' : ''} />
         {sys && <Tile label="CPU / 메모리" value={stats ? `${stats.cpu_percent.toFixed(0)}% / ${memPct}%` : '—'} sub={`라우터 ${stats?.cpu_process_percent?.toFixed(0) ?? '—'}%${stats?.cpu_mhz ? ` (${(stats.cpu_mhz / 1000).toFixed(1)} GHz · ${stats.cpu_ref_mhz / 1000} GHz 환산 ${stats.cpu_process_percent_norm.toFixed(0)}%)` : ''} · RSS ${fmtBytes(stats?.mem_process_bytes)}`} cls={stats && (stats.cpu_percent > 70 || memPct > 80) ? 'warn' : ''} />}
         {sys && <Tile label="저장소" value={fmtBytes(stats?.wave_store_bytes)} sub={`디스크 사용 ${diskPct}% · 여유 ${fmtBytes(stats?.disk_free_bytes)} · 큐 드롭 ${fmtNum(stats?.queue_dropped_wave)}`} cls={stats?.queue_dropped_wave ? 'err' : diskPct > 85 ? 'warn' : ''} />}
+        {sys && <Tile label="웹 뷰어 / 전송 회선" value={stats ? `${fmtNum(stats.ws_sessions)} / ${fmtNum(stats.ws_subscribed_channels)}` : '—'} sub={stats ? `WS 세션 · 구독 패치 (그룹 ${fmtNum(stats.ws_subscribed_groups || 0)} · GW ${fmtNum(stats.ws_subscribed_gateways || 0)})` : ''} />}
         {sys && <Tile label="가동 시간" value={fmtDur(stats?.uptime_s)} sub={`분석 서버 ${stats?.analysis_connected ? '연결' : '패스스루'}`} />}
         {sys && <Tile label="전송 지연" value={e2e ? `${e2e.e2e} ms` : stats?.latency?.n ? `${stats.latency.p50} ms` : '—'}
           sub={e2e
