@@ -133,9 +133,7 @@ export default function McotMap({ alarms }) {
         <h3 className="h" style={{ margin: 0 }}>MCOT</h3>
         <span className="mm-summary"><span>환자 <b>{shown.length}</b></span><span>알람 <b className={nAlarm ? 'err' : ''}>{nAlarm}</b></span><span>수신 없음 <b>{nStale}</b></span><span>이동 중 <b>{nMoving}</b></span><span>지역 <b>{regions.length}</b></span>{nNoGeo > 0 && <span className="muted">주소 없음 {nNoGeo}</span>}</span>
         <span className="spacer" />
-        <span className="seg mm-nation">{NATION.map(([k, l]) => <button key={k} className={nation === k ? 'active' : ''} onClick={() => setNation(k)}>{l} <small>{nationCounts[k] ?? 0}</small></button>)}</span>
         <input type="search" placeholder="이름 · 지역 · MRN" value={q} onChange={(e) => setQ(e.target.value)} />
-        <span className="seg"><button onClick={fitAll} title="핀이 모두 보이게">전체</button><button onClick={() => flyTo(KOREA.center, KOREA.zoom)}>한국</button><button onClick={() => mapRef.current?.fitWorld({ animate: true })} title="세계 지도 한 바퀴가 화면에 맞게">세계</button></span>
         <button onClick={() => window.open(viewerUrl({ tpl: 'central', mode: 'mcot', label: 'MCOT 환자 전체' }), 'mcot:all')} disabled={!all.length}>중앙 모니터 (MCOT 전체)</button>
       </div>
       <div className="map-cols">
@@ -163,6 +161,7 @@ export default function McotMap({ alarms }) {
           </aside>
         ) : (
           <aside className="map-side">
+            <div className="seg mm-nation">{NATION.map(([k, l]) => <button key={k} className={nation === k ? 'active' : ''} onClick={() => { if (nation === k) fitAll(); else setNation(k) }} title={nation === k ? '다시 누르면 핀에 맞춤' : undefined}>{l}<small>{nationCounts[k] ?? 0}</small></button>)}</div>
             <h4>지역별 <small>{regions.length}곳 · {shown.length}명</small></h4>
             <p className="muted small" style={{ margin: '0 0 6px' }}>누르면 그 지역 환자 목록 · 지도의 핀을 눌러도 상세</p>
             {regions.map((g) => (
