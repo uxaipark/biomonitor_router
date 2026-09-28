@@ -123,7 +123,7 @@ export function FilterBar({ children, applied = [], onReset, right }) {
         </div>
       )}
       <span className="spacer" />
-      {right}
+      {right != null && <span className="lk-right">{right}</span>}
     </div>
   )
 }

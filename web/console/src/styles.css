@@ -910,8 +910,14 @@ td.ok { color: var(--ok); }
 .lk-chip.c-sev-critical:not(.zero) b { color: var(--sev-critical); }
 .lk-chip.c-sev-high:not(.zero) b { color: var(--sev-high); }
 .lk-chip.c-sev-medium:not(.zero) b { color: var(--sev-medium); }
-.lk-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
-.lk-inputs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lk-filter { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 8px 12px; margin-bottom: 10px; }
+/* 입력들은 자기 상자 안에서 줄바꿈하고, 오른쪽(건수·페이지 이동)은 항상 첫 줄 오른쪽에 고정 */
+.lk-inputs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex: 1 1 auto; min-width: 0; }
+.lk-applied { flex: 0 1 auto; }
+.lk-right { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; min-height: 30px; }
+.lk-inputs label.chk { padding: 4px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel2); font-size: 12.5px; }
+.lk-inputs label.chk:has(input:checked) { border-color: var(--accent); color: var(--text); }
+.lk-inputs label.chk:has(input:disabled) { opacity: .5; cursor: default; }
 .lk-inputs input { min-width: 240px; }
 .lk-applied { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .lk-tagx { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 16%, var(--panel)); font-size: 12.5px; }
