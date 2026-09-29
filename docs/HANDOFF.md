@@ -193,6 +193,11 @@
 
 - [2026-09-17 22:50 MAC] 라우터 P1 구현·검증 (48a3480).
 - [2026-09-17 23:20 MAC] RP5#2 이어 개발 준비: Linux sysmon(/proc), `rust-toolchain.toml`, `scripts/pi-dev-setup.sh`, `docs/RP5-DEV.md`, `CLAUDE.md`, 이 문서.
+### 환자 목록 ECG(10초): 옵션 + 라우터 배치 API (fitlet3)
+
+- `GET /api/wave/recent?ids=…(≤120)&secs=10&points=96` — 저장 파일 꼬리 + 미플러시 버퍼(`StoreOp::Pending` 을 한꺼번에 묻고 받음)에서 ECG 만 읽어 min/max 버킷(최솟값 0 기준 mV)으로 줄여 한 번에 응답. 실측 100명 0.3–0.6 s(각 10 s = 2,400 샘플 완전). 브라우저가 스트림을 10초 모으던 방식(지연 ≥ 10 s, 짧은 파형)을 대체.
+- 환자 목록: 필터 줄 "ECG (10초)" 체크박스(계정별 선호 `patients.ecg`, 기본 꺼짐). 켜면 열이 나타나고 보이는 페이지를 40명씩 병렬로 받아 한 번 그린 뒤 고정, ↻(열 머리 = 전체, 행 = 한 명)로 최신. 끄면 열 자체가 숨는다. 상세 패널 ECG 도 같은 API.
+
 ### 뷰어 전용 토큰 — 로그아웃·재실행에도 뷰어 무중단 (fitlet3)
 
 - `POST /api/auth/display-token`(로그인 상태) → `dsp…` 토큰(10년, sessions.kind='display', 감사 `display_token`). 뷰어(`#/viewer…`)가 떠 있고 토큰이 없으면 App 이 한 번 발급받아 `localStorage['viewer.token']` 에 간직. 이후 뷰어의 모든 요청은 `Authorization: Bearer`, WS 는 `/ws?token=`(브라우저 WebSocket 은 헤더 불가 → `token_of` 가 /ws 에서만 쿼리 허용). 로그아웃은 쿠키 세션만 지우므로 뷰어는 계속 동작하고, 브라우저를 다시 열어도 토큰으로 바로 뜬다. 계정 비활성화·관리자 비밀번호 초기화(`drop_sessions_of`)는 토큰도 지운다. 뷰어에서 401 이면 토큰을 버리고 쿠키로 되돌아간 뒤 15초마다 재확인(로그인 화면으로 바꾸지 않음, 상단 배너).
