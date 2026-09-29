@@ -140,7 +140,7 @@ export default function EcgEngine() {
               <div className="toolbar"><button className="primary" onClick={saveCfg} disabled={!dirty || busy}>설정 저장</button>{dirty && <button onClick={() => setDraft(null)}>되돌리기</button>}<span className="muted small">현재: {cfg?.preset} · {cfg?.stages || '프리셋 기본'}</span></div>
             </div>
           )}
-          <p className="muted small">이름은 <span className="mono">kind.variant@version</span> 이고, 판정이 달라질 때만 version 이 오릅니다. 새 단계는 같은 신호에서 옛 단계와 나란히 비교한 뒤 채택할 수 있고, 엔진을 바꾸지 않고 이전 단계로 되돌릴 수 있습니다.</p>
+          <p className="muted small">이름은 <span className="mono">kind.variant@version</span> 이며 판정이 달라질 때만 version 이 오릅니다. 새 단계는 옛 단계와 나란히 비교한 뒤 채택하거나 되돌릴 수 있습니다.</p>
         </section>
 
         {/* 버전 보관함 */}
@@ -187,7 +187,7 @@ export default function EcgEngine() {
       <section className="ecg-card">
         <h3>엔진 성능 <small className="muted">live_ecg 보고서(README · reports/PERFORMANCE.md) — 학습·조정에 쓰지 않은 봉인(TEST) 구역 수치</small></h3>
         <div className="ecg-bench">
-          <div className="ecg-bench-h"><b>이 기기 시뮬레이션 성능</b><span className="muted small">합성 ECG(60 bpm, 250 Hz)를 채널 64개 × 120초 분량(약 190만 샘플) 밀어 넣고 처리 시간을 잽니다 — 운영 분석과 별도 스레드, 1~2초 소요</span><span className="spacer" /><button onClick={runBench} disabled={!edit || benchBusy || !e?.enabled}>{benchBusy ? '측정 중…' : '측정 실행'}</button></div>
+          <div className="ecg-bench-h"><b>이 기기 시뮬레이션 성능</b><span className="muted small">합성 ECG(60 bpm)를 64채널 × 120초 분량 처리해 시간을 잽니다 — 운영과 별도 스레드, 1~2초</span><span className="spacer" /><button onClick={runBench} disabled={!edit || benchBusy || !e?.enabled}>{benchBusy ? '측정 중…' : '측정 실행'}</button></div>
           {bench && bench.ns_per_sample != null && (
             <div className={'ecg-grid ecg-bench-r' + (benchFlash ? ' flash' : '')}>
               <div><small>샘플당 처리 시간</small><b>{bench.ns_per_sample} ns</b><span className="muted">보고서 기준 211 ns (M1 Ultra)</span></div>

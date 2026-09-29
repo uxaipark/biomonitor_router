@@ -41,7 +41,7 @@ export default function AdminSecurity() {
       <div className="sec-head">
         <div>
           <h2 className="h" style={{ margin: 0 }}>보안 운영</h2>
-          <p className="muted small" style={{ margin: '4px 0 0' }}>무단 스캐닝 IP 와 로그인 실패 IP 를 자동으로 차단합니다. 차단된 IP 는 콘솔·API(403)와 게이트웨이 포트(즉시 끊김) 모두 막힙니다. 루프백과 신뢰 IP 는 차단하지 않습니다.</p>
+          <p className="muted small" style={{ margin: '4px 0 0' }}>무단 스캐닝·로그인 실패 IP 를 자동 차단합니다. 차단 IP 는 콘솔·API·게이트웨이 포트가 모두 막히며 루프백과 신뢰 IP 는 예외입니다.</p>
         </div>
         <div className="sec-head-actions">
           <input className="mono sec-search" placeholder="IP 검색" value={q} onChange={(e) => setQ(e.target.value)} />

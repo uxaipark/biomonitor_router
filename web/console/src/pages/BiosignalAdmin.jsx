@@ -245,7 +245,7 @@ function PolicyCard({ policy, nTargets, onSaved, capEnvGb, diskTotal }) {
             {(p.seal_per_sec ?? 0) > 0 ? ` 환자 2,000명이면 약 ${Math.round(2000 / p.seal_per_sec)}초에 걸쳐 봉인합니다.` : ' 제한 없음은 1분 남짓에 한 코어를 씁니다.'} 저장 즉시 적용.</div></div>
         <label>필요 사본 수</label>
         <div><Seg value={p.copies} options={copies} onChange={(v) => set('copies', v)} />
-          <div className="muted">위 순위부터 이 수만큼 검증된 사본이 생겨야 로컬에서 지울 수 있습니다. 1이면 1순위가 실패할 때 다음 순위로 넘어가고, 2 이상이면 여러 곳에 중복 백업합니다.</div></div>
+          <div className="muted">이 수만큼 검증된 사본이 생겨야 로컬에서 지웁니다. 1 = 장애 조치(1순위 실패 시 다음 순위), 2 이상 = 중복 백업.</div></div>
         <label>로컬 삭제 시점</label>
         <div><Seg value={p.delete_mode} options={[['cap', '저장 상한에 닿을 때'], ['immediate', '백업 검증 직후']]} onChange={(v) => set('delete_mode', v)} />
           <div className="muted">'저장 상한'은 최근 파형을 로컬에 남겨 이력 뷰어가 빠르게 읽습니다. '검증 직후'는 로컬 디스크를 가장 적게 씁니다.</div></div>
@@ -303,7 +303,7 @@ function TargetModal({ target, onClose, onSaved }) {
           {k === 'nas' ? <>
             <label>마운트 경로</label>{inp('path', '/mnt/nas/biomonitor')}
             <label />
-            <div className="muted">NAS 공유(NFS·SMB)를 이 Pi 에 미리 마운트한 폴더입니다. 마운트가 빠져 로컬 디스크에 쓰는 일을 막으려고 저장소와 같은 디스크면 거부합니다.</div>
+            <div className="muted">NAS 공유를 미리 마운트한 폴더입니다. 저장소와 같은 디스크면 마운트가 빠진 것으로 보고 거부합니다.</div>
             <label />
             <label className="chk"><input type="checkbox" checked={!!t.insecure} onChange={(e) => set('insecure', e.target.checked)} /> 마운트 확인 생략 (로컬 디스크·USB 허용)</label>
           </> : <>

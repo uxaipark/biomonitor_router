@@ -1,7 +1,10 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
+import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css'
+import '@fontsource-variable/jetbrains-mono'
 import './styles.css'
+import './theme-pro.css'
 
 // 배포 뒤에도 열려 있던 탭: 지연 로드 청크(leaflet 등)의 해시가 바뀌어 import 가 실패한다 → 한 번만 자동 새로고침
 const reloadOnce = () => { try { if (sessionStorage.getItem('reloaded-for-chunk') === '1') return; sessionStorage.setItem('reloaded-for-chunk', '1') } catch { /* ignore */ } location.reload() }

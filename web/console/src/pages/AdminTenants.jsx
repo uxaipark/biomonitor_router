@@ -20,7 +20,7 @@ export default function AdminTenants() {
       </div>
       {err && <p className="err">{err.message}</p>}
       <p className="muted adm-desc">
-        계정은 소속 병원이 정해져 있고(플랫폼 역할 제외), 요청마다 서버가 병원을 확인합니다. 클라우드로 여러 병원을 모을 때도 병원 ID 가 데이터·계정·권한의 경계가 됩니다.
+        계정은 소속 병원에 묶이고 서버가 요청마다 병원을 확인합니다. 병원 ID 가 데이터·계정·권한의 경계입니다.
       </p>
       <table className="tbl adm-tbl">
         <thead><tr><th>ID</th><th>병원 이름</th><th>지역</th><th>연락처</th><th>담당 리셀러</th><th className="num">계정</th><th>상태</th><th /></tr></thead>

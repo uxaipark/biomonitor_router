@@ -80,7 +80,7 @@ export default function NasMigration({ st, refresh, onClose, onAddTarget }) {
               <li>백업 대상 <b>{targets.filter((t) => t.enabled).length}</b>개 켜짐 · 아직 백업 안 된 파일 <b>{(pend.files || 0).toLocaleString()}</b>개 ({fmtBytes(pend.bytes || 0)})</li>
               <li>저장 증가 속도 <b>{rate ? `${fmtBytes(rate)}/s (${fmtBytes(rate * 3600)}/시간)` : '측정 중…'}</b></li>
             </ul>
-            <p className="muted small">① 에서는 삭제 모드를 잠시 "검증 직후 삭제"로 바꿔 백업이 끝난 파일부터 로컬에서 비웁니다. 파형은 기존 백업 대상에 남아 있으므로 이력 조회는 그대로 됩니다.</p>
+            <p className="muted small">① 은 삭제 모드를 잠시 '검증 직후'로 바꿔 백업된 파일부터 로컬에서 비웁니다. 파형은 백업 대상에 남아 이력 조회는 그대로입니다.</p>
             <div className="toolbar"><button className="primary" onClick={start} disabled={busy || !targets.some((t) => t.enabled)}>① 로컬 비우기 시작</button>{!targets.some((t) => t.enabled) && <span className="muted small">켜진 백업 대상이 있어야 로컬을 비울 수 있습니다</span>}</div>
           </section>
         )}
@@ -102,7 +102,7 @@ export default function NasMigration({ st, refresh, onClose, onAddTarget }) {
           <section className="nas-body">
             <h4>② 설정 시간 — 백업이 멈춰 있습니다. NAS 를 연결·마운트하세요</h4>
             <div className="nas-hold"><small>로컬만으로 버틸 수 있는 시간</small><b className={hold < 3600 ? 'err' : hold < 4 * 3600 ? 'warn' : ''}>{fmtDur(hold)}</b><small>여유 {fmtBytes(room)} · 증가 {rate ? fmtBytes(rate * 3600) + '/시간' : '측정 중'} · 시작 {m?.window_ms ? new Date(m.window_ms).toLocaleTimeString('ko-KR') : ''}</small></div>
-            <p className="muted small">NAS 마운트(예: <code>/mnt/nas2</code>)나 FTP/SFTP 계정을 준비한 뒤 ③ 으로 넘어가 대상을 추가하세요. 시간이 촉박하면 "백업 재개"로 기존 대상에 다시 백업하면서 준비해도 됩니다.</p>
+            <p className="muted small">NAS 마운트(예: <code>/mnt/nas2</code>)나 FTP/SFTP 계정을 준비한 뒤 ③ 으로 넘어가세요. 촉박하면 '백업 재개'로 기존 대상에 백업하며 준비해도 됩니다.</p>
             <div className="toolbar"><button className="primary" onClick={toConnect} disabled={busy}>③ 새 NAS 연결</button><button onClick={async () => { await api.backup.setPolicy({ ...policy, paused: false }); refresh?.() }} disabled={busy}>백업 재개(기존 대상)</button><button onClick={cancel} disabled={busy}>취소</button></div>
           </section>
         )}

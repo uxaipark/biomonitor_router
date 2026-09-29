@@ -266,7 +266,7 @@ function AddModal({ onClose, onAdded }) {
               ))}
               {cat && !protos.length && <p className="muted">지원하는 형식의 기관이 카탈로그에 없습니다.</p>}
             </div>
-            <p className="muted small">라우터가 자동으로 맞춤: 기관별 인증 · 재원 명단 · 환자 식별자 · 시간대 · 단위 (°F 등) · 문자셋 (EUC-KR · ISO-2022-JP · ISO 8859-1)</p>
+            <p className="muted small">기관별 인증·재원 명단·환자 식별자·시간대·단위·문자셋은 라우터가 자동으로 맞춥니다.</p>
           </div>
         )}
 
