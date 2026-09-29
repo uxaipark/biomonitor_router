@@ -60,7 +60,17 @@ export default function EcgEngine() {
   const [benchBusy, setBenchBusy] = useState(false)
   const [bench, setBench] = useState(null)
   useEffect(() => { if (e?.bench && !bench) setBench(e.bench) }, [e, bench])
-  const runBench = async () => { setBenchBusy(true); setMsg(''); try { setBench(await api.ecg.bench(30, 16)) } catch (x) { setMsg(x.message) } finally { setBenchBusy(false) } }
+  const [benchFlash, setBenchFlash] = useState(false)
+  const runBench = async () => {
+    setBenchBusy(true); setMsg('')
+    const t0 = Date.now()
+    try {
+      const r = await api.ecg.bench(120, 64) // 1.9M 샘플 — 이 기기에서 1초 남짓
+      await new Promise((res) => setTimeout(res, Math.max(0, 600 - (Date.now() - t0)))) // 너무 빨리 끝나도 '측정 중' 이 보이게
+      setBench({ ...r, _fresh: Date.now() }); setBenchFlash(true); setTimeout(() => setBenchFlash(false), 2500)
+      setMsg(`시뮬레이션 측정 완료 — ${r.elapsed_ms} ms 동안 ${(r.samples || 0).toLocaleString()} 샘플 처리`)
+    } catch (x) { setMsg('측정 실패: ' + x.message) } finally { setBenchBusy(false) }
+  }
   // 오늘 ECG 분석 알람 통계 (종류별 발생 수)
   const ecgAlarms = useMemo(() => { const c = {}; const day = new Date().toDateString(); for (const a of ahist || []) if (String(a.kind).startsWith('ecg_') && new Date(a.since_ms).toDateString() === day) c[a.kind] = (c[a.kind] || 0) + 1; return Object.entries(c).sort((x, y) => y[1] - x[1]) }, [ahist])
   const [msg, setMsg] = useState('')
@@ -177,13 +187,13 @@ export default function EcgEngine() {
       <section className="ecg-card">
         <h3>엔진 성능 <small className="muted">live_ecg 보고서(README · reports/PERFORMANCE.md) — 학습·조정에 쓰지 않은 봉인(TEST) 구역 수치</small></h3>
         <div className="ecg-bench">
-          <div className="ecg-bench-h"><b>이 기기 시뮬레이션 성능</b><span className="muted small">합성 ECG(60 bpm, 250 Hz)를 채널 16개 × 30초 분량 밀어 넣고 처리 시간을 잽니다 — 운영 분석과 별도 스레드, 수 초 소요</span><span className="spacer" /><button onClick={runBench} disabled={!edit || benchBusy || !e?.enabled}>{benchBusy ? '측정 중…' : '측정 실행'}</button></div>
+          <div className="ecg-bench-h"><b>이 기기 시뮬레이션 성능</b><span className="muted small">합성 ECG(60 bpm, 250 Hz)를 채널 64개 × 120초 분량(약 190만 샘플) 밀어 넣고 처리 시간을 잽니다 — 운영 분석과 별도 스레드, 1~2초 소요</span><span className="spacer" /><button onClick={runBench} disabled={!edit || benchBusy || !e?.enabled}>{benchBusy ? '측정 중…' : '측정 실행'}</button></div>
           {bench && bench.ns_per_sample != null && (
-            <div className="ecg-grid">
+            <div className={'ecg-grid ecg-bench-r' + (benchFlash ? ' flash' : '')}>
               <div><small>샘플당 처리 시간</small><b>{bench.ns_per_sample} ns</b><span className="muted">보고서 기준 211 ns (M1 Ultra)</span></div>
               <div><small>코어당 처리 가능 채널 (@250 Hz)</small><b>{(bench.channels_per_core || 0).toLocaleString()} 채널</b><span className="muted">지금 운영 {(bench.channels_live || 0).toLocaleString()} 채널 · 스레드 {bench.threads_live}</span></div>
               <div><small>박동 검출</small><b>{(bench.beats || 0).toLocaleString()} / {(bench.beats_expected || 0).toLocaleString()}</b><span className="muted">합성 60 bpm 기준 (첫 몇 초는 학습)</span></div>
-              <div><small>측정</small><b>{fmtDT(bench.ms)}</b><span className="muted">{bench.engine} · {bench.samples?.toLocaleString()} 샘플 / {bench.elapsed_ms} ms</span></div>
+              <div><small>측정</small><b>{bench._fresh && Date.now() - bench._fresh < 60000 ? '방금 측정' : fmtDT(bench.ms)}</b><span className="muted">{bench.engine} · {bench.samples?.toLocaleString()} 샘플 / {bench.elapsed_ms} ms{bench._fresh ? '' : ' · 마지막 측정값'}</span></div>
             </div>
           )}
         </div>

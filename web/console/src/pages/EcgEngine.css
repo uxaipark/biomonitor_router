@@ -21,3 +21,6 @@
 @media (max-width: 1000px) { .ecg-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ecg-cfg { grid-template-columns: 1fr; } }
 .ecg-bench { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
 .ecg-bench-h { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.ecg-bench-r { border-radius: 8px; padding: 6px; transition: background .5s, box-shadow .5s; }
+.ecg-bench-r.flash { background: color-mix(in srgb, var(--ok) 14%, transparent); box-shadow: 0 0 0 2px var(--ok); }
+.ecg-bench-h button[disabled] { opacity: .8; }
