@@ -164,7 +164,9 @@ export default function OpsStats() {
   }, [info])
   const range = sel === 'auto' ? autoRange : sel // null = 아직 모름(첫 방문, info 대기)
   // 5분 구간은 2초 샘플이라 2초마다 다시 그린다 (사용자 요청); 나머지는 30초
-  const [data, , refresh] = usePoll(() => (range ? api.metrics(range) : Promise.resolve(null)), range === '5min' ? 2000 : 30000, [range])
+  const [raw, , refresh] = usePoll(() => (range ? api.metrics(range).then((d) => ({ ...d, _range: range })) : Promise.resolve(null)), range === '5min' ? 2000 : 30000, [range])
+  // 구간을 바꾼 직후 새 응답이 오기 전까지 옛 구간 데이터를 새 구간 눈금으로 그리지 않는다(한 프레임 뒤섞임 방지)
+  const data = raw && raw._range === range ? raw : null
   const [stats] = usePoll(api.stats, 5000)
   const [msg, setMsg] = useState('')
   const setR = (r) => { setSel(r); try { localStorage.setItem('ops.range', r) } catch { /* ignore */ } }
