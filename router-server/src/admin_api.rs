@@ -1015,7 +1015,39 @@ async fn ecg_history(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     Json(state.analysis.history())
 }
 async fn ecg_summary(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    Json(state.analysis.summary_json())
+    let mut v = state.analysis.summary_json();
+    // QRS 검출율(대용): 최근 1분 검출 박동 ÷ 패치가 보낸 HR(=1분 기대 박동). 품질 '사용 불가'·전극 탈락·최근 갱신 없는 채널은 제외.
+    let now = crate::protocol::now_ms();
+    let mut hr_of: std::collections::HashMap<u32, (u8, u64, u8)> = std::collections::HashMap::new();
+    state.registry.for_each(|id, ch| {
+        if let (Ok(pid), Some(hr)) = (id.parse::<u32>(), ch.vitals.hr) {
+            hr_of.insert(pid, (hr, ch.vitals_ts_ms, ch.flags));
+        }
+    });
+    let mut ratios: Vec<f64> = Vec::new();
+    let (mut det, mut exp) = (0u64, 0u64);
+    for (pid, b1m, _hr, q, upd) in state.analysis.beat_rates() {
+        if now.saturating_sub(upd) > 10_000 || q == crate::ecg_engine::QUALITY_UNUSABLE { continue; }
+        let Some((hr, vts, flags)) = hr_of.get(&pid) else { continue };
+        if *hr < 20 || now.saturating_sub(*vts) > 10_000 || flags & crate::wire::R_LEAD_OFF != 0 { continue; }
+        ratios.push(b1m as f64 / *hr as f64);
+        det += b1m as u64;
+        exp += *hr as u64;
+    }
+    ratios.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = ratios.len();
+    let within = |tol: f64| ratios.iter().filter(|r| (**r - 1.0).abs() <= tol).count();
+    let hist: Vec<(String, usize)> = [("<80%", 0.0, 0.8), ("80–90%", 0.8, 0.9), ("90–95%", 0.9, 0.95), ("95–105%", 0.95, 1.05), ("105–110%", 1.05, 1.1), (">110%", 1.1, 1e9)].iter().map(|(l, a, b)| (l.to_string(), ratios.iter().filter(|r| **r >= *a && **r < *b).count())).collect();
+    if let Some(o) = v.as_object_mut() {
+        o.insert("qrs".into(), serde_json::json!({
+            "channels": n, "detected_1m": det, "expected_1m": exp,
+            "rate": if exp > 0 { Some(det as f64 / exp as f64) } else { None },
+            "median_ratio": if n > 0 { Some(ratios[n / 2]) } else { None },
+            "within_5pct": within(0.05), "within_10pct": within(0.10), "hist": hist,
+            "note": "검출율 = 최근 1분 엔진 검출 박동 ÷ 패치 HR(기대 박동). 박동 단위 정답이 없어 민감도·정밀도 대신 쓰는 대용 지표 — 사용 불가 품질·전극 탈락·10초 이상 갱신 없는 채널 제외"
+        }));
+    }
+    Json(v)
 }
 #[derive(serde::Deserialize)]
 struct BenchIn {

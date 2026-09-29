@@ -216,6 +216,23 @@ export default function EcgEngine() {
         <p className="muted small">품질: 양호 {sum?.quality?.good ?? 0} · 리듬만 신뢰 {sum?.quality?.acceptable ?? 0} · 사용 불가 {sum?.quality?.unusable ?? 0} · 미정 {sum?.quality?.unknown ?? 0} · 평균 분석 HR {sum?.hr_mean ? Math.round(sum.hr_mean) : '—'} · PVC 합계 {sum?.pvc_min_total ?? 0}/분</p>
       </section>
 
+      {/* QRS 검출율 (대용 지표) */}
+      <section className="ecg-card">
+        <h3>QRS 검출율 <small className="muted">최근 1분 엔진 검출 박동 ÷ 패치 심박수(기대 박동) — 박동 정답이 오기 전까지의 대용 지표</small></h3>
+        {sum?.qrs ? (
+          <>
+            <div className="ecg-grid" style={{ marginBottom: 8 }}>
+              <div><small>전체 검출율</small><b className={sum.qrs.rate != null && (sum.qrs.rate < 0.95 || sum.qrs.rate > 1.05) ? 'warnv' : ''}>{sum.qrs.rate != null ? `${(sum.qrs.rate * 100).toFixed(1)}%` : '—'}</b><span className="muted">검출 {sum.qrs.detected_1m?.toLocaleString()} / 기대 {sum.qrs.expected_1m?.toLocaleString()} 박동</span></div>
+              <div><small>채널 중앙값</small><b>{sum.qrs.median_ratio != null ? `${(sum.qrs.median_ratio * 100).toFixed(1)}%` : '—'}</b><span className="muted">비교 채널 {sum.qrs.channels?.toLocaleString()}개</span></div>
+              <div><small>±5% 안 채널</small><b>{sum.qrs.channels ? `${(sum.qrs.within_5pct / sum.qrs.channels * 100).toFixed(1)}%` : '—'}</b><span className="muted">{sum.qrs.within_5pct?.toLocaleString()}개</span></div>
+              <div><small>±10% 안 채널</small><b>{sum.qrs.channels ? `${(sum.qrs.within_10pct / sum.qrs.channels * 100).toFixed(1)}%` : '—'}</b><span className="muted">{sum.qrs.within_10pct?.toLocaleString()}개</span></div>
+            </div>
+            <div className="ecg-dist">{(sum.qrs.hist || []).map(([l, n]) => <div key={l} className="ecg-dist-i"><b>{n.toLocaleString()}</b><small>{l}</small></div>)}</div>
+            <p className="muted small">{sum.qrs.note}. 100% 아래는 놓친 박동(또는 패치 HR 이 실제보다 높음), 위는 잡음·T파를 박동으로 센 경우입니다. 정확한 QRS 민감도·정밀도는 에뮬레이터의 박동 단위 정답이 들어오면 알고리즘 검증 카드에 함께 나옵니다.</p>
+          </>
+        ) : <p className="muted small">분석 결과 없음</p>}
+      </section>
+
       {/* 알고리즘 검증 */}
       <section className="ecg-card">
         <h3>알고리즘 검증 <small className="muted">에뮬레이터 정답지(리듬 에피소드·전극 탈락) 대비 — 엔진 판정 흔적과 대조</small></h3>

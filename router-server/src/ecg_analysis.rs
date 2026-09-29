@@ -32,6 +32,8 @@ pub struct AnaRow {
     pub pvc_min: u32,
     pub beats_total: u64,
     pub last_beat_ms: u64,
+    /// 최근 60초 안에 검출한 박동 수 (QRS 검출율 대용 지표: 패치 HR 과 비교)
+    pub beats_1m: u32,
     /// 마지막으로 분석한 샘플의 시각(패킷 시간대) 과 검출 지연 추정(ms): 휴지·심정지는 (pkt_ms − last_beat_ms − lag) 로 잰다
     pub pkt_ms: u64,
     pub lag_ms: u32,
@@ -591,6 +593,10 @@ impl AnalysisHub {
     pub fn traces(&self) -> Vec<(u32, String, u64, Vec<(u64, String)>, Vec<u64>, Vec<u64>)> {
         self.rows.iter().map(|r| (*r.key(), r.rhythm.clone(), r.rhythm_since_ms, r.trace.iter().cloned().collect(), r.vbeats.iter().copied().collect(), r.sbeats.iter().copied().collect())).collect()
     }
+    /// QRS 검출율 대용 지표용: (patch, 최근 1분 검출 박동, 분석 HR, 품질, 갱신 시각)
+    pub fn beat_rates(&self) -> Vec<(u32, u32, Option<f32>, u32, u64)> {
+        self.rows.iter().map(|r| (*r.key(), r.beats_1m, r.hr, r.q, r.updated_ms)).collect()
+    }
     pub fn rows_len(&self) -> usize {
         self.rows.len()
     }
@@ -757,7 +763,7 @@ impl AnalysisHub {
                 eng::EV_BEAT => {
                     let t = t_of(e.start);
                     s.beats.push_back((t, e.code));
-                    while s.beats.len() > 64 {
+                    while s.beats.len() > 400 {
                         s.beats.pop_front();
                     }
                     if e.code == eng::BEAT_V {
@@ -885,6 +891,7 @@ impl AnalysisHub {
         row.pvc_min = s.pvc.len() as u32;
         row.beats_total = s.beats_total;
         row.last_beat_ms = s.last_beat_ms as u64;
+        { let lo = ts_ms as f64 - 60_000.0; row.beats_1m = s.beats.iter().rev().take_while(|(t, _)| *t >= lo).count() as u32; }
         row.pkt_ms = ts_ms;
         row.lag_ms = s.lag_ms as u32;
         row.gap_ms = s.last_gap_ms;
