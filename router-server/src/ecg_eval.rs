@@ -88,13 +88,16 @@ pub fn evaluate(labels: &[(u32, String, u64, Option<u64>)], base: &HashMap<u32, 
         // 같은 라벨이 30초 안에 다시 켜지면 한 에피소드로 (켜졌다 꺼지기를 반복하는 판정을 조각마다 세지 않게)
         let mut merged: Vec<(u64, u64, String)> = Vec::new();
         for seg in out {
-            if let Some(prev) = merged.iter_mut().rev().find(|m| m.2 == seg.2) {
-                if seg.0.saturating_sub(prev.1) <= 30_000 && !merged.iter().rev().take_while(|m| m.2 != seg.2).any(|m| m.1 > prev.1 + 30_000) {
-                    prev.1 = prev.1.max(seg.1);
-                    continue;
-                }
+            let k = merged.iter().rposition(|m| m.2 == seg.2);
+            let can = match k {
+                Some(k) => seg.0.saturating_sub(merged[k].1) <= 30_000 && merged[k + 1..].iter().all(|m| m.1.saturating_sub(m.0) <= 30_000),
+                None => false,
+            };
+            if let (true, Some(k)) = (can, k) {
+                merged[k].1 = merged[k].1.max(seg.1);
+            } else {
+                merged.push(seg);
             }
-            merged.push(seg);
         }
         segs.insert(*pid, merged);
         vb.insert(*pid, v.clone());
