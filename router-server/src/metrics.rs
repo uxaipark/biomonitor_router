@@ -416,6 +416,8 @@ fn series_recent(m: &Metrics) -> serde_json::Value {
         "cpu_avg": avg(&|s| s.cpu as f64), "cpu_max": max(&|s| s.cpu as f64),
         "cpu_norm_avg": avg(&|s| s.cpu_norm as f64), "mhz_avg": avg(&|s| s.mhz as f64),
         "mem_avg": avg(&|s| s.mem_proc as f64), "mem_max": max(&|s| s.mem_proc as f64),
+        "cpu_sys_avg": avg(&|s| s.cpu_sys as f64), "cpu_sys_max": max(&|s| s.cpu_sys as f64),
+        "mem_used_avg": avg(&|s| s.mem_used as f64), "mem_used_max": max(&|s| s.mem_used as f64), "mem_total": ring.last().map(|s| s.mem_total).unwrap_or(0),
         "patients_min": ring.iter().map(|s| s.connected).min().unwrap_or(0), "patients_max": ring.iter().map(|s| s.connected).max().unwrap_or(0),
         "patients_avg": avg(&|s| s.connected as f64),
     });
@@ -521,7 +523,7 @@ pub fn series(m: &Metrics, range: &str) -> serde_json::Value {
     let tot_sql = format!(
         "SELECT SUM(d_rx), SUM(d_tx), SUM(d_records), SUM(d_lost), SUM(d_lag), SUM(d_drops), COUNT(*),
                 AVG(cpu_proc), MAX(cpu_proc_max), AVG(mem_proc), MAX(mem_proc), MIN(connected), MAX(connected), AVG(connected),
-                AVG(cpu_proc_norm), AVG(cpu_mhz)
+                AVG(cpu_proc_norm), AVG(cpu_mhz), AVG(cpu_sys), MAX(cpu_sys), AVG(mem_used), MAX(mem_used), MAX(mem_total)
          FROM {t} WHERE ts >= ?1",
         t = table
     );
@@ -535,6 +537,8 @@ pub fn series(m: &Metrics, range: &str) -> serde_json::Value {
                 "mem_avg": r.get::<_, Option<f64>>(9)?, "mem_max": r.get::<_, Option<f64>>(10)?,
                 "patients_min": r.get::<_, Option<f64>>(11)?, "patients_max": r.get::<_, Option<f64>>(12)?, "patients_avg": r.get::<_, Option<f64>>(13)?,
                 "cpu_norm_avg": r.get::<_, Option<f64>>(14)?, "mhz_avg": r.get::<_, Option<f64>>(15)?,
+                "cpu_sys_avg": r.get::<_, Option<f64>>(16)?, "cpu_sys_max": r.get::<_, Option<f64>>(17)?,
+                "mem_used_avg": r.get::<_, Option<f64>>(18)?, "mem_used_max": r.get::<_, Option<f64>>(19)?, "mem_total": r.get::<_, Option<f64>>(20)?,
             }))
         })
         .unwrap_or(serde_json::json!({}));

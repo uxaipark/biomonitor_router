@@ -27,3 +27,4 @@
 .ops-tip div { display: flex; align-items: center; gap: 6px; }
 .ops-tip i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; flex: none; }
 .ops-tip b { margin-left: auto; padding-left: 12px; font-variant-numeric: tabular-nums; }
+.ops-tile .ops-sub2 { font-size: 0.72em; color: var(--muted); font-weight: 500; }
