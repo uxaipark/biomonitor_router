@@ -141,7 +141,7 @@ function drawStrip(canvas, { runs, pace, t0, spanMs, range, color, theme, lineWi
 }
 
 /** One window in the list: ECG on top, accel / resp as thin strips glued underneath. Draws only while visible. */
-function Window({ t0, spanMs, loaded, pace, theme, onVisible, keys, fresh }) {
+function Window({ t0, spanMs, loaded, theme, onVisible, keys, fresh }) {
   const ref = useRef(null)
   const [visible, setVisible] = useState(false)
   useEffect(() => {
@@ -160,8 +160,16 @@ function Window({ t0, spanMs, loaded, pace, theme, onVisible, keys, fresh }) {
     return [ecg, ...thin]
   }, [keys])
   const canvases = useRef([])
+  // 이 구간에 걸치는 청크만 골라, 그것이 바뀔 때만 다시 그린다 — 예전엔 어느 청크가 오든(LIVE 구간의 2.5 s 재읽기 포함)
+  // 보이는 모든 구간(수십 개 × 3 캔버스)을 다시 그려 스크롤이 버벅였다
+  const mine = loaded.filter((h) => h.to_ms > t0 && h.from_ms < t1)
+  const mineRef = useRef([])
+  const same = mine.length === mineRef.current.length && mine.every((h, i) => h === mineRef.current[i])
+  const chunksKey = same ? mineRef.current : (mineRef.current = mine)
+  const pace = useMemo(() => chunksKey.flatMap((h) => h.pace).map(([t, m]) => [t, (m >> 14) & 3]), [chunksKey]) // 이 구간의 페이스 마크만
   useEffect(() => {
     if (!visible) return
+    const loaded = chunksKey // eslint-disable-line no-shadow
     rows.forEach((row, i) => {
       const c = canvases.current[i]
       if (!c) return
@@ -178,8 +186,8 @@ function Window({ t0, spanMs, loaded, pace, theme, onVisible, keys, fresh }) {
       const layers = (row.over || []).map((ax) => ({ runs: pick(ax), color: ACCEL_COLORS[ax] }))
       drawStrip(c, { runs: pick(row.axis || 0), layers, pace: row.key === 'ecg' ? pace : [], t0, spanMs, range: row.range, color: row.color, theme, lineWidth: row.lw, grid: !!row.grid })
     })
-  }, [visible, loaded, pace, rows, t0, t1, spanMs, theme, fresh])
-  const has = loaded.length > 0
+  }, [visible, chunksKey, pace, rows, t0, t1, spanMs, theme, fresh]) // eslint-disable-line react-hooks/exhaustive-deps
+  const has = chunksKey.length > 0
   return (
     <div ref={ref} className="hx-win">
       <div className="hx-win-t"><b>{fmtTime(t0)}</b><span className="ds-dim"> ~ {fmtTime(t1)}</span>{!has && <span className="ds-dim"> · 불러오는 중…</span>}</div>
@@ -364,7 +372,7 @@ function LiveWindow({ id, spanMs, theme, keys, onRollover, loaded, onWindow, onH
         }
         // extend the trace with the samples not drawn yet (no sweep bar: erasing it would wipe the newest column)
         if (st.drawn < st.t.length) { traceRuns(i, splitRuns(st, st.drawn)); st.drawn = st.t.length }
-        if (performance.now() - st.scanAt > 1000) { st.scanAt = performance.now(); backfill(i, T) }
+        if (performance.now() - st.scanAt > 2000) { st.scanAt = performance.now(); backfill(i, T) }
         if (row.key === 'ecg') {
           for (let j = 0; j < pace.length; j++) {
             const [t, ch] = pace[j]
@@ -439,7 +447,6 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
   // a window scrolled into view: make sure the chunks covering it are loaded
   const onVisible = useMemo(() => (t0) => { for (let c = Math.floor(t0 / CHUNK_MS); c <= Math.floor((t0 + spanMs - 1) / CHUNK_MS); c++) ensureChunk(c) }, [spanMs, id]) // eslint-disable-line react-hooks/exhaustive-deps
   const loaded = useMemo(() => [...chunks.values()].filter(Boolean), [chunks])
-  const pace = useMemo(() => loaded.flatMap((h) => h.pace).map(([t, m]) => [t, (m >> 14) & 3]), [loaded])
   const keysKey = [...new Set(loaded.flatMap((h) => h.segments.map((s) => s.key)))].sort().join(',')
   const keys = useMemo(() => new Set(keysKey ? keysKey.split(',') : []), [keysKey]) // identity changes only when the channel set does
   const hours = info?.files || []
@@ -519,7 +526,7 @@ export default function HistoryPanel({ id, theme, onClose, compact }) {
       })}</div>
       <div className="hx-list" onScroll={onListScroll} style={{ '--hx-ecg': `${height}px`, '--hx-thin': `${Math.max(20, Math.round(height * 0.28))}px` }}>
         {anchor == null && <LiveWindow id={id} spanMs={spanMs} theme={th} keys={keys.size ? keys : DEFAULT_KEYS} onRollover={onRollover} loaded={loaded} onWindow={onWindow} onHoles={onHoles} />}
-        {windows.map((t0) => <Window key={t0} t0={t0} spanMs={spanMs} loaded={loaded} pace={pace} theme={th} onVisible={onVisible} keys={keys} fresh={fresh.get(t0)} />)}
+        {windows.map((t0) => <Window key={t0} t0={t0} spanMs={spanMs} loaded={loaded} theme={th} onVisible={onVisible} keys={keys} fresh={fresh.get(t0)} />)}
         {!windows.length && <div className="ds-dim">저장된 구간이 없습니다.</div>}
         {windows.length >= count && <button className="btn btn-secondary" onClick={more}>더 보기</button>}
       </div>

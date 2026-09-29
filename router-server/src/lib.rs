@@ -31,3 +31,4 @@ pub mod control;
 pub mod reset;
 pub mod security;
 pub mod latency;
+pub mod ecg_engine;

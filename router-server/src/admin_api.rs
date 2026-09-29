@@ -943,7 +943,8 @@ async fn wave_recent(
         }
     }
     let root = std::path::PathBuf::from(&state.cfg.store_dir);
-    let _permit = hist_sem().acquire().await;
+    // 이력 뷰어의 청크 읽기와 다른 게이트(1개): 환자 목록 배치가 이력 뷰어를 0.5 s 씩 기다리게 하지 않는다
+    let _permit = recent_sem().acquire().await;
     let out = tokio::task::spawn_blocking(move || {
         let mut m = serde_json::Map::new();
         for id in ids {
@@ -997,6 +998,10 @@ async fn wave_recent(
 /// At most this many stored-waveform reads run at once: each loads a whole hour file (a few MB) and a burst of
 /// a dozen concurrent requests from a scrolling history list left ~40 MB of allocator-retained memory behind.
 static HIST_SEM: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+static RECENT_SEM: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+fn recent_sem() -> &'static tokio::sync::Semaphore {
+    RECENT_SEM.get_or_init(|| tokio::sync::Semaphore::new(1))
+}
 fn hist_sem() -> &'static tokio::sync::Semaphore {
     HIST_SEM.get_or_init(|| tokio::sync::Semaphore::new(2))
 }
