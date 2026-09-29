@@ -97,8 +97,9 @@ struct Slot {
 
 pub struct AnalysisHub {
     pub lib_path: String,
-    pub preset: u32,
-    pub stages_cfg: String,
+    /// 프리셋(0 clinical · 1 patch)과 단계 선택 "kind=name;…" — 실행 중 바꿀 수 있고(`set_config`) data/engine/config.json 에 남는다
+    preset: std::sync::atomic::AtomicU32,
+    stages_cfg: RwLock<String>,
     engine: RwLock<Option<Arc<Engine>>>,
     gen: AtomicU64,
     shards: Vec<mpsc::SyncSender<Job>>,
@@ -113,6 +114,7 @@ pub struct AnalysisHub {
     pub busy_ns: AtomicU64,
     last_error: Mutex<String>,
     loaded_ms: AtomicU64,
+    bench_last: Mutex<serde_json::Value>,
 }
 
 fn now_ms() -> u64 {
@@ -130,10 +132,22 @@ impl AnalysisHub {
             shards.push(tx);
             rxs.push(rx);
         }
+        // 저장된 실행 설정(config.json)이 있으면 환경변수보다 우선
+        let (mut preset, mut stages) = (preset, stages.to_string());
+        if let Ok(txt) = std::fs::read_to_string(Self::cfg_path_of(lib_path)) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
+                if let Some(p) = v.get("preset").and_then(|x| x.as_str()) {
+                    preset = if p == "clinical" { eng::ECG_PRESET_CLINICAL } else { eng::ECG_PRESET_PATCH };
+                }
+                if let Some(st) = v.get("stages").and_then(|x| x.as_str()) {
+                    stages = st.to_string();
+                }
+            }
+        }
         let hub = Arc::new(AnalysisHub {
             lib_path: lib_path.to_string(),
-            preset,
-            stages_cfg: stages.to_string(),
+            preset: std::sync::atomic::AtomicU32::new(preset),
+            stages_cfg: RwLock::new(stages),
             engine: RwLock::new(None),
             gen: AtomicU64::new(0),
             shards,
@@ -148,6 +162,7 @@ impl AnalysisHub {
             busy_ns: AtomicU64::new(0),
             last_error: Mutex::new(String::new()),
             loaded_ms: AtomicU64::new(0),
+            bench_last: Mutex::new(serde_json::Value::Null),
         });
         match hub.reload() {
             Ok(id) => info!("ecg engine: {} ({})", id, lib_path),
@@ -185,10 +200,15 @@ impl AnalysisHub {
         match Engine::load(&self.lib_path) {
             Ok(e) => {
                 let id = e.id.clone();
+                let prev = self.engine.read().unwrap().as_ref().map(|x| x.id.clone());
                 *self.engine.write().unwrap() = Some(e);
                 self.gen.fetch_add(1, Ordering::Relaxed);
                 self.loaded_ms.store(now_ms(), Ordering::Relaxed);
                 self.last_error.lock().unwrap().clear();
+                if prev.as_deref() != Some(id.as_str()) {
+                    self.history_push("load", &id, "");
+                    let _ = self.import_current();
+                }
                 Ok(id)
             }
             Err(e) => {
@@ -218,6 +238,205 @@ impl AnalysisHub {
             Ok(id) => info!("ecg engine reloaded: {} — 채널을 새 엔진으로 옮깁니다", id),
             Err(e) => warn!("ecg engine reload failed: {}", e),
         }
+    }
+
+    // ── 실행 설정: 프리셋·단계 (새 채널부터 적용, 세대를 올려 모든 채널이 다시 만들어진다) ──
+    fn cfg_path_of(lib_path: &str) -> std::path::PathBuf {
+        std::path::Path::new(lib_path).parent().unwrap_or(std::path::Path::new(".")).join("config.json")
+    }
+    pub fn config_json(&self) -> serde_json::Value {
+        serde_json::json!({ "preset": if self.preset.load(Ordering::Relaxed) == eng::ECG_PRESET_PATCH { "patch" } else { "clinical" }, "stages": self.stages_cfg.read().unwrap().clone(), "threads": self.shards.len() })
+    }
+    /// 프리셋(patch|clinical)·단계("kind=name;…", 빈 문자열 = 프리셋 기본) 를 바꾼다. 엔진이 거부하는 단계 이름이면 오류(ECG_ERR_CONFIG).
+    pub fn set_config(&self, preset: &str, stages: &str) -> Result<serde_json::Value, String> {
+        let pv = match preset { "clinical" => eng::ECG_PRESET_CLINICAL, "patch" | "" => eng::ECG_PRESET_PATCH, other => return Err(format!("알 수 없는 프리셋 {other}")) };
+        let stages = stages.trim().trim_matches(';').to_string();
+        if let Some(e) = self.engine() {
+            e.channel(250.0, pv, &stages).map_err(|code| if code == -2 { format!("엔진이 단계 선택을 거부했습니다 (ECG_ERR_CONFIG): {stages}") } else { format!("채널 생성 실패 ({code})") })?;
+        }
+        self.preset.store(pv, Ordering::Relaxed);
+        *self.stages_cfg.write().unwrap() = stages.clone();
+        let cfg = serde_json::json!({ "preset": if pv == eng::ECG_PRESET_PATCH { "patch" } else { "clinical" }, "stages": stages, "updated_ms": now_ms() });
+        let _ = std::fs::write(Self::cfg_path_of(&self.lib_path), serde_json::to_string_pretty(&cfg).unwrap_or_default());
+        self.gen.fetch_add(1, Ordering::Relaxed); // 채널을 새 설정으로 다시 만든다
+        self.history_push("config", &self.engine().map(|e| e.id.clone()).unwrap_or_default(), &format!("preset={} stages={}", cfg["preset"].as_str().unwrap_or(""), if stages.is_empty() { "(preset)" } else { &stages }));
+        Ok(self.config_json())
+    }
+
+    // ── 엔진 보관함(버전): data/engine/versions/<hash>/{libecg.so, meta.json, perf.md} ──
+    pub fn versions_dir(&self) -> std::path::PathBuf {
+        std::path::Path::new(&self.lib_path).parent().unwrap_or(std::path::Path::new(".")).join("versions")
+    }
+    fn history_path(&self) -> std::path::PathBuf {
+        std::path::Path::new(&self.lib_path).parent().unwrap_or(std::path::Path::new(".")).join("history.json")
+    }
+    /// 엔진 id "live-ecg 0.1.0 src 10ef7af134c3a5cb" → 버전 키 (src 해시, 없으면 id 를 파일명으로 안전하게)
+    pub fn version_key(id: &str) -> String {
+        let mut it = id.split_whitespace();
+        while let Some(w) = it.next() {
+            if w == "src" {
+                if let Some(h) = it.next() {
+                    return h.trim_matches(|c: char| !c.is_ascii_hexdigit()).to_string();
+                }
+            }
+        }
+        id.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect()
+    }
+    pub fn history_push(&self, action: &str, id: &str, detail: &str) {
+        let path = self.history_path();
+        let mut v: Vec<serde_json::Value> = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        v.push(serde_json::json!({ "ms": now_ms(), "action": action, "engine": id, "key": Self::version_key(id), "detail": detail }));
+        if v.len() > 500 {
+            let cut = v.len() - 500;
+            v.drain(..cut);
+        }
+        if let Some(d) = path.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap_or_default());
+    }
+    pub fn history(&self) -> Vec<serde_json::Value> {
+        std::fs::read_to_string(self.history_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    }
+    /// 지금 활성 파일이 보관함에 없으면 복사해 둔다 (스크립트가 아닌 경로로 들어온 엔진도 버전으로 남게)
+    pub fn import_current(&self) -> Result<String, String> {
+        let e = self.engine().ok_or("엔진 없음")?;
+        let key = Self::version_key(&e.id);
+        let dir = self.versions_dir().join(&key);
+        if dir.join("libecg.so").exists() {
+            return Ok(key);
+        }
+        std::fs::create_dir_all(&dir).map_err(|x| x.to_string())?;
+        std::fs::copy(&self.lib_path, dir.join("libecg.so")).map_err(|x| x.to_string())?;
+        let meta = serde_json::json!({ "id": e.id, "key": key, "size": e.size, "imported_ms": now_ms(), "built_ms": e.mtime_ms, "abi": format!("{}.{}", e.abi.0, e.abi.1), "stages": e.stages.iter().map(|(n, _)| n).collect::<Vec<_>>(), "source": "import" });
+        let _ = std::fs::write(dir.join("meta.json"), serde_json::to_string_pretty(&meta).unwrap_or_default());
+        Ok(key)
+    }
+    pub fn versions(&self) -> Vec<serde_json::Value> {
+        let active_key = self.engine().map(|e| Self::version_key(&e.id)).unwrap_or_default();
+        let mut out = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(self.versions_dir()) {
+            for d in rd.flatten() {
+                let dir = d.path();
+                if !dir.join("libecg.so").exists() {
+                    continue;
+                }
+                let key = d.file_name().to_string_lossy().to_string();
+                let mut meta: serde_json::Value = std::fs::read_to_string(dir.join("meta.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(serde_json::json!({}));
+                let m = std::fs::metadata(dir.join("libecg.so")).ok();
+                if let Some(o) = meta.as_object_mut() {
+                    o.insert("key".into(), key.clone().into());
+                    o.insert("active".into(), (key == active_key).into());
+                    o.insert("size".into(), m.as_ref().map(|m| m.len()).unwrap_or(0).into());
+                    o.insert("file_ms".into(), m.and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64).unwrap_or(0).into());
+                    o.insert("has_perf".into(), dir.join("perf.md").exists().into());
+                    o.insert("has_notes".into(), dir.join("notes.md").exists().into());
+                }
+                out.push(meta);
+            }
+        }
+        out.sort_by(|a, b| b.get("built_ms").and_then(|x| x.as_u64()).unwrap_or(0).cmp(&a.get("built_ms").and_then(|x| x.as_u64()).unwrap_or(0)));
+        out
+    }
+    /// 보관함의 버전을 활성 파일로 복사(원자적 교체) → 곧바로 다시 읽는다
+    pub fn activate(&self, key: &str, by: &str) -> Result<String, String> {
+        if key.is_empty() || key.contains('/') || key.contains("..") {
+            return Err("잘못된 버전 키".into());
+        }
+        let src = self.versions_dir().join(key).join("libecg.so");
+        if !src.exists() {
+            return Err("보관함에 그 버전이 없습니다".into());
+        }
+        let tmp = format!("{}.activate.{}", self.lib_path, now_ms());
+        std::fs::copy(&src, &tmp).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &self.lib_path).map_err(|e| e.to_string())?;
+        let id = self.reload()?;
+        self.history_push("activate", &id, by);
+        Ok(id)
+    }
+    pub fn delete_version(&self, key: &str) -> Result<(), String> {
+        if key.is_empty() || key.contains('/') || key.contains("..") {
+            return Err("잘못된 버전 키".into());
+        }
+        if self.engine().map(|e| Self::version_key(&e.id) == key).unwrap_or(false) {
+            return Err("활성 엔진은 지울 수 없습니다 (다른 버전을 먼저 활성화)".into());
+        }
+        std::fs::remove_dir_all(self.versions_dir().join(key)).map_err(|e| e.to_string())
+    }
+    pub fn version_doc(&self, key: &str, name: &str) -> Option<String> {
+        if key.contains('/') || key.contains("..") || !matches!(name, "perf.md" | "notes.md" | "meta.json") {
+            return None;
+        }
+        std::fs::read_to_string(self.versions_dir().join(key).join(name)).ok()
+    }
+    /// 지금 채널들의 리듬 분포·품질 요약 (관리 페이지)
+    pub fn summary_json(&self) -> serde_json::Value {
+        let mut rhythm: HashMap<String, u64> = HashMap::new();
+        let mut q = [0u64; 4];
+        let (mut n, mut hr_sum, mut hr_n, mut pvc) = (0u64, 0f64, 0u64, 0u64);
+        let now = now_ms();
+        for r in self.rows.iter() {
+            if now.saturating_sub(r.updated_ms) > 10_000 {
+                continue;
+            }
+            n += 1;
+            *rhythm.entry(r.rhythm.clone()).or_default() += 1;
+            if (r.q as usize) < 4 { q[r.q as usize] += 1 }
+            if let Some(h) = r.hr { hr_sum += h as f64; hr_n += 1 }
+            pvc += r.pvc_min as u64;
+        }
+        serde_json::json!({ "channels": n, "rhythm": rhythm, "quality": { "good": q[0], "acceptable": q[1], "unusable": q[2], "unknown": q[3] }, "hr_mean": if hr_n > 0 { hr_sum / hr_n as f64 } else { 0.0 }, "pvc_min_total": pvc })
+    }
+
+    /// 이 기기 실측 벤치: 합성 ECG(60 bpm + 잡음, 250 Hz)를 채널 N개에 `seconds` 초 분량씩 밀어 넣고 처리 시간을 잰다.
+    /// 결과: 샘플당 ns, 코어당 처리 가능 채널 수(@250 Hz), 검출 박동 수, 스레드 수. 실제 운영 부하와 별도의 스레드에서 돌며 수 초 걸린다.
+    pub fn bench(&self, seconds: u32, channels: u32) -> Result<serde_json::Value, String> {
+        let e = self.engine().ok_or("엔진 없음")?;
+        let seconds = seconds.clamp(5, 120);
+        let channels = channels.clamp(1, 64);
+        let fs = 250usize;
+        let preset = self.preset.load(Ordering::Relaxed);
+        let stages = self.stages_cfg.read().unwrap().clone();
+        let mut chans: Vec<Channel> = (0..channels).map(|_| e.channel(fs as f64, preset, &stages)).collect::<Result<_, _>>().map_err(|c| format!("채널 생성 실패 ({c})"))?;
+        let total = seconds as usize * fs;
+        let mut buf = vec![0f32; 50];
+        let mut ev = Vec::new();
+        let (mut beats, mut events) = (0u64, 0u64);
+        let t0 = Instant::now();
+        let mut t = 0usize;
+        while t < total {
+            for (i, v) in buf.iter_mut().enumerate() {
+                let k = (t + i) % fs;
+                let phase = ((t + i) as f32) * 0.013;
+                *v = if k < 10 { 1.2 * (1.0 - ((k as f32 - 5.0).abs() / 5.0)) } else { 0.05 * (phase * 2.0).sin() } + 0.02 * (phase * 37.0).sin();
+            }
+            for c in chans.iter_mut() {
+                c.push(&buf);
+                ev.clear();
+                c.poll(&mut ev);
+                for x in ev.iter() {
+                    if x.kind == eng::EV_BEAT { beats += 1 }
+                    events += 1;
+                }
+            }
+            t += 50;
+        }
+        let el = t0.elapsed();
+        let samples = total as u64 * channels as u64;
+        let ns = el.as_nanos() as f64 / samples as f64;
+        let per_core = if ns > 0.0 { (1e9 / (ns * fs as f64)) as u64 } else { 0 };
+        let r = serde_json::json!({
+            "ms": now_ms(), "engine": e.id, "seconds": seconds, "channels": channels, "fs": fs, "samples": samples,
+            "elapsed_ms": el.as_millis() as u64, "ns_per_sample": (ns * 10.0).round() / 10.0, "channels_per_core": per_core,
+            "beats": beats, "events": events, "beats_expected": seconds as u64 * channels as u64,
+            "host": std::env::var("HOSTNAME").ok().or_else(|| std::fs::read_to_string("/etc/hostname").ok().map(|s| s.trim().to_string())).unwrap_or_default(),
+            "threads_live": self.shards.len(), "channels_live": self.channels_live.load(Ordering::Relaxed),
+        });
+        *self.bench_last.lock().unwrap() = r.clone();
+        Ok(r)
+    }
+    pub fn bench_last(&self) -> serde_json::Value {
+        self.bench_last.lock().unwrap().clone()
     }
 
     fn shard_of(&self, channel_id: &str) -> usize {
@@ -269,8 +488,9 @@ impl AnalysisHub {
             "file_size": e.as_ref().map(|e| e.size),
             "loaded_ms": self.loaded_ms.load(Ordering::Relaxed),
             "gen": self.gen.load(Ordering::Relaxed),
-            "preset": if self.preset == eng::ECG_PRESET_PATCH { "patch" } else { "clinical" },
-            "stages_cfg": self.stages_cfg,
+            "preset": if self.preset.load(Ordering::Relaxed) == eng::ECG_PRESET_PATCH { "patch" } else { "clinical" },
+            "stages_cfg": self.stages_cfg.read().unwrap().clone(),
+            "versions_dir": self.versions_dir().display().to_string(),
             "stages": e.as_ref().map(|e| e.stages.iter().map(|(n, d)| serde_json::json!({"name": n, "desc": d})).collect::<Vec<_>>()).unwrap_or_default(),
             "threads": self.shards.len(),
             "channels": self.channels_live.load(Ordering::Relaxed),
@@ -283,6 +503,7 @@ impl AnalysisHub {
             "beats": self.beats.load(Ordering::Relaxed),
             "busy_ms": self.busy_ns.load(Ordering::Relaxed) / 1_000_000,
             "last_error": self.last_error(),
+            "bench": self.bench_last(),
         })
     }
 
@@ -333,7 +554,8 @@ impl AnalysisHub {
         };
         if need_new {
             let Some(engine) = self.engine() else { return };
-            match engine.channel(fs as f64, self.preset, &self.stages_cfg) {
+            let stages_cfg = self.stages_cfg.read().unwrap().clone();
+            match engine.channel(fs as f64, self.preset.load(Ordering::Relaxed), &stages_cfg) {
                 Ok(chan) => {
                     let stages = chan.stages();
                     if !slots.contains_key(&id) {

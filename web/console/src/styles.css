@@ -1384,3 +1384,6 @@ main.adm-main { padding: 0; }
 .ecg-eng-stages summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
 .ecg-eng-stages ul { margin: 6px 0 0 16px; font-size: 12px; line-height: 1.5; }
 @media (max-width: 1100px) { .ecg-eng-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ecg-eng .ctl-maint-h { gap: 12px; }
+.ecg-eng .ctl-maint-h > b { margin-right: 4px; }
+.ecg-eng .ctl-maint-h .tag { margin-right: 6px; }

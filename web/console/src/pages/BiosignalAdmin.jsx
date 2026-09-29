@@ -3,6 +3,7 @@ import { api, usePoll, fmtBytes } from '../api.js'
 import { can, useMe } from '../auth.js'
 import { ReadOnly } from '../ReadOnly.jsx'
 import './BiosignalAdmin.css'
+import NasMigration from './NasMigration.jsx'
 
 /**
  * 운영관리 › 데이터 관리: 파형 저장 단위, 무결성 봉인, 백업 대상과 정책.
@@ -10,7 +11,7 @@ import './BiosignalAdmin.css'
  */
 const KIND_LABEL = { nas: 'NAS (마운트 경로)', smb: 'SMB', ftp: 'FTP', ftps: 'FTPS', sftp: 'SFTP' }
 const KIND_PORT = { smb: 445, ftp: 21, ftps: 21, sftp: 22 }
-const EMPTY = { kind: 'sftp', name: '', host: '', port: 0, share: '', path: '', username: '', password: '', domain: '', key_path: '', insecure: false, enabled: true }
+const EMPTY = { kind: 'sftp', name: '', host: '', port: 0, share: '', path: '', username: '', password: '', domain: '', key_path: '', insecure: false, enabled: true, mirror: false }
 
 const fmtDateTime = (ms) => (ms ? new Date(ms).toLocaleString('ko-KR', { hour12: false }) : '—')
 /** `YYYYMMDD-HH` (UTC) → 로컬 시각 */
@@ -33,7 +34,8 @@ export default function BiosignalAdmin() {
   const me = useMe()
   const canEdit = can(me, 'page.settings_biosignal', 2) // '보기' 면 현황만 보고 정책·대상·백업 동작은 잠근다
   const [st, err, refresh] = usePoll(api.backup.status, 3000)
-  const [edit, setEdit] = useState(null) // target being edited (or EMPTY for new)
+  const [edit, setEdit] = useState(null)
+  const [wizard, setWizard] = useState(false) // target being edited (or EMPTY for new)
   const [msg, setMsg] = useState('')
   const [drag, setDrag] = useState(null)
   const targets = st?.targets || []
@@ -84,8 +86,10 @@ export default function BiosignalAdmin() {
           {st && targets.length > 0 && !st.active && <span className="dm-notice"><b>켜진 백업 대상이 없습니다.</b> 상한에 닿으면 백업 없이 삭제됩니다.</span>}
           {msg && <span className="muted small">{msg}</span>}
           <span className="spacer" />
+          <button onClick={() => setWizard(true)} title="로컬 비우기 → 설정 시간 확보 → 새 NAS 연결 → 기존 백업 이관까지 단계별로 안내">NAS 이관</button>
           <button className="primary" onClick={() => setEdit({ ...EMPTY })}>+ 백업 대상 추가</button>
         </div>
+        {wizard && st && <NasMigration st={st} refresh={refresh} onClose={() => setWizard(false)} onAddTarget={(preset) => setEdit({ ...EMPTY, ...preset })} />}
 
         {/* 파형 파일 수명 주기 — 다섯 단계와 살아 있는 숫자 */}
         <section className="dm-life">
@@ -164,6 +168,8 @@ export default function BiosignalAdmin() {
                   </div>
                   <div className="bk-actions">
                     <label className="chk"><input type="checkbox" checked={t.enabled} onChange={() => toggle(t)} /> 사용</label>
+                    <label className="chk" title="받는 쪽에만 켭니다: 다른 켜진 대상에는 있고 이 대상에는 없는 파일(로컬에서 지워진 것 포함)을 저속으로 계속 끌어와 완전히 같게 유지합니다. 원본 대상에는 표시할 필요 없고, 둘 다 켜면 양방향으로 맞춥니다"><input type="checkbox" checked={!!t.mirror} onChange={async () => { try { await api.backup.update(t.id, { ...t, mirror: !t.mirror }); refresh?.() } catch (e) { setMsg('저장 실패: ' + e.message) } }} /> 미러링</label>
+                    {t.mirror && t.mirror_state && <span className={'pill small ' + (t.mirror_state.running ? 'ok' : t.mirror_state.paused ? 'warn' : '')} title={t.mirror_state.last_err || ''}>{t.mirror_state.running ? `미러링 중 · 남은 ${t.mirror_state.todo?.toLocaleString()}개 · 완료 ${t.mirror_state.done?.toLocaleString()}` : t.mirror_state.paused ? '미러링 일시 중지' : `미러링 동기화 완료 (${t.mirror_state.done?.toLocaleString() || 0}개)`}</span>}
                     <button onClick={() => setEdit({ ...t, password: '' })}>편집</button>
                     <button className="danger" onClick={() => remove(t)}>삭제</button>
                   </div>
@@ -256,6 +262,8 @@ function PolicyCard({ policy, nTargets, onSaved, capEnvGb, diskTotal }) {
         <div>{num('rate_limit_kbps')} KB/s <span className="muted">— 대상별, 0 = 제한 없음 (FTP·SFTP)</span></div>
         <label>제한 시간</label>
         <div>{num('timeout_s')} 초 <span className="muted">— 파일 1개 전송 + 검증</span></div>
+        <label>미러링 속도</label>
+        <div>{num('mirror_kbps')} KB/s <span className="muted">— 대상 간 미러링 상한, 0 = 제한 없음 (NAS 이관 때 마법사가 잠시 0 으로)</span></div>
       </div>
       <div className="toolbar" style={{ marginTop: 10, marginBottom: 0 }}>
         <button className="primary" onClick={save} disabled={!dirty}>정책 저장</button>
@@ -315,6 +323,7 @@ function TargetModal({ target, onClose, onSaved }) {
           </>}
           <label />
           <label className="chk"><input type="checkbox" checked={!!t.enabled} onChange={(e) => set('enabled', e.target.checked)} /> 사용</label>
+          <label className="chk" title="받는 쪽에만 켭니다 — 다른 켜진 대상의 파일을 이 대상으로 저속 미러링 (원본 대상에는 불필요, 둘 다 켜면 양방향)"><input type="checkbox" checked={!!t.mirror} onChange={(e) => set('mirror', e.target.checked)} /> 다른 대상의 기존 파일도 미러링</label>
         </div>
         <p className="muted" style={{ marginTop: 10 }}>파일은 <code>{'<경로>'}/patches/&lt;패치&gt;/&lt;UTC 시간&gt;.rec</code> 로 올라갑니다 (로컬과 같은 구조라 그대로 되돌려 넣을 수 있습니다).</p>
         {test && (

@@ -227,4 +227,6 @@ scripts/update-ecg-engine.sh /path/to/live_ecg data/engine/libecg.so
 | `ROUTER_ECG_THREADS` | `2` | 분석 샤드 스레드 수 |
 | `ROUTER_ANALYSIS_TCP` | `0` | `1` 이면 옛 외부 분석 서버(TCP) 링크를 대신 쓴다 |
 
-API: `GET /api/ecg/engine`(상태·단계·부하) · `POST /api/ecg/engine/reload` · `GET /api/ecg/{patch}`(채널 요약). 스트림 헤더 `ana`, `/api/channels` 행 `ana`.
+API: `GET /api/ecg/engine`(상태·단계·부하) · `POST /api/ecg/engine/reload` · `GET|PUT /api/ecg/config`(프리셋·단계) · `GET /api/ecg/versions`, `POST /api/ecg/versions/{key}/activate`, `DELETE …/{key}`, `GET …/{key}/doc/{perf.md}` (보관함 `data/engine/versions/`) · `GET /api/ecg/history` · `GET /api/ecg/summary` · `POST /api/ecg/bench` · `GET /api/ecg/{patch}`. 스트림 헤더 `ana`, `/api/channels` 행 `ana`. 관리 › ECG 분석 엔진 페이지에서 버전 활성화·되돌리기·단계 선택·성능을 다룬다.
+
+백업 대상에는 **미러링** 옵션(받는 쪽에만 켬)이 있어 다른 대상의 기존 파일도 저속(`mirror_kbps`)으로 끌어와 대상끼리 완전히 같게 유지한다. 데이터 관리의 **NAS 이관** 마법사는 로컬 비우기 → 설정 시간(버틸 시간 계산) → 새 NAS 연결 → 이관(미러링 전속) → 마무리를 안내한다.

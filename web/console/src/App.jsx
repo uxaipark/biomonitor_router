@@ -25,6 +25,7 @@ import BiosignalAdmin from './pages/BiosignalAdmin.jsx'
 import NetworkSettings from './pages/NetworkSettings.jsx'
 import OpsStats from './pages/OpsStats.jsx'
 import AdminSecurity from './pages/AdminSecurity.jsx'
+import EcgEngine from './pages/EcgEngine.jsx'
 import { LiveModal } from './pages/LiveModal.jsx'
 
 // [hash, 메뉴 이름, 페이지, 묶음 메뉴(선택), 권한 자원]
@@ -45,6 +46,7 @@ const PAGES = [
   ['#/settings/network', '네트워크 설정', NetworkSettings, '관리', 'page.settings_network', '운영'],
   ['#/settings/biosignal', '데이터 관리', BiosignalAdmin, '관리', 'page.settings_biosignal', '운영'],
   ['#/admin/control', '서비스 제어', AdminControl, '관리', 'page.service_control', '운영'],
+  ['#/admin/ecg', 'ECG 분석 엔진', EcgEngine, '관리', 'page.ecg_engine', '운영'],
   ['#/settings/integration', 'EMR 연동', Integration, '관리', 'page.integration', '운영'],
   ['#/settings/viewer', '뷰어 설정', ViewerSettings, '관리', 'page.settings_viewer', '운영'],
   ['#/admin/users', '계정', AdminUsers, '관리', 'page.admin_users', '계정·보안'],
@@ -242,7 +244,7 @@ function Console({ me, setMe, authLost }) {
           })}
         </nav>
         <span className="spacer" />
-        <span className={'pill sys ' + sys.tone} title={sysTitle}><i className="sys-dot" />시스템 상태 · {sys.text}</span>
+        <span className={'pill sys ' + sys.tone} title={sysTitle}><i className="sys-dot" />{sys.tone === 'ok' ? '시스템 정상' : `시스템 이상 · ${sys.text}`}</span>
         {!me.site.accessible ? null : !(canBio(me) && canPhi(me)) && <span className="pill warn" title="개인정보·생체신호 권한이 없어 이름 등은 가려지고 파형은 나오지 않습니다">마스킹</span>}
         {alarmsVisible && me.site.accessible && (s.critical || s.high) ? <a href="#/alarms" className={'pill ' + (s.critical ? 'crit' : 'err')} title={`활성 알람 — 위험 ${s.critical || 0} · 높음 ${s.high || 0} · 중간 ${s.medium || 0} · 낮음 ${s.low || 0}`}>알람 {s.active ?? 0}{s.critical ? ` · 위험 ${s.critical}` : ''}</a> : null}
         {allowed.some((p) => p[3] === '관리') && <a href={adminHome} className={'nav-admin' + (inAdmin ? ' active' : '')} title="운영 · 계정·보안 · 테스트 도구">

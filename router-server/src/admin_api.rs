@@ -32,6 +32,14 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/wave/recent", get(wave_recent))
         .route("/api/ecg/engine", get(ecg_engine_status))
         .route("/api/ecg/engine/reload", post(ecg_engine_reload))
+        .route("/api/ecg/config", get(ecg_config_get).put(ecg_config_set))
+        .route("/api/ecg/versions", get(ecg_versions))
+        .route("/api/ecg/versions/{key}/activate", post(ecg_version_activate))
+        .route("/api/ecg/versions/{key}", delete(ecg_version_delete))
+        .route("/api/ecg/versions/{key}/doc/{name}", get(ecg_version_doc))
+        .route("/api/ecg/history", get(ecg_history))
+        .route("/api/ecg/summary", get(ecg_summary))
+        .route("/api/ecg/bench", post(ecg_bench))
         .route("/api/ecg/{channel_id}", get(ecg_row))
         .route("/api/wave/{channel_id}/info", get(wave_info))
         .route("/api/wave/{channel_id}", get(wave_read))
@@ -65,6 +73,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/backup/catalog/{id}/sync", post(backup_catalog_sync))
         .route("/api/backup/catalog/{id}/purge", post(backup_catalog_purge))
         .route("/api/backup/abort", post(backup_abort))
+        .route("/api/backup/migration", get(backup_migration_get).put(backup_migration_set))
+        .route("/api/backup/mirror/kick", post(backup_mirror_kick))
         .route("/api/control/status", get(control_status))
         .route("/api/control", get(control_status))
         .route("/api/control/maintenance", post(control_maintenance))
@@ -947,6 +957,82 @@ async fn ecg_engine_reload(State(state): State<Arc<AppState>>, Extension(p): Ext
         Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
     }
 }
+async fn ecg_config_get(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(state.analysis.config_json())
+}
+#[derive(serde::Deserialize)]
+struct EcgCfgIn {
+    #[serde(default)]
+    preset: String,
+    #[serde(default)]
+    stages: String,
+}
+async fn ecg_config_set(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(b): Json<EcgCfgIn>) -> impl IntoResponse {
+    match state.analysis.set_config(&b.preset, &b.stages) {
+        Ok(v) => {
+            state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "ecg_config", &format!("preset={} stages={}", b.preset, b.stages));
+            state.push_event("ecg_engine", None, format!("ECG 분석 설정 변경: 프리셋 {} · 단계 {}", b.preset, if b.stages.is_empty() { "기본" } else { &b.stages }));
+            Json(v).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+async fn ecg_versions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let _ = state.analysis.import_current();
+    Json(serde_json::json!({ "versions": state.analysis.versions(), "active": state.analysis.engine().map(|e| crate::ecg_analysis::AnalysisHub::version_key(&e.id)) }))
+}
+async fn ecg_version_activate(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(key): Path<String>) -> impl IntoResponse {
+    let st = state.clone();
+    let by = p.username.clone();
+    match tokio::task::spawn_blocking(move || st.analysis.activate(&key, &by)).await.unwrap_or(Err("failed".into())) {
+        Ok(id) => {
+            state.set_analysis_up(true);
+            state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "ecg_engine_activate", &id);
+            state.push_event("ecg_engine", None, format!("ECG 엔진 활성화: {id}"));
+            Json(state.analysis.status_json()).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+async fn ecg_version_delete(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(key): Path<String>) -> impl IntoResponse {
+    match state.analysis.delete_version(&key) {
+        Ok(()) => {
+            state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "ecg_engine_delete", &key);
+            Json(serde_json::json!({ "ok": true })).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+async fn ecg_version_doc(State(state): State<Arc<AppState>>, Path((key, name)): Path<(String, String)>) -> impl IntoResponse {
+    match state.analysis.version_doc(&key, &name) {
+        Some(t) => ([(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")], t).into_response(),
+        None => (StatusCode::NOT_FOUND, "없음").into_response(),
+    }
+}
+async fn ecg_history(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(state.analysis.history())
+}
+async fn ecg_summary(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(state.analysis.summary_json())
+}
+#[derive(serde::Deserialize)]
+struct BenchIn {
+    #[serde(default)]
+    seconds: u32,
+    #[serde(default)]
+    channels: u32,
+}
+async fn ecg_bench(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(b): Json<BenchIn>) -> impl IntoResponse {
+    let st = state.clone();
+    let (sec, ch) = (if b.seconds == 0 { 20 } else { b.seconds }, if b.channels == 0 { 8 } else { b.channels });
+    match tokio::task::spawn_blocking(move || st.analysis.bench(sec, ch)).await.unwrap_or(Err("failed".into())) {
+        Ok(v) => {
+            state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "ecg_bench", &format!("{} ns/sample", v["ns_per_sample"]));
+            Json(v).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
 async fn ecg_row(State(state): State<Arc<AppState>>, Path(channel_id): Path<String>) -> impl IntoResponse {
     match state.analysis.row(&channel_id) {
         Some(r) => Json(serde_json::to_value(r).unwrap_or_default()).into_response(),
@@ -1401,6 +1487,28 @@ pub fn clear_series_cache() {
 }
 
 /// 백업 중단: 전송 중인 파일까지 바로 끊고 일시 중지
+/// NAS 이관 마법사 상태 (콘솔이 단계·선택을 저장; null 로 지움) / 미러링 즉시 재검사
+async fn backup_migration_get(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(state.backup.migration())
+}
+async fn backup_migration_set(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(v): Json<serde_json::Value>) -> impl IntoResponse {
+    match state.backup.set_migration(v.clone()) {
+        Ok(()) => {
+            let phase = v.get("phase").and_then(|x| x.as_str()).unwrap_or("-").to_string();
+            state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "backup_migration", &phase);
+            if !v.is_null() {
+                state.push_event("backup_config", None, format!("NAS 이관 단계: {phase}"));
+            }
+            Json(state.backup.migration()).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+async fn backup_mirror_kick(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    state.backup.mirror_kick();
+    Json(serde_json::json!({ "ok": true, "mirror": state.backup.mirror_states() }))
+}
+
 async fn backup_abort(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> impl IntoResponse {
     let r = state.backup.abort().map(|n| serde_json::json!({ "ok": true, "killed": n }));
     if let Ok(v) = &r {

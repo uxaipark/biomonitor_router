@@ -59,7 +59,7 @@ pub fn is_platform(code: &str) -> bool {
 }
 
 /// (코드, 이름, 묶음, 기본값 [SA, SYS, RES, CRM, IT, DOC, NUR, STF])
-pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 28] = [
+pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 29] = [
     // 톱 메뉴 순서대로: 대시보드(첫 화면, 운영 통계) → 이벤트보드 → …
     ("page.ops", "대시보드 (운영 통계 · 첫 화면)", "메뉴", [2, 2, 1, 0, 1, 0, 0, 0]),
     ("page.dashboard", "이벤트보드", "메뉴", [2, 1, 1, 0, 1, 1, 1, 1]),
@@ -84,6 +84,8 @@ pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 28] = [
     ("page.service_control", "운영관리 › 서비스 제어", "메뉴", [2, 2, 0, 0, 2, 0, 0, 0]),
     // 무단 스캐닝·로그인 실패 IP 차단 (병원 IT 매니저도 편집)
     ("page.security", "운영관리 › 보안 운영", "메뉴", [2, 2, 0, 0, 2, 0, 0, 0]),
+    // ECG 분석 엔진: 버전 보관함·활성화·프리셋/단계 선택·성능 (병원 IT 매니저 편집, 의사 보기)
+    ("page.ecg_engine", "운영관리 › ECG 분석 엔진", "메뉴", [2, 2, 0, 0, 2, 1, 0, 0]),
     ("action.alarm_ack", "알람 확인", "동작", [2, 0, 0, 0, 0, 2, 2, 0]),
     ("action.alarm_rules", "알람 규칙 변경", "동작", [2, 0, 0, 0, 0, 2, 1, 0]),
     ("action.groups_edit", "그룹 편집", "동작", [2, 1, 0, 0, 1, 2, 2, 0]),
@@ -1576,11 +1578,11 @@ fn requirement(path: &str, method: &axum::http::Method) -> Option<(Vec<&'static 
     if p == "/api/wave/reset" {
         return r(&["action.wave_reset"], 2);
     }
-    if p == "/api/ecg/engine/reload" {
-        return r(&["page.service_control"], 2);
+    if p == "/api/ecg/engine/reload" || p == "/api/ecg/bench" || (p == "/api/ecg/config" && *method != axum::http::Method::GET) || (p.ends_with("/activate") && p.starts_with("/api/ecg/versions/")) || (p.starts_with("/api/ecg/versions/") && *method == axum::http::Method::DELETE) {
+        return r(&["page.ecg_engine", "page.service_control"], 2);
     }
     if p.starts_with("/api/ecg/") {
-        return r(&["page.dashboard", "page.ops", "page.service_control", "page.settings_network", "page.patients", "page.viewers", "page.map"], 1);
+        return r(&["page.dashboard", "page.ops", "page.service_control", "page.ecg_engine", "page.settings_network", "page.patients", "page.viewers", "page.map"], 1);
     }
     if p.starts_with("/api/wave/") || p.starts_with("/api/patches/") {
         return r(&["data.biosignal"], 1);

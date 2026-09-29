@@ -193,6 +193,14 @@
 
 - [2026-09-17 22:50 MAC] 라우터 P1 구현·검증 (48a3480).
 - [2026-09-17 23:20 MAC] RP5#2 이어 개발 준비: Linux sysmon(/proc), `rust-toolchain.toml`, `scripts/pi-dev-setup.sh`, `docs/RP5-DEV.md`, `CLAUDE.md`, 이 문서.
+### ECG 분석 엔진 관리 페이지 · 버전 보관함 · 벤치 / 백업 미러링 · NAS 이관 마법사 (fitlet3)
+
+- **관리 › ECG 분석 엔진** (`pages/EcgEngine.jsx`, 자원 `page.ecg_engine`, RESOURCES 29): 현재 엔진(id·ABI·파일·읽은 시각·채널·처리·드롭·부하), **선택 동작**(프리셋 patch/clinical + 단계별 드롭다운 → `PUT /api/ecg/config`, `data/engine/config.json` 에 저장, 세대를 올려 모든 채널 재생성), **엔진 보관함**(`data/engine/versions/<src해시>/{libecg.so,meta.json,perf.md,notes.md}` — 활성화/삭제/문서 보기, `GET /api/ecg/versions`, `POST …/{key}/activate`, `DELETE …/{key}`, `GET …/{key}/doc/{perf.md|notes.md|meta.json}`), **이력**(`data/engine/history.json`: load/activate/config, `GET /api/ecg/history`), **판정 분포·오늘 ECG 알람 통계**(`GET /api/ecg/summary` + 알람 이력), **성능**(레포 보고서 요약표 + 이 기기 시뮬레이션 벤치 `POST /api/ecg/bench {seconds,channels}` → ns/샘플·코어당 채널; fitlet3 실측 382 ns/샘플 ≈ 10,460 채널/코어). 서비스 제어 페이지엔 "엔진 다시 읽기" 버튼과 한 줄 상태만 남김.
+- `scripts/update-ecg-engine.sh` 는 이제 보관함에 등록(meta.json: id·commit·conformance, perf.md=reports/PERFORMANCE.md, notes.md=README) 후 활성화(`--no-activate` 로 등록만). 라우터는 활성 파일이 보관함에 없으면 `import_current` 로 자동 등록.
+- **백업 미러링**: `Target.mirror`(받는 쪽에만 켬) — `backup-mirror` 스레드가 5초마다 미러링 대상별로 "다른 켜진 대상엔 있고 여기엔 없는" 파일(`backup_catalog` 차집합, 오래된 시간부터)을 하나씩 옮긴다. 원본은 로컬 → 복원 캐시 → 원본 대상에서 내려받기, 기대 해시는 카탈로그 sha → 로컬 봉인 → 원본 .sum, 업로드는 항상 SHA-256 검증, .sum 도 함께. `Policy.mirror_kbps`(기본 2,048 KB/s, 0 = 무제한; curl 대상은 --limit-rate, 나머지는 파일당 sleep 로 평균 속도 맞춤). 진행은 `status().targets[].mirror_state` (todo/done/bytes/current/errors). `POST /api/backup/mirror/kick`.
+- **NAS 이관 마법사** (`pages/NasMigration.jsx`, 데이터 관리 상단 "NAS 이관"): 단계 상태를 `backup_kv 'migration'` 에 저장(`GET/PUT /api/backup/migration`). ① 로컬 비우기(삭제 모드 immediate + 스캔) ② 설정 시간(백업 일시 중지, "로컬만으로 버틸 시간" = (상한/디스크 여유 − 비상 여유) ÷ `store_rate_bps`(STORE_BYTES 30초 EMA)) ③ 새 NAS 대상 추가(미러링 켜진 채) ④ 이관(새 대상 mirror + mirror_kbps 0 + kick, 진행률) ⑤ 마무리(새 대상 1순위, 선택 시 기존 대상 사용 중지, 삭제 모드·속도 원복).
+- 운영 통계 CPU·메모리 카드에 시스템 전체 수치 병기(`cpu_sys_avg/max`, `mem_used_avg/max`, `mem_total`).
+
 ### 실시간 ECG 분석 엔진(live-ecg) 통합 — 라우터 내장, 파일 교체로 갱신 (fitlet3)
 
 - **엔진 공급**: `https://github.com/uxaipark/live_ecg` 의 단일 파일 엔진 `dist/ecg_engine.rs` 를 `scripts/update-ecg-engine.sh` 가 받아(`git pull`) `rustc --crate-type cdylib` 로 `data/engine/libecg.so`(5 MB, 4 s) 로 빌드, `tools/ecg_conformance.c`(cc 있을 때, `-lm` 필요)로 적합성 검사 후 원자적 교체. 라우터는 엔진을 링크하지 않고 실행 중에 dlopen(`ecg_engine.rs`, libloading, ABI 1.x 검사) — 감시 스레드가 10초마다 mtime/size 를 보고 새 엔진을 읽어 세대(gen)를 올리면 샤드가 다음 패킷에서 채널을 새 엔진으로 옮긴다. **재빌드·재시작 없음.** 수동: `POST /api/ecg/engine/reload`(서비스 제어 페이지 버튼).

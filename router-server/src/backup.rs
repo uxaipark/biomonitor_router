@@ -54,6 +54,9 @@ fn wait_tracked(child: std::process::Child) -> Result<std::process::Output, Stri
 }
 
 /// 원격 목록 읽기 진행 상태 (대상 id → JSON)
+/// 대상별 미러링 진행 (op=mirror): todo·done·bytes·current·errors — status() 의 targets[].mirror_state
+static MIRROR: std::sync::LazyLock<Mutex<HashMap<String, serde_json::Value>>> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+static MIRROR_NOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static SYNC: LazyLock<Mutex<HashMap<String, serde_json::Value>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// `patches/00076509/20260923-07.rec` → `20260923-07`
@@ -160,6 +163,9 @@ pub struct Target {
     pub insecure: bool,
     #[serde(default = "yes")]
     pub enabled: bool,
+    /// 다른 대상에 이미 있는 파일(로컬에서 지워진 것 포함)도 이 대상으로 저속으로 계속 미러링해 대상끼리 완전히 같게 유지
+    #[serde(default)]
+    pub mirror: bool,
     #[serde(default)]
     pub created_ms: u64,
     #[serde(default)]
@@ -214,6 +220,12 @@ pub struct Policy {
     /// 초기값은 `ROUTER_SEAL_PER_SEC`(기본 10). 바꾸면 다음 파일부터.
     #[serde(default = "d_seal_per_sec")]
     pub seal_per_sec: u32,
+    /// 대상 간 미러링 속도 상한 KB/s (0 = 제한 없음 — NAS 이관 때). 평소엔 저속(기본 2,048 KB/s)으로 운영 트래픽을 방해하지 않는다
+    #[serde(default = "d_mirror_kbps")]
+    pub mirror_kbps: u32,
+}
+fn d_mirror_kbps() -> u32 {
+    2048
 }
 fn d_seal_per_sec() -> u32 {
     crate::patch_store::seal_per_sec_default()
@@ -741,6 +753,9 @@ impl Backup {
                     let tt = total.get(&t.id).copied().unwrap_or_default();
                     o.insert("today".into(), serde_json::json!({"files": d.0, "bytes": d.1}));
                     o.insert("total".into(), serde_json::json!({"files": tt.0, "bytes": tt.1}));
+                    if let Some(m) = MIRROR.lock().unwrap().get(&t.id) {
+                        o.insert("mirror_state".into(), m.clone());
+                    }
                 }
                 v
             })
@@ -765,6 +780,9 @@ impl Backup {
             "disk_free": disk_free,
             "log": *self.log.lock().unwrap(),
             "kinds": KINDS,
+            "migration": self.migration(),
+            "store_rate_bps": store_rate_bps(),
+            "mirror_kbps": p.mirror_kbps,
         })
     }
 
@@ -776,6 +794,7 @@ impl Backup {
     }
 
     pub fn set_policy(&self, mut p: Policy) -> Result<(), String> {
+        p.mirror_kbps = p.mirror_kbps.min(1_000_000);
         if !["cap", "immediate"].contains(&p.delete_mode.as_str()) {
             return Err("delete_mode 는 cap | immediate".into());
         }
@@ -1936,6 +1955,231 @@ impl Backup {
     }
 }
 
+/// 저장소 증가 속도(B/s): STORE_BYTES 를 30초 간격으로 표본화한 지수 이동 평균 — NAS 이관 마법사의 "로컬만으로 버틸 시간" 계산용
+static STORE_RATE: LazyLock<Mutex<(u64, u64, f64)>> = LazyLock::new(|| Mutex::new((0, 0, 0.0))); // (ms, bytes, ema bps)
+fn store_rate_tick() {
+    let now = now_ms();
+    let bytes = crate::patch_store::STORE_BYTES.load(Ordering::Relaxed);
+    let mut g = STORE_RATE.lock().unwrap();
+    if g.0 > 0 && now > g.0 + 5_000 {
+        let dt = (now - g.0) as f64 / 1000.0;
+        let d = bytes.saturating_sub(g.1) as f64 / dt; // 삭제(정리)로 줄면 0 으로 친다
+        g.2 = if g.2 == 0.0 { d } else { g.2 * 0.7 + d * 0.3 };
+    }
+    g.0 = now;
+    g.1 = bytes;
+}
+pub fn store_rate_bps() -> f64 {
+    STORE_RATE.lock().unwrap().2
+}
+
+impl Backup {
+    // ── NAS 이관 마법사 상태 (backup_kv 'migration', 콘솔이 단계를 진행하며 저장) ──
+    pub fn migration(&self) -> serde_json::Value {
+        self.db.lock().ok().and_then(|db| db.query_row("SELECT value FROM backup_kv WHERE key='migration'", [], |r| r.get::<_, String>(0)).ok()).and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(serde_json::Value::Null)
+    }
+    pub fn set_migration(&self, v: serde_json::Value) -> Result<(), String> {
+        let db = self.db.lock().map_err(|_| "db")?;
+        if v.is_null() {
+            db.execute("DELETE FROM backup_kv WHERE key='migration'", []).map_err(|e| e.to_string())?;
+        } else {
+            db.execute("INSERT INTO backup_kv (key, value) VALUES ('migration', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params![v.to_string()]).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+    pub fn mirror_kick(&self) {
+        MIRROR_NOW.store(true, Ordering::Relaxed);
+    }
+    pub fn mirror_states(&self) -> serde_json::Value {
+        serde_json::to_value(&*MIRROR.lock().unwrap()).unwrap_or_default()
+    }
+
+    /// 미러링 대상(mirror=true) 하나에 대해 "다른 대상엔 있고 여기엔 없는" 파일 목록 (오래된 시간 파일부터)
+    fn mirror_todo(&self, dst: &str, sources: &[String]) -> Vec<(String, String, u64, Option<Vec<u8>>, String)> {
+        let Ok(db) = self.db.lock() else { return Vec::new() };
+        let mut out = Vec::new();
+        let Ok(mut st) = db.prepare(
+            "SELECT c.rel, c.remote, MAX(c.size), c.sha, c.target FROM backup_catalog c
+             WHERE c.target != ?1 AND c.rel NOT IN (SELECT rel FROM backup_catalog WHERE target = ?1)
+             GROUP BY c.rel ORDER BY c.hour ASC, c.rel ASC LIMIT 20000",
+        ) else { return Vec::new() };
+        if let Ok(rows) = st.query_map(params![dst], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, i64>(2)?, r.get::<_, Option<Vec<u8>>>(3)?, r.get::<_, String>(4)?))) {
+            for (rel, remote, size, sha, target) in rows.flatten() {
+                // 원본은 사용 중인 다른 대상에 있어야 한다
+                if !sources.iter().any(|s| *s == target) {
+                    continue;
+                }
+                out.push((rel.clone(), remote.unwrap_or(rel), size.max(0) as u64, sha.filter(|v| v.len() == 32), target));
+            }
+        }
+        out
+    }
+
+    /// 파일 하나를 dst 로 미러링: 원본은 로컬(아직 있으면) → 복원 캐시 → 원본 대상에서 내려받기. 봉인(.sum)도 함께.
+    fn mirror_one(&self, dst: &Target, p: &Policy, rel: &str, remote: &str, size: u64, sha: Option<Vec<u8>>, src_id: &str) -> Result<(u64, String), String> {
+        let src_t = self.targets.read().unwrap().iter().find(|t| t.id == src_id).cloned().ok_or("원본 대상 없음")?;
+        let name = Path::new(rel).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let stem = |n: &str| n.strip_suffix(".rec.gz").or_else(|| n.strip_suffix(".rec")).unwrap_or(n).to_string();
+        let local = self.root.join(rel);
+        let restore = crate::patch_store::restore_dir(&self.root, rel.split('/').nth(1).and_then(|d| d.parse::<u32>().ok()).unwrap_or(0)).join(&name);
+        let tmp = self.work.join(format!("mirror-{}-{}", dst.id, now_ms()));
+        let mut tmp_sum: Option<PathBuf> = None;
+        let (file, how): (PathBuf, String) = if local.exists() && fs::metadata(&local).map(|m| m.len() == size).unwrap_or(false) {
+            (local.clone(), "로컬".into())
+        } else if restore.exists() && fs::metadata(&restore).map(|m| m.len() == size).unwrap_or(false) {
+            (restore.clone(), "복원 캐시".into())
+        } else {
+            let t0 = Instant::now();
+            self.download(&src_t, p, remote, &tmp).map_err(|e| format!("{} 에서 내려받기 실패: {e}", src_t.name))?;
+            // 미러링 속도 상한: 내려받기에는 curl 제한이 없으니 걸린 시간으로 맞춘다
+            pace(size, p.mirror_kbps, t0.elapsed());
+            (tmp.clone(), format!("{} 에서", src_t.name))
+        };
+        // 기대 해시: 카탈로그 sha → 로컬 봉인 → 원본의 .sum
+        let seal_local = crate::patch_store::seal_path(&local);
+        let want: [u8; 32] = if let Some(v) = sha.as_deref().and_then(|v| <[u8; 32]>::try_from(v).ok()) {
+            v
+        } else if let Some(h) = crate::patch_store::read_seal(&local).as_ref().and_then(seal_sha) {
+            h
+        } else {
+            let st = self.work.join(format!("mirror-{}-{}.sum", dst.id, now_ms()));
+            self.download(&src_t, p, &format!("{}.sum", stem(remote)), &st).map_err(|e| format!("봉인 파일 없음: {e}"))?;
+            let seal = fs::read_to_string(&st).ok().and_then(|j| serde_json::from_str::<crate::patch_store::Seal>(&j).ok()).and_then(|s| seal_sha(&s)).ok_or("봉인 파일 해석 실패")?;
+            tmp_sum = Some(st);
+            seal
+        };
+        // 업로드(검증은 항상 SHA-256), curl 대상은 미러링 속도 상한으로
+        let mut pm = p.clone();
+        pm.rate_limit_kbps = p.mirror_kbps;
+        let t0 = Instant::now();
+        let r = self.upload(dst, &pm, &file, remote, size, &want, true);
+        if !matches!(dst.kind.as_str(), "ftp" | "ftps" | "sftp") {
+            pace(size, p.mirror_kbps, t0.elapsed());
+        }
+        // 봉인 파일도 (로컬 봉인이 있으면 그것, 아니면 원본에서 받아 둔 것)
+        if r.is_ok() {
+            let sum_src = if seal_local.exists() { Some(seal_local.clone()) } else {
+                if tmp_sum.is_none() {
+                    let st = self.work.join(format!("mirror-{}-{}.sum", dst.id, now_ms()));
+                    if self.download(&src_t, p, &format!("{}.sum", stem(remote)), &st).is_ok() { tmp_sum = Some(st) }
+                }
+                tmp_sum.clone()
+            };
+            if let Some(sp) = sum_src {
+                if let Ok(m) = fs::metadata(&sp) {
+                    if let Ok((h, _)) = sha_file(&sp) {
+                        let _ = self.upload(dst, &pm, &sp, &format!("{}.sum", stem(remote)), m.len(), &h, false);
+                    }
+                }
+            }
+        }
+        let _ = fs::remove_file(&tmp);
+        if let Some(st) = tmp_sum { let _ = fs::remove_file(st); }
+        r?;
+        let ms = t0.elapsed().as_millis() as u64;
+        if let Ok(db) = self.db.lock() {
+            let _ = db.execute(
+                "INSERT OR REPLACE INTO backup_catalog (target, rel, hour, size, sha, done_ms, src, remote) VALUES (?1,?2,?3,?4,?5,?6,'mirror',?7)",
+                params![dst.id, rel, hour_of(rel), size as i64, want.to_vec(), now_ms() as i64, remote],
+            );
+            if local.exists() {
+                let _ = db.execute("INSERT OR REPLACE INTO backup_files (rel, target, size, sha, remote, done_ms) VALUES (?1,?2,?3,?4,?5,?6)", params![rel, dst.id, size as i64, want.to_vec(), remote, now_ms() as i64]);
+                self.ledger.lock().unwrap().entry(rel.to_string()).or_default().push(Copy { target: dst.id.clone(), size, sha: want });
+            }
+            let _ = db.execute("INSERT INTO backup_daily (day, target, files, bytes) VALUES (?1,?2,1,?3) ON CONFLICT(day, target) DO UPDATE SET files = files + 1, bytes = bytes + ?3", params![day_key(now_ms()), dst.id, size as i64]);
+        }
+        Ok((ms, how))
+    }
+
+    /// 미러링 스레드 본체: 5초마다 미러링 대상들을 돌며 파일 하나씩(저속) 옮긴다. 일시 중지(paused) 중엔 쉰다.
+    fn mirror_loop(self: &Arc<Self>) {
+        let mut todo: HashMap<String, VecDeque<(String, String, u64, Option<Vec<u8>>, String)>> = HashMap::new();
+        let mut scanned: HashMap<String, Instant> = HashMap::new();
+        let mut backoff: HashMap<String, Instant> = HashMap::new();
+        loop {
+            std::thread::sleep(Duration::from_millis(500));
+            store_rate_tick();
+            let p = self.policy();
+            let targets = self.targets.read().unwrap().clone();
+            let kicked = MIRROR_NOW.swap(false, Ordering::Relaxed);
+            let sources: Vec<String> = targets.iter().filter(|t| t.enabled).map(|t| t.id.clone()).collect();
+            let mut worked = false;
+            for dst in targets.iter().filter(|t| t.enabled && t.mirror) {
+                if p.paused {
+                    MIRROR.lock().unwrap().insert(dst.id.clone(), serde_json::json!({ "op": "mirror", "running": false, "paused": true, "todo": todo.get(&dst.id).map(|q| q.len()).unwrap_or(0) }));
+                    continue;
+                }
+                if backoff.get(&dst.id).map(|t| t.elapsed() < Duration::from_secs(30)).unwrap_or(false) {
+                    continue;
+                }
+                let need_scan = kicked || scanned.get(&dst.id).map(|t| t.elapsed() > Duration::from_secs(60)).unwrap_or(true) || todo.get(&dst.id).map(|q| q.is_empty()).unwrap_or(true);
+                if need_scan {
+                    let srcs: Vec<String> = sources.iter().filter(|s| **s != dst.id).cloned().collect();
+                    let list = self.mirror_todo(&dst.id, &srcs);
+                    scanned.insert(dst.id.clone(), Instant::now());
+                    let q = todo.entry(dst.id.clone()).or_default();
+                    q.clear();
+                    q.extend(list);
+                    if q.is_empty() {
+                        let done = MIRROR.lock().unwrap().get(&dst.id).and_then(|v| v.get("done").and_then(|d| d.as_u64())).unwrap_or(0);
+                        MIRROR.lock().unwrap().insert(dst.id.clone(), serde_json::json!({ "op": "mirror", "running": false, "idle": true, "todo": 0, "done": done, "synced_ms": now_ms() }));
+                        continue;
+                    }
+                }
+                let Some(q) = todo.get_mut(&dst.id) else { continue };
+                let Some((rel, remote, size, sha, src)) = q.pop_front() else { continue };
+                let left = q.len();
+                {
+                    let mut m = MIRROR.lock().unwrap();
+                    let prev = m.get(&dst.id).cloned().unwrap_or(serde_json::json!({}));
+                    m.insert(dst.id.clone(), serde_json::json!({ "op": "mirror", "running": true, "todo": left + 1, "done": prev.get("done").and_then(|d| d.as_u64()).unwrap_or(0), "bytes": prev.get("bytes").and_then(|d| d.as_u64()).unwrap_or(0), "errors": prev.get("errors").and_then(|d| d.as_u64()).unwrap_or(0), "current": rel, "started_ms": prev.get("started_ms").and_then(|d| d.as_u64()).unwrap_or(now_ms()), "last_err": prev.get("last_err").cloned().unwrap_or(serde_json::Value::Null) }));
+                }
+                worked = true;
+                match self.mirror_one(dst, &p, &rel, &remote, size, sha, &src) {
+                    Ok((ms, how)) => {
+                        self.logit(&dst.name, &remote, size, ms, true, format!("미러링 ({how})"));
+                        let mut m = MIRROR.lock().unwrap();
+                        if let Some(v) = m.get_mut(&dst.id).and_then(|v| v.as_object_mut()) {
+                            v.insert("done".into(), (v.get("done").and_then(|d| d.as_u64()).unwrap_or(0) + 1).into());
+                            v.insert("bytes".into(), (v.get("bytes").and_then(|d| d.as_u64()).unwrap_or(0) + size).into());
+                            v.insert("todo".into(), left.into());
+                        }
+                    }
+                    Err(e) => {
+                        self.logit(&dst.name, &remote, size, 0, false, format!("미러링 실패: {e}"));
+                        backoff.insert(dst.id.clone(), Instant::now());
+                        let mut m = MIRROR.lock().unwrap();
+                        if let Some(v) = m.get_mut(&dst.id).and_then(|v| v.as_object_mut()) {
+                            v.insert("errors".into(), (v.get("errors").and_then(|d| d.as_u64()).unwrap_or(0) + 1).into());
+                            v.insert("last_err".into(), e.into());
+                        }
+                    }
+                }
+            }
+            // 미러링 대상이 아닌 항목의 상태는 지운다
+            {
+                let ids: HashSet<String> = targets.iter().filter(|t| t.enabled && t.mirror).map(|t| t.id.clone()).collect();
+                MIRROR.lock().unwrap().retain(|k, _| ids.contains(k));
+                todo.retain(|k, _| ids.contains(k));
+            }
+            if !worked {
+                std::thread::sleep(Duration::from_millis(4500));
+            }
+        }
+    }
+}
+
+/// 평균 전송 속도를 상한(KB/s) 아래로: 걸린 시간이 모자라면 그만큼 쉰다
+fn pace(size: u64, kbps: u32, took: Duration) {
+    if kbps == 0 || size == 0 {
+        return;
+    }
+    let want = Duration::from_secs_f64(size as f64 / (kbps as f64 * 1024.0));
+    if want > took {
+        std::thread::sleep(want - took);
+    }
+}
+
 fn check(n: u64, size: u64, h: &[u8; 32], sha: &[u8; 32]) -> Result<(), String> {
     if n != size {
         return Err(format!("크기 불일치: 원격 {n} ≠ 로컬 {size}"));
@@ -1968,6 +2212,10 @@ pub fn start(state: Arc<AppState>) {
                 }
             })
             .expect("backup scan thread");
+    }
+    {
+        let b = b.clone();
+        std::thread::Builder::new().name("backup-mirror".into()).spawn(move || b.mirror_loop()).expect("backup mirror thread");
     }
     for i in 0..8u32 {
         let (b, st) = (b.clone(), state.clone());
