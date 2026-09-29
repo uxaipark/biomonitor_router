@@ -197,7 +197,7 @@ impl AnalysisHub {
             loaded_ms: AtomicU64::new(0),
             bench_last: Mutex::new(serde_json::Value::Null),
             db: Mutex::new(rusqlite::Connection::open(db_path).ok().and_then(|c| {
-                let _ = c.execute_batch("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS ecg_bench (ms INTEGER PRIMARY KEY, engine TEXT NOT NULL, json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ecg_trace (patch INTEGER NOT NULL, ms INTEGER NOT NULL, label TEXT NOT NULL); CREATE INDEX IF NOT EXISTS ecg_trace_pm ON ecg_trace(patch, ms); CREATE INDEX IF NOT EXISTS ecg_trace_ms ON ecg_trace(ms); CREATE TABLE IF NOT EXISTS ecg_beatmin (patch INTEGER NOT NULL, minute_ms INTEGER NOT NULL, v INTEGER NOT NULL, s INTEGER NOT NULL, PRIMARY KEY (patch, minute_ms)); CREATE INDEX IF NOT EXISTS ecg_beatmin_ms ON ecg_beatmin(minute_ms);");
+                let _ = c.execute_batch("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA cache_size=-4000; CREATE TABLE IF NOT EXISTS ecg_bench (ms INTEGER PRIMARY KEY, engine TEXT NOT NULL, json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ecg_trace (patch INTEGER NOT NULL, ms INTEGER NOT NULL, label TEXT NOT NULL); CREATE INDEX IF NOT EXISTS ecg_trace_pm ON ecg_trace(patch, ms); CREATE INDEX IF NOT EXISTS ecg_trace_ms ON ecg_trace(ms); CREATE TABLE IF NOT EXISTS ecg_beatmin (patch INTEGER NOT NULL, minute_ms INTEGER NOT NULL, v INTEGER NOT NULL, s INTEGER NOT NULL, PRIMARY KEY (patch, minute_ms)); CREATE INDEX IF NOT EXISTS ecg_beatmin_ms ON ecg_beatmin(minute_ms);");
                 Some(c)
             })),
             pend_db: Mutex::new((Vec::new(), HashMap::new())),
