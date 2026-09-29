@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api, usePoll, fmtAgo, fmtTime } from '../api.js'
 import { alarmIndex, flagNames, sortBy, SEV_LABEL, SEV_ORDER, FLAG_LABEL, FLAG_WARN, wardText, wardRoom, patchLife, fmtDays, nowPlace, spaceName, isAway } from '../model.js'
 import { openLive } from '../App.jsx'
@@ -131,29 +131,30 @@ export default function Patients({ alarms }) {
   const pages = Math.max(1, Math.ceil(shown.length / PAGE))
   const cur = Math.min(page, pages - 1)
   const slice = shown.slice(cur * PAGE, cur * PAGE + PAGE)
-  // ECG(10초)는 스냅샷: 페이지가 뜨면 보이는 환자(최대 100명)를 잠깐 구독해 각자 최근 10초가 모이는 대로 한 번만 찍어 두고,
-  // 모두 찍히면(또는 15초 뒤) 구독을 풀고 더는 갱신하지 않는다. 페이지를 넘기면 새로 보이는 환자만 다시 찍는다.
+  // ECG(10초)는 스냅샷: 페이지가 뜨면 보이는 환자(최대 100명)를 한 번 구독해 두고, 각자 링에 10초가 다 모인 순간에만 찍는다
+  // (덜 모인 채로 찍지 않는다 — 짧은 파형이 들어오던 원인). 모두 찍히거나 30초가 지나면 구독을 풀고 더는 갱신하지 않는다.
+  // 스냅샷은 ref 에 두어 한 명이 찍힐 때마다 구독이 풀렸다 다시 걸리는 일(시한 초기화·흐름 끊김)이 없게 한다.
   const liveIds = slice.filter((r) => r.connected && !r.stale).map((r) => String(r.channel_id)).join(',')
-  const [snaps, setSnaps] = useState(() => new Map()) // channel_id → 점 배열 (한 번 찍으면 고정)
-  const refreshEcg = (ids) => setSnaps((m) => { const n = new Map(m); for (const id of ids) n.delete(String(id)); return n }) // 지우면 효과가 다시 구독해 새로 찍는다
+  const snaps = useRef(new Map()) // channel_id → 점 배열 (한 번 찍으면 고정)
+  const [, bump] = useState(0)
+  const [gen, setGen] = useState(0)
+  const refreshEcg = (ids) => { for (const id of ids) snaps.current.delete(String(id)); bump((x) => x + 1); setGen((g) => g + 1) } // 지우고 다시 찍는다
   useEffect(() => {
-    const want = liveIds ? liveIds.split(',').filter((id) => !snaps.has(id)) : []
-    if (!want.length) { releaseLive('patients'); return }
-    claimLive('patients', want)
-    const t0 = Date.now()
+    const ids = liveIds ? liveIds.split(',').filter((id) => !snaps.current.has(id)) : []
+    if (!ids.length) { releaseLive('patients'); return }
+    claimLive('patients', ids)
+    const t0 = Date.now(), pending = new Set(ids)
     const t = setInterval(() => {
-      const done = new Map()
-      for (const id of want) {
-        if (snaps.has(id) || done.has(id)) continue
+      for (const id of [...pending]) {
         const ring = getStream(`${id}:ecg`)
         const span = ring && ring.len > 1 ? ring.tAt(ring.len - 1) - ring.tAt(0) : 0
-        if (span >= 9500 || (Date.now() - t0 > 15000 && span > 0)) { const pts = ecgPoints(id); if (pts) done.set(id, pts) }
+        if (span >= 9800) { const pts = ecgPoints(id); if (pts) { snaps.current.set(id, pts); pending.delete(id) } }
       }
-      if (done.size) setSnaps((m) => { const n = new Map(m); for (const [k, v] of done) n.set(k, v); return n })
-      if (Date.now() - t0 > 15000) { clearInterval(t); releaseLive('patients') }
+      bump((x) => x + 1)
+      if (!pending.size || Date.now() - t0 > 30000) { clearInterval(t); releaseLive('patients') }
     }, 1000)
     return () => { clearInterval(t); releaseLive('patients') }
-  }, [liveIds, snaps]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [liveIds, gen])
   const wardStats = useMemo(() => { const m = new Map(); for (const r of shown) { const s = m.get(r.ward) || { n: 0, alarms: 0 }; s.n++; if (r.alarm) s.alarms++; m.set(r.ward, s) } return m }, [shown])
   const selRow = sel ? flat.find((r) => r.channel_id === sel) : null
   useRevealSelected(sel, shown, (r) => r.channel_id, PAGE, setPage)
@@ -191,7 +192,7 @@ export default function Patients({ alarms }) {
       rowsOut.push(<GroupRow key={'g:' + (r.ward || '-')} colSpan={COLS.length}>{r.ward ? wardText(r.ward) : '병동 미지정'} · {st.n.toLocaleString()}명{st.alarms ? ` · 알람 ${st.alarms}` : ''}</GroupRow>)
     }
     const lost = r.stale || !r.connected
-    const ecg = lost ? null : snaps.get(String(r.channel_id)) || null
+    const ecg = lost ? null : snaps.current.get(String(r.channel_id)) || null
     const age = ageOf(r.patient?.birth)
     const sub = [r.channel_id, [SEX[r.patient?.sex] || r.patient?.sex, age != null && `${age}`].filter(Boolean).join(' '), r.patient?.department].filter(Boolean).join(' · ')
     const flags = flagNames(r.flags).filter((n) => FLAG_WARN.has(n))
@@ -208,7 +209,7 @@ export default function Patients({ alarms }) {
         <td className={'num ' + vc('spo2', lost ? null : r.spo2)}>{lost ? '—' : r.spo2 ?? '—'}</td>
         <td className={'num ' + vc('resp', lost ? null : r.resp)}>{lost ? '—' : r.resp ?? '—'}</td>
         <td className={'num ' + vc('temp', lost ? null : r.temp)}>{lost ? '—' : r.temp != null ? r.temp.toFixed(1) : '—'}</td>
-        <td className="ecg-cell">{lost ? <small className="muted">{r.connected ? '무신호' : '해제'} {ago(r.last, now).replace(' 전', '')}</small> : <span className="ecg-box" title={ecg ? '페이지를 열었을 때의 최근 10초 ECG — ↻ 로 최신 10초' : '최근 10초를 모으는 중'}>
+        <td className="ecg-cell">{lost ? <small className="muted">{r.connected ? '무신호' : '해제'} {ago(r.last, now).replace(' 전', '')}</small> : <span className="ecg-box" title={ecg ? '페이지를 열었을 때의 최근 10초 ECG — ↻ 로 최신 10초' : '10초를 모으는 중 (30초 안에 못 모으면 점선으로 남음 — 열 머리 ↻ 로 다시)'}>
           {ecg ? <Spark values={ecg} tone="ok" width={100} height={20} /> : <Spark values={[]} width={100} height={20} />}
           {ecg && <button className="ecg-refresh" onClick={(e) => { e.stopPropagation(); refreshEcg([r.channel_id]) }} title="이 환자의 최신 10초로">↻</button>}
         </span>}</td>
