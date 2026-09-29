@@ -71,6 +71,29 @@ export default function EcgEngine() {
   const runEval = async () => { setEvalBusy(true); setMsg(''); try { const r = await api.ecg.evalRun(evalHours); setEvalNow(r); refreshEval(); setMsg(`검증 완료 — 정답 ${r.labels}개 · 채널 ${r.channels}개`) } catch (x) { setMsg('검증 실패: ' + x.message) } finally { setEvalBusy(false) } }
   const ev = evalNow || evalR?.last
   const pct = (x) => (x == null ? '—' : `${(x * 100).toFixed(1)}%`)
+  // 참고 성능 기준 (인허가 제품·표준 근거, 편집·초기화 가능) + 합격/불합격 판정
+  const [crit, , refreshCrit] = usePoll(api.ecg.criteria, 60000)
+  const [critDraft, setCritDraft] = useState(null)
+  const [critOpen, setCritOpen] = useState(false)
+  useEffect(() => { if (crit && !critDraft) setCritDraft(JSON.parse(JSON.stringify(crit.criteria))) }, [crit, critDraft])
+  const critDirty = crit && critDraft && JSON.stringify(critDraft) !== JSON.stringify(crit.criteria)
+  const saveCrit = async () => { try { await api.ecg.setCriteria(critDraft); setCritDraft(null); refreshCrit(); setMsg('참고 기준 저장') } catch (x) { setMsg(x.message) } }
+  const resetCrit = async () => { if (!window.confirm('참고 기준을 기본값으로 되돌릴까요?')) return; try { await api.ecg.resetCriteria(); setCritDraft(null); refreshCrit(); setMsg('참고 기준 초기화') } catch (x) { setMsg(x.message) } }
+  const MIN_N = 5 // 표본이 이보다 적으면 판정 보류
+  const verdict = (c) => {
+    if (c.unsupported) return { k: 'na', t: '미지원' }
+    const cr = crit?.criteria?.[c.name]
+    if (!cr) return { k: 'none', t: '기준 없음' }
+    if ((c.tp + c.fn_) < MIN_N) return { k: 'few', t: `표본 부족 (${c.tp + c.fn_} < ${MIN_N})` }
+    const fails = []
+    if (cr.se != null && c.sensitivity != null && c.sensitivity * 100 < cr.se) fails.push(`민감도 ${(c.sensitivity * 100).toFixed(1)} < ${cr.se}`)
+    if (cr.ppv != null && c.precision != null && c.precision * 100 < cr.ppv) fails.push(`정밀도 ${(c.precision * 100).toFixed(1)} < ${cr.ppv}`)
+    if (cr.lat_s != null && c.latency_median_ms != null && c.latency_median_ms / 1000 > cr.lat_s) fails.push(`지연 ${(c.latency_median_ms / 1000).toFixed(1)}s > ${cr.lat_s}s`)
+    return fails.length ? { k: 'fail', t: '불합격: ' + fails.join(' · ') } : { k: 'pass', t: '합격' }
+  }
+  const verdicts = (ev?.classes || []).map((c) => verdict(c))
+  const nPass = verdicts.filter((v) => v.k === 'pass').length, nFail = verdicts.filter((v) => v.k === 'fail').length
+  const ICON = { pass: '✔', fail: '✖', few: '○', na: '—', none: '·' }
   const runBench = async () => {
     setBenchBusy(true); setMsg('')
     const t0 = Date.now()
@@ -200,6 +223,9 @@ export default function EcgEngine() {
           <span className="seg">{[[1 / 12, '5분'], [0.5, '30분'], [1, '1시간'], [6, '6시간'], [24, '1일'], [168, '7일'], [336, '14일']].map(([h, l]) => <button key={l} className={evalHours === h ? 'active' : ''} onClick={() => setEvalHours(h)} title={h > 1 ? '1시간 넘는 창은 DB 이력(분 단위 박동)으로 — 허용 오차 60초' : '메모리 흔적(정밀)'}>{l}</button>)}</span>
           <button className="primary" onClick={runEval} disabled={!edit || evalBusy || !e?.enabled}>{evalBusy ? '검증 중…' : '지금 검증'}</button>
           {ev && <span className="muted small">마지막 검증 {fmtDT(ev.ms)} · 정답 {ev.labels?.toLocaleString()}개 · 채널 {ev.channels?.toLocaleString()}개</span>}
+          {ev && <span className="ecg-verdict-sum"><span className="v pass">✔ 합격 {nPass}</span><span className="v fail">✖ 불합격 {nFail}</span></span>}
+          <span className="spacer" />
+          <button className="ghost" onClick={() => setCritOpen(!critOpen)}>{critOpen ? '기준 닫기' : '참고 기준 편집'}</button>
         </div>
         {ev ? (
           <>
@@ -209,18 +235,34 @@ export default function EcgEngine() {
               <div><small>기저 리듬 일치</small><b>{(ev.base || []).reduce((a, b) => a + (b.matched || 0), 0)} / {(ev.base || []).reduce((a, b) => a + (b.patients || 0), 0)}</b><span className="muted">{(ev.base || []).slice(0, 4).map((b) => `${b.name} ${b.matched}/${b.patients}`).join(' · ') || '—'}</span></div>
               <div><small>구간</small><b>{fmtDT(ev.from_ms)} ~</b><span className="muted">{fmtDT(ev.to_ms)}</span></div>
             </div>
-            <div className="tbl-wrap"><table className="tbl ecg-eval"><thead><tr><th>정답 클래스</th><th>엔진 라벨</th><th className="num">정답</th><th className="num">검출</th><th className="num">놓침</th><th className="num">오검출</th><th className="num">민감도</th><th className="num">정밀도</th><th className="num">지연 중앙값</th><th className="num">p90</th></tr></thead>
-              <tbody>{(ev.classes || []).map((c) => (
-                <tr key={c.name + c.engine.join()} className={c.unsupported ? 'muted' : ''}>
+            <div className="tbl-wrap"><table className="tbl ecg-eval"><thead><tr><th>판정</th><th>정답 클래스</th><th>엔진 라벨</th><th className="num">정답</th><th className="num">검출</th><th className="num">놓침</th><th className="num">오검출</th><th className="num">민감도</th><th className="num">정밀도</th><th className="num">지연 중앙값</th><th className="num">p90</th><th>참고 기준</th></tr></thead>
+              <tbody>{(ev.classes || []).map((c, i) => { const v = verdicts[i]; const cr = crit?.criteria?.[c.name]; return (
+                <tr key={c.name + c.engine.join()} className={(c.unsupported ? 'muted ' : '') + 'vd-' + v.k}>
+                  <td className="vd" title={v.t}><span className={'vd-ic ' + v.k}>{ICON[v.k]}</span></td>
                   <td>{c.name}</td><td className="mono small">{c.unsupported ? '미지원' : c.engine.join(' · ')}</td>
                   <td className="num">{c.labels}</td><td className="num">{c.unsupported ? '—' : c.tp}</td><td className="num">{c.unsupported ? '—' : c.fn_}</td><td className="num">{c.unsupported ? '—' : c.fp}</td>
                   <td className="num"><b className={c.sensitivity != null && c.sensitivity < 0.7 ? 'warnv' : ''}>{c.unsupported ? '—' : pct(c.sensitivity)}</b></td><td className="num">{c.unsupported ? '—' : pct(c.precision)}</td>
                   <td className="num">{c.latency_median_ms != null ? `${(c.latency_median_ms / 1000).toFixed(1)} s` : '—'}</td><td className="num">{c.latency_p90_ms != null ? `${(c.latency_p90_ms / 1000).toFixed(1)} s` : '—'}</td>
-                </tr>))}</tbody></table></div>
+                  <td className="small muted" title={cr?.src || ''}>{cr ? [cr.se != null && `Se ≥ ${cr.se}%`, cr.ppv != null && `PPV ≥ ${cr.ppv}%`, cr.lat_s != null && `지연 ≤ ${cr.lat_s}s`].filter(Boolean).join(' · ') : '—'}</td>
+                </tr>) })}</tbody></table></div>
             <p className="muted small">{ev.note}</p>
             {(evalR?.history || []).length > 1 && <p className="muted small">검증 이력 {(evalR.history || []).length}회 — 민감도 추이: {(evalR.history || []).slice(-8).map((h) => h.overall?.sensitivity != null ? (h.overall.sensitivity * 100).toFixed(0) + '%' : '—').join(' → ')}</p>}
           </>
-        ) : <p className="muted small">아직 검증하지 않았습니다. 최근 구간을 고르고 "지금 검증"을 누르면 에뮬레이터에서 정답을 받아 엔진의 판정 흔적(라벨 전환·V/S 박동 시각)과 대조합니다. 흔적은 채널당 최근 160회 전환·300박동까지 남으므로 긴 구간은 오래된 부분이 빠질 수 있습니다.</p>}
+        ) : null}
+        {critOpen && critDraft && (
+          <div className="ecg-crit">
+            <div className="ecg-bench-h"><b>참고 성능 기준</b><span className="muted small">인허가 제품·표준(IEC 60601-2-27, ANSI/AAMI EC57)을 근거로 한 참고 목표 — 규제 한계가 아니며 현장 기준에 맞게 바꿔 쓰세요{crit?.custom ? ' · 사용자 수정본' : ' · 기본값'}</span><span className="spacer" /><button className="primary" onClick={saveCrit} disabled={!edit || !critDirty}>저장</button><button onClick={resetCrit} disabled={!edit}>기본값으로</button></div>
+            <div className="tbl-wrap"><table className="tbl ecg-crit-tbl"><thead><tr><th>클래스</th><th className="num">민감도 ≥ %</th><th className="num">정밀도 ≥ %</th><th className="num">지연 ≤ 초</th><th>근거</th></tr></thead>
+              <tbody>{Object.entries(critDraft).map(([name, cr]) => (
+                <tr key={name}><td>{name}</td>
+                  <td className="num"><input type="number" min="0" max="100" value={cr.se ?? ''} onChange={(e) => setCritDraft({ ...critDraft, [name]: { ...cr, se: e.target.value === '' ? null : Number(e.target.value) } })} /></td>
+                  <td className="num"><input type="number" min="0" max="100" value={cr.ppv ?? ''} onChange={(e) => setCritDraft({ ...critDraft, [name]: { ...cr, ppv: e.target.value === '' ? null : Number(e.target.value) } })} /></td>
+                  <td className="num"><input type="number" min="0" max="120" value={cr.lat_s ?? ''} onChange={(e) => setCritDraft({ ...critDraft, [name]: { ...cr, lat_s: e.target.value === '' ? null : Number(e.target.value) } })} /></td>
+                  <td className="small muted">{cr.src}</td></tr>))}</tbody></table></div>
+            <p className="muted small">빈칸은 그 항목을 판정에 쓰지 않습니다. 판정 아이콘: ✔ 합격 · ✖ 불합격(어느 항목이 모자란지 툴팁) · ○ 표본 부족(정답 5개 미만) · — 엔진 미지원.</p>
+          </div>
+        )}
+        {!ev && <p className="muted small">아직 검증하지 않았습니다. 최근 구간을 고르고 "지금 검증"을 누르면 에뮬레이터에서 정답을 받아 엔진의 판정 흔적(라벨 전환·V/S 박동 시각)과 대조합니다. 흔적은 채널당 최근 160회 전환·300박동까지 남으므로 긴 구간은 오래된 부분이 빠질 수 있습니다.</p>}
       </section>
 
       {/* 성능 */}

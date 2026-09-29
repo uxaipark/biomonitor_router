@@ -41,6 +41,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/ecg/summary", get(ecg_summary))
         .route("/api/ecg/bench", post(ecg_bench))
         .route("/api/ecg/eval", get(ecg_eval_get).post(ecg_eval_run))
+        .route("/api/ecg/criteria", get(ecg_criteria_get).put(ecg_criteria_set).delete(ecg_criteria_reset))
         .route("/api/ecg/{channel_id}", get(ecg_row))
         .route("/api/wave/{channel_id}/info", get(wave_info))
         .route("/api/wave/{channel_id}", get(wave_read))
@@ -1049,6 +1050,21 @@ async fn ecg_eval_run(State(state): State<Arc<AppState>>, Extension(p): Extensio
             state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "ecg_eval", &format!("{hours}h labels={}", v["labels"]));
             Json(v).into_response()
         }
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+async fn ecg_criteria_get(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(crate::ecg_eval::criteria(&state))
+}
+async fn ecg_criteria_set(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(v): Json<serde_json::Value>) -> impl IntoResponse {
+    match crate::ecg_eval::set_criteria(&state, v) {
+        Ok(r) => { state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "ecg_criteria", "참고 기준 변경"); Json(r).into_response() }
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+async fn ecg_criteria_reset(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> impl IntoResponse {
+    match crate::ecg_eval::set_criteria(&state, serde_json::Value::Null) {
+        Ok(r) => { state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "ecg_criteria", "참고 기준 초기화"); Json(r).into_response() }
         Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
     }
 }

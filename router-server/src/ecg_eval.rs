@@ -238,3 +238,53 @@ pub fn last(state: &AppState) -> serde_json::Value {
     let all: Vec<serde_json::Value> = std::fs::read_to_string(dir.join("eval.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     serde_json::json!({ "last": all.last().cloned(), "history": all.iter().map(|r| serde_json::json!({ "ms": r["ms"], "labels": r["labels"], "overall": r["overall"] })).collect::<Vec<_>>() })
 }
+
+// ───────── 참고 성능 기준 (편집·초기화 가능) ─────────
+/// 기본값의 근거: IEC 60601-2-27(치명적 부정맥 경보 ≤ 10 s), ANSI/AAMI EC57 보고 관행(QRS·VEB 민감도/양성예측도), 인허가된 착용형
+/// 심전도의 심방세동 검출 성능 공표치(민감도·특이도 90% 안팎). 규제 한계가 아니라 참고 목표이며 현장에서 바꿔 쓴다.
+pub fn default_criteria() -> serde_json::Value {
+    serde_json::json!({
+        "심실세동":        { "se": 90, "ppv": 70, "lat_s": 10, "src": "IEC 60601-2-27 치명적 부정맥 경보 ≤10 s · EC57 VF 에피소드 보고" },
+        "심정지":          { "se": 95, "ppv": 70, "lat_s": 10, "src": "IEC 60601-2-27 (무수축 경보 ≤10 s)" },
+        "동정지/휴지":     { "se": 90, "ppv": 70, "lat_s": 10, "src": "IEC 60601-2-27 준용" },
+        "심실빈맥":        { "se": 85, "ppv": 60, "lat_s": 10, "src": "EC57 VT 에피소드 · 60601-2-27 경보 시간" },
+        "비지속성 심실빈맥": { "se": 80, "ppv": 60, "lat_s": 15, "src": "EC57 VT/런 보고 관행" },
+        "심방세동":        { "se": 90, "ppv": 85, "lat_s": null, "src": "인허가 착용형 ECG 의 AF 검출 공표치(Se·Sp ≈ 90% 이상)" },
+        "심실조기수축":    { "se": 90, "ppv": 90, "lat_s": null, "src": "EC57 VEB 민감도/양성예측도 관행(Holter 계열)" },
+        "심실 이단맥":     { "se": 85, "ppv": 85, "lat_s": null, "src": "EC57 리듬 에피소드 관행" },
+        "동빈맥":          { "se": 95, "ppv": 90, "lat_s": null, "src": "심박수 기반 경보(60601-2-27 HR 정확도)" },
+        "동서맥":          { "se": 95, "ppv": 90, "lat_s": null, "src": "심박수 기반 경보(60601-2-27 HR 정확도)" },
+        "상심실성 빈맥":   { "se": 70, "ppv": 70, "lat_s": null, "src": "EC57 SVEB 관행(단일 유도에서 낮게 잡음)" },
+        "심방조기수축":    { "se": 70, "ppv": 70, "lat_s": null, "src": "EC57 SVEB 관행" },
+        "전극 탈락":       { "se": 95, "ppv": 95, "lat_s": 5,  "src": "60601-2-27 전극 탈락 표시 (기술적 경보)" },
+        "정상 동율동":     { "se": 95, "ppv": null, "lat_s": null, "src": "특이도 확인용" }
+    })
+}
+fn criteria_path(state: &AppState) -> std::path::PathBuf {
+    std::path::Path::new(&state.analysis.lib_path).parent().unwrap_or(std::path::Path::new(".")).join("criteria.json")
+}
+pub fn criteria(state: &AppState) -> serde_json::Value {
+    let defaults = default_criteria();
+    let saved: serde_json::Value = std::fs::read_to_string(criteria_path(state)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(serde_json::Value::Null);
+    let mut cur = defaults.clone();
+    if let (Some(c), Some(s)) = (cur.as_object_mut(), saved.as_object()) {
+        for (k, v) in s { c.insert(k.clone(), v.clone()); }
+    }
+    serde_json::json!({ "criteria": cur, "defaults": defaults, "custom": !saved.is_null() })
+}
+pub fn set_criteria(state: &AppState, v: serde_json::Value) -> Result<serde_json::Value, String> {
+    if v.is_null() {
+        let _ = std::fs::remove_file(criteria_path(state));
+    } else {
+        let obj = v.as_object().ok_or("객체를 보내세요")?;
+        for (k, c) in obj {
+            if k.len() > 40 { return Err("이름이 너무 깁니다".into()); }
+            for key in ["se", "ppv"] {
+                if let Some(x) = c.get(key).and_then(|x| x.as_f64()) { if !(0.0..=100.0).contains(&x) { return Err(format!("{k}: {key} 는 0~100")); } }
+            }
+        }
+        std::fs::write(criteria_path(state), serde_json::to_string_pretty(&v).unwrap_or_default()).map_err(|e| e.to_string())?;
+    }
+    Ok(criteria(state))
+}
+

@@ -38,3 +38,14 @@
 .ecg-fold > summary .ecg-fold-hint { margin-left: auto; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
 .ecg-fold[open] > summary { margin-bottom: 8px; }
 .ecg-bench-h-tbl tr.active td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+/* 검증 판정 아이콘·기준 편집 */
+.ecg-verdict-sum { display: inline-flex; gap: 6px; margin-left: 8px; }
+.ecg-verdict-sum .v { padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.ecg-verdict-sum .v.pass { background: var(--chip-ok-bg); color: var(--chip-ok-fg); } .ecg-verdict-sum .v.fail { background: var(--chip-err-bg); color: var(--chip-err-fg); }
+.ecg-eval td.vd { text-align: center; width: 36px; }
+.vd-ic { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 13px; font-weight: 700; }
+.vd-ic.pass { background: var(--chip-ok-bg); color: var(--chip-ok-fg); } .vd-ic.fail { background: var(--chip-err-bg); color: var(--chip-err-fg); }
+.vd-ic.few { border: 2px solid var(--muted); color: var(--muted); } .vd-ic.na, .vd-ic.none { color: var(--muted); }
+.ecg-eval tr.vd-fail td:nth-child(2) { color: var(--err); font-weight: 600; }
+.ecg-crit { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.ecg-crit-tbl input { min-width: 0; width: 76px; text-align: right; padding: 3px 6px; min-height: 28px; }

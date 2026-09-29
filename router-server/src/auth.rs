@@ -1578,7 +1578,7 @@ fn requirement(path: &str, method: &axum::http::Method) -> Option<(Vec<&'static 
     if p == "/api/wave/reset" {
         return r(&["action.wave_reset"], 2);
     }
-    if p == "/api/ecg/engine/reload" || p == "/api/ecg/bench" || (p == "/api/ecg/eval" && *method != axum::http::Method::GET) || (p == "/api/ecg/config" && *method != axum::http::Method::GET) || (p.ends_with("/activate") && p.starts_with("/api/ecg/versions/")) || (p.starts_with("/api/ecg/versions/") && *method == axum::http::Method::DELETE) {
+    if p == "/api/ecg/engine/reload" || p == "/api/ecg/bench" || (p == "/api/ecg/eval" && *method != axum::http::Method::GET) || (p == "/api/ecg/criteria" && *method != axum::http::Method::GET) || (p == "/api/ecg/config" && *method != axum::http::Method::GET) || (p.ends_with("/activate") && p.starts_with("/api/ecg/versions/")) || (p.starts_with("/api/ecg/versions/") && *method == axum::http::Method::DELETE) {
         return r(&["page.ecg_engine", "page.service_control"], 2);
     }
     if p.starts_with("/api/ecg/") {

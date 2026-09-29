@@ -159,6 +159,9 @@ export const api = {
     bench: (seconds = 20, channels = 8) => send('POST', '/api/ecg/bench', { seconds, channels }),
     evalLast: () => get('/api/ecg/eval'),
     evalRun: (hours = 1) => send('POST', '/api/ecg/eval', { hours }),
+    criteria: () => get('/api/ecg/criteria'),
+    setCriteria: (c) => send('PUT', '/api/ecg/criteria', c),
+    resetCriteria: () => send('DELETE', '/api/ecg/criteria'),
   },
   emu: {
     status: () => get('/api/emu/status'),
