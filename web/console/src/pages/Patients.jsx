@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api, usePoll, fmtAgo, fmtTime } from '../api.js'
-import { alarmIndex, flagNames, sortBy, SEV_LABEL, SEV_ORDER, FLAG_LABEL, FLAG_WARN, wardText, wardRoom, patchLife, fmtDays, nowPlace, spaceName, isAway } from '../model.js'
+import { alarmIndex, flagNames, sortBy, SEV_LABEL, SEV_ORDER, FLAG_LABEL, FLAG_WARN, wardText, wardRoom, patchLife, fmtDays, nowPlace, spaceName, isAway , RHYTHM_LABEL, RHYTHM_SEV } from '../model.js'
 import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
 import Trips from './Trips.jsx'
@@ -267,6 +267,7 @@ export function PatientDetail({ r, alarms, onClose }) {
         <KV k="지금 위치">{nowPlace(p, r.space) ? <RoomLink room={r.space}>{nowPlace(p, r.space)}</RoomLink> : null}</KV>
         <KV k="진료">{[p.department, p.diagnosis].filter(Boolean).join(' · ')}</KV>
         <KV k="담당">{[p.doctor && `의사 ${p.doctor}`, p.nurse && `간호사 ${p.nurse}`].filter(Boolean).join(' · ')}</KV>
+        {r.ana && <KV k="리듬 (분석)"><b className={RHYTHM_SEV[r.ana.rhythm] ? `sev-${RHYTHM_SEV[r.ana.rhythm]}` : ''}>{RHYTHM_LABEL[r.ana.rhythm] || r.ana.rhythm}</b>{r.ana.hr != null ? ` · 분석 HR ${Math.round(r.ana.hr)}` : ''}{r.ana.pvc_min ? ` · PVC ${r.ana.pvc_min}/분` : ''}<span className="muted"> · 품질 {['양호', '리듬만', '사용 불가', '미정'][r.ana.q] || '—'}</span></KV>}
         <KV k="바이탈">{lost ? <span className="muted">수신 없음</span> : <>HR <b className={vc('hr', v.hr)}>{v.hr ?? '—'}</b> · SpO₂ <b className={vc('spo2', v.spo2)}>{v.spo2 ?? '—'}</b> · RR <b className={vc('resp', v.resp)}>{v.resp ?? '—'}</b>{v.temp != null ? <> · <b className={vc('temp', v.temp)}>{v.temp.toFixed(1)}</b>°C</> : null}</>}</KV>
         <KV k="패치"><span className="mono">{r.channel_id}</span> · 배터리 {r.battery ?? '—'}%{life?.batLeft != null ? ` (약 ${fmtDays(life.batLeft)})` : ''}</KV>
         {life && <KV k="착용 · 교체"><span className={life.level ? `lk-${life.level}` : ''}>{fmtDays(life.worn)}째 · {life.left <= 0 ? '지금 교체' : `${fmtDays(life.left)} 뒤 교체`} ({life.reason})</span></KV>}

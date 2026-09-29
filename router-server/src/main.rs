@@ -71,8 +71,15 @@ async fn main() -> anyhow::Result<()> {
     // 입력(ingest) 리스너
     tokio::spawn(ingest::run(state.clone()));
 
-    // 분석 서버 링크 (재접속 루프 포함)
-    tokio::spawn(analysis_link::run(state.clone(), analysis_rx));
+    // 분석: 기본은 내장 live-ecg 엔진(ecg_analysis). 옛 외부 분석 서버(TCP)는 ROUTER_ANALYSIS_TCP=1 일 때만.
+    if cfg.analysis_tcp {
+        tokio::spawn(analysis_link::run(state.clone(), analysis_rx));
+    } else {
+        drop(analysis_rx);
+        if state.analysis.enabled() {
+            state.set_analysis_up(true);
+        }
+    }
 
     // 분석 지연 플러셔: 응답이 늦는 패킷을 무분석으로 방출해 파형 연속성 보장
     tokio::spawn(router_core::state::run_flusher(state.clone()));

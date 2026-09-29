@@ -102,6 +102,30 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
       ctx.beginPath(); ctx.moveTo(x - 3, 9); ctx.lineTo(x + 3, 9); ctx.lineTo(x, 13); ctx.closePath(); ctx.fill()
       ctx.restore()
     }
+    // 분석 박동 라벨(V/S/F/?): 페이스 마크와 같은 방식 — 도착한 박동을 큐에 넣고 펜이 지나간 뒤 한 번만 그린다. N 은 그리지 않는다.
+    let beatDrawn = null
+    const beatQ = [] // [{ t, code }]
+    const BEAT_TXT = { 1: 'S', 2: 'V', 3: 'F', 4: '?' }
+    const BEAT_COL = { 1: '#f5d442', 2: '#ff6b6b', 3: '#ff9f6b', 4: '#8b9bb0' }
+    const drawBeat = (t, code) => {
+      const txt = BEAT_TXT[code]; if (!txt) return
+      const x = Math.round(xOf(t))
+      ctx.save(); ctx.font = 'bold 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top'
+      ctx.fillStyle = BEAT_COL[code] || '#fff'; ctx.fillText(txt, x, 15); ctx.restore()
+    }
+    const beatMarks = (l, T, tFirst) => {
+      if (wave !== 'ecg') return
+      const tDraw = (penT ?? T) - (8 / W) * windowMs
+      if (l?.beats?.length && l.beatSeq != null && l.beatSeq !== beatDrawn) {
+        for (const b of l.beats) if (Array.isArray(b) && b[1] !== 0) beatQ.push({ t: b[0], code: b[1] })
+        beatDrawn = l.beatSeq
+      }
+      for (let i = beatQ.length - 1; i >= 0; i--) {
+        const m = beatQ[i]
+        if (m.t < tFirst) { beatQ.splice(i, 1); continue }
+        if (m.t <= tDraw) { drawBeat(m.t, m.code); beatQ.splice(i, 1) }
+      }
+    }
     const paceMarks = (l, T, tFirst, step, n) => {
       if (!pace || wave !== 'ecg') return
       // a tick is 7 px wide; draw it only once the pen (and so next frame's erase start) is clear of it,
@@ -194,6 +218,7 @@ export default function Sweep({ id, wave = 'ecg', range = [-1.5, 2.0], color = '
       }
       // marks that fell out of the window (one sweep behind the front) are dropped; the rest wait for the pen
       paceMarks(latest.get(id), T, T - windowMs + (gapPx() / W) * windowMs, step, st.sampleRate * 0.2)
+      beatMarks(latest.get(id), T, T - windowMs + (gapPx() / W) * windowMs)
       lastT = T
     }
     const un = registerDraw(draw)

@@ -16,6 +16,14 @@ const RULE_FIELDS = [
   ['spo2_low', 'SpO₂ <', '%'], ['spo2_crit_low', '위험 SpO₂ <', '%'], ['temp_low', '저체온 ≤', '°C'], ['temp_high', '고열 ≥', '°C'],
   ['resp_low', '서호흡 <', '/min'], ['resp_high', '빈호흡 >', '/min'], ['battery_low_pct', '배터리 ≤', '%'], ['patch_wear_days', '패치 최대 착용', '일'], ['patch_wear_warn_h', '교체 예정 알림', '시간 전'],
   ['sustain_s', '수치 지속', 's'], ['lead_off_s', '전극 탈락 지속', 's'], ['patch_silent_s', '패치 무응답', 's'], ['clear_s', '해제 유예', 's'],
+  ['ecg_af_sustain_s', '심방세동 지속', 's'], ['ecg_pvc_per_min', 'PVC ≥', '/분'], ['ecg_hold_s', '에피소드 유지', 's'],
+]
+// 내장 ECG 분석 알람 항목: [규칙 키, 이름, 심각도, 설명]
+const ECG_ITEMS = [
+  ['ecg_alarm_vf', '심실세동 (VF)', 'critical', '파형 스펙트럼 판정, 4초 이상 지속 시'], ['ecg_alarm_asystole', '심정지', 'critical', '박동 없음 4초 이상'], ['ecg_alarm_vtach', '심실빈맥 (VT)', 'critical', '심실 박동 연속 · 빠른 속도'],
+  ['ecg_alarm_vrun', '심실 런', 'high', '심실 박동 3개 이상 연속'], ['ecg_alarm_pause', '휴지', 'high', '박동 없음 2초 이상'], ['ecg_alarm_af', '심방세동 (AF)', 'medium', 'RR 불규칙 + 심방 활동, 확인된 구간만'],
+  ['ecg_alarm_pvc', 'PVC 빈발', 'medium', '분당 심실 조기 박동 수 기준'], ['ecg_alarm_bigeminy', '이단맥 · 삼단맥 · IVR', 'low', '끝난 에피소드를 유지 시간 동안 알람'], ['ecg_alarm_svrun', '상심실 런', 'low', '상심실 박동 연속'],
+  ['ecg_alarm_lead_off', '전극 접촉 불량 (분석)', 'medium', '엔진의 전극 판정 (패치 플래그와 별개)'],
 ]
 
 const SEVS = ['critical', 'high', 'medium', 'low']
@@ -36,6 +44,7 @@ function threshold(kind, rules) {
     spo2_low: [rules.spo2_low, 'low', '%'], spo2_critical: [rules.spo2_crit_low, 'low', '%'],
     resp_high: [rules.resp_high, 'high', '/min'], resp_low: [rules.resp_low, 'low', '/min'],
     temp_high: [rules.temp_high, 'high', '°C'], temp_low: [rules.temp_low, 'low', '°C'], battery_low: [rules.battery_low_pct, 'low', '%'],
+    ecg_pvc: [rules.ecg_pvc_per_min, 'high', '/분'],
   }
   const t = map[kind]
   return t && t[0] != null ? { limit: t[0], dir: t[1], unit: t[2] } : null
@@ -290,10 +299,13 @@ function RuleInput({ k, draft, rules, setDraft, step }) {
 
 function RulesEditor({ draft, rules, setDraft, onSave, onRevert }) {
   const has = (k) => draft[k] != null
-  const usedKeys = new Set([...VITAL_CARDS.flatMap((c) => c.stops.map((s) => s[0]).filter(Boolean)), ...DEVICE_KEYS, ...TIMING_KEYS])
+  const ECG_KEYS = ['ecg_source', 'ecg_af_sustain_s', 'ecg_pvc_per_min', 'ecg_hold_s', ...ECG_ITEMS.map(([k]) => k)]
+  const usedKeys = new Set([...VITAL_CARDS.flatMap((c) => c.stops.map((s) => s[0]).filter(Boolean)), ...DEVICE_KEYS, ...TIMING_KEYS, ...ECG_KEYS])
+  const ecgOn = draft.ecg_source === 'analysis'
   const others = Object.keys(draft).filter((k) => !usedKeys.has(k) && typeof draft[k] === 'number')
   const changes = rules ? Object.keys(draft).filter((k) => draft[k] !== rules[k]) : []
-  const fmtChange = (k) => `${(RULE_LABEL[k]?.[0] || k).replace(/\s*[<>≤≥]\s*$/, '')} ${rules[k]} → ${draft[k]}`
+  const ECG_NAME = Object.fromEntries(ECG_ITEMS.map(([k, n]) => [k, n]))
+  const fmtChange = (k) => k === 'ecg_source' ? `알람 소스 → ${draft[k] === 'analysis' ? 'ECG 분석' : '사용 안 함'}` : ECG_NAME[k] ? `${ECG_NAME[k]} ${draft[k] ? '켬' : '끔'}` : `${(RULE_LABEL[k]?.[0] || k).replace(/\s*[<>≤≥]\s*$/, '')} ${rules[k]} → ${draft[k]}`
   return (
     <div className="rules-x">
       <p className="muted small rl-intro">모든 병동에 공통 적용됩니다. 막대는 지금 입력한 값 기준으로 구간을 보여 주고, 값을 바꾸면 바로 다시 그려집니다.</p>
@@ -323,6 +335,29 @@ function RulesEditor({ draft, rules, setDraft, onSave, onRevert }) {
               <span className="ok"><b className="v">{draft.clear_s ?? '—'}s</b> 유예 후 자동 해제</span>
             </div>
             <p className="muted small">전극 탈락 중에는 수치 알람을 평가하지 않습니다. 전극 탈락·패치 무응답은 각각의 지속 시간을 넘겨야 알람이 됩니다.</p>
+          </section>
+        )}
+        {has('ecg_source') && (
+          <section className={'rl-card rl-ecg' + (ecgOn ? '' : ' off')}>
+            <h3>ECG 분석 알람 <small>내장 live-ecg 엔진</small></h3>
+            <div className="rl-src">
+              <span className="muted small">알람 소스</span>
+              <span className="seg">
+                <button className={ecgOn ? 'active' : ''} onClick={() => setDraft({ ...draft, ecg_source: 'analysis' })} title="라우터가 파형을 직접 분석한 박동·리듬 판정으로 알람 (HR 알람도 분석 HR 사용)">ECG 분석 결과</button>
+                <button className={!ecgOn ? 'active' : ''} onClick={() => setDraft({ ...draft, ecg_source: 'off' })} title="분석 결과를 알람에 쓰지 않음 — 패치가 보내는 수치·플래그만">사용 안 함</button>
+              </span>
+            </div>
+            <div className="rl-ecg-items">
+              {ECG_ITEMS.map(([k, name, sev, desc]) => (
+                <label key={k} className={'rl-ecg-item' + (draft[k] ? ' on' : '') + (draft[k] !== rules?.[k] ? ' changed' : '')}>
+                  <input type="checkbox" checked={!!draft[k]} disabled={!ecgOn} onChange={(e) => setDraft({ ...draft, [k]: e.target.checked })} />
+                  <span className={`lk-pill sev-${sev}`}>{SEV_LABEL[sev]}</span>
+                  <b>{name}</b><small className="muted">{desc}</small>
+                </label>
+              ))}
+            </div>
+            <div className="rl-fields">{['ecg_af_sustain_s', 'ecg_pvc_per_min', 'ecg_hold_s'].filter(has).map((k) => <RuleInput key={k} k={k} draft={draft} rules={rules} setDraft={setDraft} />)}</div>
+            <p className="muted small">엔진은 박동을 N·S·V·F 로 분류하고 심방세동·심실세동·휴지·심실 런을 판정합니다. 결과는 뷰어의 리듬 태그와 파형 위 V/S 표시로도 보입니다. 엔진 상태·교체는 서비스 제어 페이지에서.</p>
           </section>
         )}
         {others.length > 0 && (

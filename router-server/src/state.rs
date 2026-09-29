@@ -115,6 +115,8 @@ pub struct AppState {
     pub ws_sessions: AtomicU64,
     /// 분석 서버 연결 여부. false 면 패스스루 모드(파형 즉시 통과, hr 없음).
     pub analysis_up: AtomicBool,
+    /// 내장 ECG 분석 허브 (live-ecg 엔진)
+    pub analysis: Arc<crate::ecg_analysis::AnalysisHub>,
     /// ingest 수신 통계 (어드민 실시간 표시용)
     pub ingest_conns: AtomicU64,
     pub total_bytes: AtomicU64,
@@ -168,6 +170,11 @@ impl AppState {
         //    무한 성장 대신 드롭 (reconcile 이 어차피 재동기화).
         //  - wave 16384 pkt ≈ ~3MB. 디스크 정체 시 드롭.
         let (analysis_tx, analysis_rx) = mpsc::channel(8192);
+        let ecg_lib = cfg.ecg_lib.clone();
+        let ecg_preset = if cfg.ecg_preset == "clinical" { crate::ecg_engine::ECG_PRESET_CLINICAL } else { crate::ecg_engine::ECG_PRESET_PATCH };
+        let ecg_stages = cfg.ecg_stages.clone();
+        let ecg_threads = cfg.ecg_threads;
+        let alarm_rules_path = std::path::Path::new(&cfg.db_path).parent().map(|d| d.join("alarm_rules.json")).unwrap_or_else(|| "alarm_rules.json".into());
         let (db_tx, db_rx) = mpsc::channel(16384);
         // store 262,144 ops ≈ 25 s of records at 10k/s (~90 MB worst case): absorbs the store-and-forward replay
         // burst every gateway sends after an emulator restart. Ingest waits up to 200 ms before dropping (backpressure).
@@ -214,7 +221,8 @@ impl AppState {
             sub_channels: dashmap::DashMap::new(),
             sub_groups: dashmap::DashMap::new(),
             sub_gateways: dashmap::DashMap::new(),
-            alarms: AlarmBook::new(),
+            alarms: AlarmBook::load(&alarm_rules_path),
+            analysis: crate::ecg_analysis::AnalysisHub::start(&ecg_lib, ecg_preset, &ecg_stages, ecg_threads),
             last_store_drop_ms: AtomicU64::new(0),
             emr_cache: Mutex::new(std::collections::HashMap::new()),
         });
@@ -447,6 +455,7 @@ impl AppState {
             None
         };
         let gateway_id = pkt.gateway_id.clone();
+        let ana = self.analysis.brief(&pkt.channel_id);
         // 블롭 = 전 파형 채널의 원본 i16 (waves 레이아웃 순). 파형 없는 패킷(수치/페이스마크만)은 빈 블롭.
         let samples_i16 = pkt.wave_i16;
         let msg = OutMsg::Stream {
@@ -469,6 +478,7 @@ impl AppState {
             pace: pkt.pace,
             waves: pkt.waves,
             patient,
+            ana,
         };
         let gw = if gateway_id.is_empty() { None } else { Some(gateway_id) };
         let ch = match &msg {

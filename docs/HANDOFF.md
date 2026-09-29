@@ -193,6 +193,14 @@
 
 - [2026-09-17 22:50 MAC] 라우터 P1 구현·검증 (48a3480).
 - [2026-09-17 23:20 MAC] RP5#2 이어 개발 준비: Linux sysmon(/proc), `rust-toolchain.toml`, `scripts/pi-dev-setup.sh`, `docs/RP5-DEV.md`, `CLAUDE.md`, 이 문서.
+### 실시간 ECG 분석 엔진(live-ecg) 통합 — 라우터 내장, 파일 교체로 갱신 (fitlet3)
+
+- **엔진 공급**: `https://github.com/uxaipark/live_ecg` 의 단일 파일 엔진 `dist/ecg_engine.rs` 를 `scripts/update-ecg-engine.sh` 가 받아(`git pull`) `rustc --crate-type cdylib` 로 `data/engine/libecg.so`(5 MB, 4 s) 로 빌드, `tools/ecg_conformance.c`(cc 있을 때, `-lm` 필요)로 적합성 검사 후 원자적 교체. 라우터는 엔진을 링크하지 않고 실행 중에 dlopen(`ecg_engine.rs`, libloading, ABI 1.x 검사) — 감시 스레드가 10초마다 mtime/size 를 보고 새 엔진을 읽어 세대(gen)를 올리면 샤드가 다음 패킷에서 채널을 새 엔진으로 옮긴다. **재빌드·재시작 없음.** 수동: `POST /api/ecg/engine/reload`(서비스 제어 페이지 버튼).
+- **분석 허브** `ecg_analysis.rs`: ingest → `AnalysisHub::feed`(채널 해시 샤드, `ROUTER_ECG_THREADS`=2) → 채널당 엔진 채널(프리셋 `ROUTER_ECG_PRESET`=patch, 단계 `ROUTER_ECG_STAGES`). seq 역전은 버리고 시간 간격은 `gap()` 으로 선언(이어 붙이면 가짜 휴지). 이벤트(박동 N/S/V/F, 리듬 에피소드, AF 창, VF, 전극, SV 런) → 채널별 `AnaRow`(DashMap): 분석 HR(최근 8 RR), 리듬 라벨(leadoff>vf>asystole>pause>vtach>vrun>afib>ivr>bigeminy>trigeminy>svrun>pvc>noise>brady/tachy/nsr), 품질, PVC/분, 최근 에피소드, 검출 지연 EMA(`lag_ms`). 행 쓰기는 이벤트가 있거나 1초마다. 실측 2,037채널: 드롭 0, 분석 부하 ≈ 0.6코어.
+- **표시**: 스트림 헤더 `ana`(hr·rhythm·q·af·vf·pvc·beats[[t_ms,code]]) → ws.js `latest.ana/beats/beatSeq`; Sweep 이 박동 위에 V/S/F/? 글자(페이스 마크와 같은 큐 방식). `/api/channels` 행에 `ana` 붙임(`attach_ana`). BedViewer 머리 태그·CentralStation 수치 타일·LiveModal "현재 리듬 (분석)"(에뮬레이터 `rhythm_now` 표시 제거, EMR 기록 리듬은 참고용으로 이름 바꿈)·지도 환자 패널·WaveCard 태그·환자 상세 KV. 라벨 표는 `model.js RHYTHM_LABEL/SHORT/SEV`.
+- **알람**: 규칙에 `ecg_source`(analysis|off), `ecg_af_sustain_s`(30), `ecg_pvc_per_min`(10), `ecg_hold_s`(60), `ecg_alarm_*` 토글. `alarms::evaluate` 가 분석 행으로 `ecg_vf`(critical) `ecg_asystole`(critical, 박동 없음 ≥4 s) `ecg_pause`(high, ≥2 s) `ecg_vtach` `ecg_vrun` `ecg_af` `ecg_pvc` `ecg_bigeminy`/`ecg_ivr` `ecg_svrun` `ecg_lead_off` 를 만들고, 분석 소스일 때 HR 알람도 분석 HR 로. 휴지·심정지는 **패킷 시간대에서 검출 지연을 뺀 값**으로 잰다(서버 시각과 비교하니 정상 리듬이 804건 휴지로 떴던 문제). 알람 규칙은 이제 `data/alarm_rules.json` 에 저장(전엔 재시작마다 초기화). 규칙 페이지에 "ECG 분석 알람" 카드(소스 선택·항목 토글·숫자).
+- 옛 외부 분석 서버(TCP NDJSON, `analysis_link.rs`)는 `ROUTER_ANALYSIS_TCP=1` 일 때만. 테스트 `tests/ecg_engine_smoke.rs`(엔진 파일 있으면 합성 60 bpm 신호로 로더·이벤트 확인).
+
 ### 환자 목록 ECG(10초): 옵션 + 라우터 배치 API (fitlet3)
 
 - `GET /api/wave/recent?ids=…(≤120)&secs=10&points=96` — 저장 파일 꼬리 + 미플러시 버퍼(`StoreOp::Pending` 을 한꺼번에 묻고 받음)에서 ECG 만 읽어 min/max 버킷(최솟값 0 기준 mV)으로 줄여 한 번에 응답. 실측 100명 0.3–0.6 s(각 10 s = 2,400 샘플 완전). 브라우저가 스트림을 10초 모으던 방식(지연 ≥ 10 s, 짧은 파형)을 대체.

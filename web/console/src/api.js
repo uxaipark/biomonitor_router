@@ -141,6 +141,11 @@ export const api = {
     run: (id, what) => send('POST', `/api/integration/${id}/run`, { what }),
     received: (id) => get(`/api/integration/${id}/received`),
   },
+  ecg: { // 내장 ECG 분석 엔진(live-ecg)
+    engine: () => get('/api/ecg/engine'),
+    reload: () => send('POST', '/api/ecg/engine/reload'),
+    row: (id) => get(`/api/ecg/${id}`),
+  },
   emu: {
     status: () => get('/api/emu/status'),
     layout: () => get('/api/emr/layout'),

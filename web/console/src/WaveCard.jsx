@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { getStream, playoutNow } from './waveStore.js'
 import { registerDraw } from './renderLoop.js'
 import { latest } from './ws.js'
-import { flagNames, homePlace, nowPlace } from './model.js'
+import { flagNames, homePlace, nowPlace , RHYTHM_LABEL, RHYTHM_SEV } from './model.js'
 import { getRenderMode, onRenderMode } from './settings.js'
 import { ColumnTracer, ColumnStroker } from './traceRender.js'
 
@@ -211,6 +211,8 @@ export function WaveCard({ row, density = 'normal', alarm, onClick, waves }) {
   const p = row.patient || live?.patient || {}
   const stale = live ? Date.now() - live.rx > 5000 : row.stale
   const names = flagNames(flags)
+  const an = live?.ana || row.ana
+  const rhythmTag = an?.rhythm && an.rhythm !== 'nsr' && an.rhythm !== 'unknown' ? <span className={'tag ' + (RHYTHM_SEV[an.rhythm] ? `sev-${RHYTHM_SEV[an.rhythm]}` : '')} title="ECG 실시간 분석">{RHYTHM_LABEL[an.rhythm] || an.rhythm}</span> : null
   const sevCls = alarm ? `sev-${alarm.severity}` : ''
   const cls = ['card', density, stale ? 'stale' : '', sevCls, row.connected === false ? 'disconnected' : ''].join(' ')
   if (density === 'dense') {
@@ -225,6 +227,7 @@ export function WaveCard({ row, density = 'normal', alarm, onClick, waves }) {
           <span className="pid">{id}</span>
           <span className="spacer" />
           {alarm && <span className={`tag sev-${alarm.severity}`}>{alarm.message}</span>}
+          {rhythmTag}
           {names.map((n) => <span key={n} className={'tag ' + (n === 'LEAD_OFF' || n === 'LOW_BATTERY' ? 'warn' : '')}>{n}</span>)}
           {stale && <span className="tag err">수신 없음</span>}
         </div>
@@ -248,6 +251,7 @@ export function WaveCard({ row, density = 'normal', alarm, onClick, waves }) {
         {density === 'normal' && <span className="pstaff">{[p.doctor, p.nurse].filter(Boolean).join(' · ')}</span>}
         <span className="spacer" />
         {alarm && <span className={`tag sev-${alarm.severity}`}>{alarm.message}</span>}
+        {rhythmTag}
         {names.map((n) => <span key={n} className={'tag ' + (n === 'LEAD_OFF' || n === 'LOW_BATTERY' ? 'warn' : '')}>{n}</span>)}
         {stale && <span className="tag err">수신 없음</span>}
       </div>

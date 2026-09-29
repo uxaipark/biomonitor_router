@@ -302,6 +302,9 @@ pub enum OutMsg {
         /// 5초(25패킷)당 1회만 포함 — 프런트는 last-known 유지
         #[serde(skip_serializing_if = "Option::is_none")]
         patient: Option<Patient>,
+        /// 내장 ECG 분석 요약 (엔진이 있을 때): hr·rhythm·q·af·vf·pvc·beats
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ana: Option<crate::ecg_analysis::AnaBrief>,
     },
     /// 그룹 멤버십 변경 (join/leave/snapshot)
     #[serde(rename = "membership")]

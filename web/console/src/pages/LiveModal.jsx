@@ -3,7 +3,7 @@ import { api, usePoll, fmtTime, fmtBytes } from '../api.js'
 import { claimLive, releaseLive, latest } from '../ws.js'
 import { WaveCanvas } from '../WaveCard.jsx'
 import { AccelPlot, accelNow, ACCEL_COLORS } from '../AccelPlot.jsx'
-import { alarmIndex, flagNames, SEV_LABEL, FLAG_LABEL, FLAG_WARN, patchLife, fmtDays, PATCH_WEAR_DAYS, PATCH_BATTERY_DAYS, homePlace, nowPlace, gwLabel } from '../model.js'
+import { alarmIndex, flagNames, SEV_LABEL, FLAG_LABEL, FLAG_WARN, patchLife, fmtDays, PATCH_WEAR_DAYS, PATCH_BATTERY_DAYS, homePlace, nowPlace, gwLabel , RHYTHM_LABEL, RHYTHM_SEV } from '../model.js'
 import HistoryPanel from '../viewer/History.jsx'
 import { go } from '../ListKit.jsx'
 import '../viewer/ds.css'
@@ -95,7 +95,8 @@ export function EmrPanel({ emr, p, row, platform, onMap }) {
     <section key="clinical">
       <h5 className="lm-sub">임상</h5>
       <dl className="lm-dl">
-        {rt.rhythm_now && <Row k="현재 리듬"><b className={rt.episode ? 'lm-warn' : ''}>{rt.rhythm_now}</b></Row>}
+        {(() => { const an = latest.get(String(row?.channel_id))?.ana || row?.ana; if (!an) return <Row k="현재 리듬 (분석)"><span className="muted">분석 결과 없음 (엔진 미설치 또는 수신 전)</span></Row>
+          const sv = RHYTHM_SEV[an.rhythm]; return <Row k="현재 리듬 (분석)"><b className={sv === 'critical' || sv === 'high' ? 'lm-warn' : ''}>{RHYTHM_LABEL[an.rhythm] || an.rhythm}</b>{an.hr != null ? <> · 분석 HR <b>{Math.round(an.hr)}</b></> : null}{an.pvc_min ? ` · PVC ${an.pvc_min}/분` : ''}{an.af ? ` · AF p ${(an.af_p ?? 0).toFixed(2)}` : ''}<div className="muted">품질 {['양호', '리듬만 신뢰', '사용 불가', '미정'][an.q] || '—'}{an.qs >= 0 ? ` (${(an.qs * 100).toFixed(0)}%)` : ''} · 내장 live-ecg 엔진</div></Row> })()}
         {mon.tier_ko && (
           <Row k="모니터링 처방">
             <b>{mon.tier_ko} {mon.days}일</b>{rt.rx_day != null && ` · D+${rt.rx_day}`}{rt.rx_left_h != null && ` · 남은 ${(rt.rx_left_h / 24).toFixed(1)}일`}{mon.acuity != null && ` · 위중도 ${mon.acuity}`}
@@ -103,7 +104,7 @@ export function EmrPanel({ emr, p, row, platform, onMap }) {
             {mon.reason && <div className="muted">{mon.reason}</div>}
           </Row>
         )}
-        <Row k="기저 리듬">{RHYTHM[emr.rhythm] || emr.rhythm || '—'}</Row>
+        <Row k="EMR 기록 리듬">{RHYTHM[emr.rhythm] || emr.rhythm || '—'}</Row>
         {news && (
           <Row k="NEWS2">
             <span className={`tag small ${NEWS_CLS[news.risk] || ''}`}>{news.score}</span> {news.risk}

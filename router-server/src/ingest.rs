@@ -497,6 +497,15 @@ fn apply_meta_patches(state: &Arc<AppState>, gw_id: u32, meta: &serde_json::Valu
 
 /// ECG 패킷 1건: 분석 서버가 살아 있으면 forward 후 응답(seq)과 병합, 아니면 즉시 패스스루 출력.
 fn process_ecg(state: &Arc<AppState>, pkt: EcgPacket) {
+    // 내장 엔진: 샘플을 분석 큐에 넣고(비동기) 파형은 즉시 통과 — 분석 요약은 다음 패킷의 스트림 헤더 `ana` 로 따라온다
+    if !state.cfg.analysis_tcp {
+        if !pkt.samples.is_empty() {
+            state.analysis.feed(&pkt.channel_id, pkt.seq, pkt.ts_ms, pkt.sample_rate, pkt.samples.clone());
+        }
+        state.registry.push_packet(&pkt, false);
+        state.emit_stream(pkt, None, Vec::new());
+        return;
+    }
     let analysis = state.analysis_up();
     state.registry.push_packet(&pkt, analysis);
     if analysis {

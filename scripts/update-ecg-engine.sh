@@ -19,7 +19,7 @@ echo "빌드: $ID"
 rustc --edition 2021 -O -C panic=unwind --crate-name ecg --crate-type cdylib "$SRC/dist/ecg_engine.rs" -o "$TMP"
 if command -v cc >/dev/null 2>&1 && [ -f "$SRC/tools/ecg_conformance.c" ]; then
   CONF="$(dirname "$DST")/ecg_conformance"
-  if cc -O2 -I "$SRC/dist" -o "$CONF" "$SRC/tools/ecg_conformance.c" -ldl 2>/dev/null; then
+  if cc -O2 -I "$SRC/dist" -o "$CONF" "$SRC/tools/ecg_conformance.c" -ldl -lm 2>/dev/null; then
     if "$CONF" "$TMP" >"$(dirname "$DST")/conformance.log" 2>&1; then echo "적합성 검사: 통과"; else echo "적합성 검사 실패 — 설치하지 않음 ($(dirname "$DST")/conformance.log)" >&2; rm -f "$TMP"; exit 2; fi
   else
     echo "(적합성 검사기를 컴파일하지 못해 건너뜀)" >&2

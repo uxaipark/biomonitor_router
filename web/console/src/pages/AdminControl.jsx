@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { can, useMe } from '../auth.js'
 
@@ -70,6 +70,7 @@ export default function AdminControl() {
       {msg && <p className="err">{msg}</p>}
       <Maintenance st={st} edit={edit} dev={dev} onDone={done} setMsg={setMsg} />
       {st.reset && <FullReset r={st.reset} me={me} dev={dev} onDone={done} setMsg={setMsg} />}
+      <EcgEngineCard edit={can(me, 'page.service_control', 2)} setMsg={setMsg} />
       {(() => {
         const m = mode || (st.stopped ? 'start' : 'stop')
         const bySvc = new Map(st.services.map((s) => [s.service, s]))
@@ -243,6 +244,42 @@ function Maintenance({ st, edit, dev, onDone, setMsg }) {
             <select value={min} onChange={(e) => setMin(Number(e.target.value))}>{MUTE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
             <button onClick={() => go(true)}>유지보수 시작</button>
           </div>)}
+    </section>
+  )
+}
+
+/** 내장 ECG 분석 엔진(live-ecg libecg.so): 어떤 엔진이 돌고 있는지, 단계, 채널·부하, 파일 교체 안내, 다시 읽기 */
+function EcgEngineCard({ edit, setMsg }) {
+  const [e, , refresh] = usePoll(api.ecg.engine, 5000)
+  const [busy, setBusy] = useState(false)
+  const [prev, setPrev] = useState(null)
+  useEffect(() => { if (e) setPrev((p) => p || e) }, [e])
+  if (!e) return null
+  const rate = prev && e.packets > prev.packets ? null : null // eslint-disable-line no-unused-vars
+  const reload = async () => { setBusy(true); try { const r = await api.ecg.reload(); setMsg(`엔진 다시 읽음: ${r.engine || ''}`); refresh() } catch (x) { setMsg(x.message) } finally { setBusy(false) } }
+  const when = e.file_mtime_ms ? new Date(e.file_mtime_ms).toLocaleString('ko-KR') : '—'
+  const busyPct = e.busy_ms && e.loaded_ms ? Math.min(100, (e.busy_ms / Math.max(1, Date.now() - e.loaded_ms)) * 100) : 0
+  return (
+    <section className={'ctl-maint ecg-eng' + (e.enabled ? ' on' : '')}>
+      <div className="ctl-maint-h">
+        <b>ECG 실시간 분석 엔진</b>
+        <span className={'tag small ' + (e.enabled ? 'ok' : 'warn')}>{e.enabled ? '가동 중' : '엔진 없음'}</span>
+        <span className="spacer" />
+        <button onClick={reload} disabled={!edit || busy} title="libecg.so 를 지금 다시 읽어 모든 채널을 새 엔진으로 옮깁니다 (파일이 바뀌면 10초 안에 자동으로도 됩니다)">{busy ? '읽는 중…' : '엔진 다시 읽기'}</button>
+      </div>
+      <div className="ecg-eng-grid">
+        <div><small>엔진</small><b className="mono">{e.engine || '—'}</b></div>
+        <div><small>ABI · 프리셋</small><b>{e.abi || '—'} · {e.preset}</b></div>
+        <div><small>파일</small><b className="mono" title={e.path}>{e.path?.split('/').slice(-2).join('/')}</b><span className="muted">{when}{e.file_size ? ` · ${(e.file_size / 1048576).toFixed(1)} MB` : ''}</span></div>
+        <div><small>채널 · 스레드</small><b>{e.channels ?? 0} · {e.threads}</b><span className="muted">세대 {e.gen}</span></div>
+        <div><small>처리</small><b>{(e.packets || 0).toLocaleString()} 패킷</b><span className="muted">박동 {(e.beats || 0).toLocaleString()} · 이벤트 {(e.events || 0).toLocaleString()}</span></div>
+        <div><small>드롭 · 늦은 패킷 · 유실 선언</small><b className={e.dropped ? 'warnv' : ''}>{e.dropped || 0} · {e.stale || 0} · {e.gaps || 0}</b></div>
+        <div><small>분석 부하 (가동 후 평균)</small><b>{busyPct.toFixed(2)}% <span className="muted">of 1코어</span></b></div>
+        {e.last_error && <div className="ecg-eng-err"><small>오류</small><b>{e.last_error}</b></div>}
+      </div>
+      {e.stages?.length > 0 && <details className="ecg-eng-stages"><summary>엔진이 가진 단계 구현 {e.stages.length}개{e.stages_cfg ? ` · 선택: ${e.stages_cfg}` : ' · 프리셋 기본'}</summary>
+        <ul>{e.stages.map((s) => <li key={s.name}><b className="mono">{s.name}</b> <span className="muted">{s.desc}</span></li>)}</ul></details>}
+      <p className="muted small">엔진 교체: 라우터 PC 에서 <code>scripts/update-ecg-engine.sh</code> 를 실행하면 live_ecg 레포를 받아 <code>dist/ecg_engine.rs</code> 를 libecg.so 로 빌드·적합성 검사 후 설치하고, 라우터는 재시작 없이 새 엔진으로 옮깁니다. 프리셋·단계 선택은 <code>ROUTER_ECG_PRESET</code> · <code>ROUTER_ECG_STAGES</code> (data/router.env).</p>
     </section>
   )
 }

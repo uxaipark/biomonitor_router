@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll, fmtTime } from '../api.js'
 import { claimLive, releaseLive, latest } from '../ws.js'
 import { WaveCanvas } from '../WaveCard.jsx'
-import { alarmIndex, flagNames, SEV_LABEL, FLAG_LABEL, FLAG_WARN, patchLife, fmtDays, homePlace, nowPlace } from '../model.js'
+import { alarmIndex, flagNames, SEV_LABEL, FLAG_LABEL, FLAG_WARN, patchLife, fmtDays, homePlace, nowPlace , RHYTHM_LABEL, RHYTHM_SEV } from '../model.js'
 import { EmrPanel } from './LiveModal.jsx'
 import { viewerUrl } from '../viewer/templates.js'
 import { useMe, canBio, canPhi } from '../auth.js'
@@ -60,6 +60,7 @@ export default function MapPatientPanel({ channelId, alarms, onClose, onHistory,
         <button className="icon" onClick={onClose} title="닫기 (Esc)">✕</button>
       </div>
       <div className="mp-tags">
+        {(() => { const an = live?.ana || row.ana; if (!an?.rhythm || an.rhythm === 'unknown') return null; const sv = RHYTHM_SEV[an.rhythm]; return <span className={'tag small ' + (sv ? `sev-${sv}` : 'ok')} title="ECG 실시간 분석 (live-ecg)">분석 · {RHYTHM_LABEL[an.rhythm] || an.rhythm}{an.hr != null ? ` ${Math.round(an.hr)}` : ''}</span> })()}
         {alarm && <span className={`tag small sev-${alarm.severity}`}>{SEV_LABEL[alarm.severity]} · {alarm.message}</span>}
         {flags.map((n) => <span key={n} className={'tag small ' + (FLAG_WARN.has(n) ? 'warn' : '')}>{FLAG_LABEL[n] || n}</span>)}
         {stale ? <span className="tag small err">수신 없음</span> : <span className="tag small ok">수신 중</span>}

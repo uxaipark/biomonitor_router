@@ -41,12 +41,60 @@ pub struct Rules {
     /// 교체 예정 알림을 이만큼(시간) 먼저
     #[serde(default = "d_wear_warn_h")]
     pub patch_wear_warn_h: u32,
+    // ── ECG 분석 결과(내장 live-ecg 엔진)를 알람 소스로 ──
+    /// "analysis" = 엔진의 박동·리듬 판정으로 알람 (HR 알람도 분석 HR 사용) · "off" = 패치 수치만
+    #[serde(default = "d_ecg_source")]
+    pub ecg_source: String,
+    /// 심방세동은 이만큼 이어져야 알람
+    #[serde(default = "d_ecg_af_sustain")]
+    pub ecg_af_sustain_s: u64,
+    /// 분당 심실 조기 박동(PVC) 이 이 수 이상이면 알람
+    #[serde(default = "d_ecg_pvc")]
+    pub ecg_pvc_per_min: u32,
+    /// 끝난 에피소드(심실 런·이단맥 등)를 이만큼(초) 동안 활성으로 본다
+    #[serde(default = "d_ecg_hold")]
+    pub ecg_hold_s: u64,
+    #[serde(default = "d_true")]
+    pub ecg_alarm_asystole: bool,
+    #[serde(default = "d_true")]
+    pub ecg_alarm_vf: bool,
+    #[serde(default = "d_true")]
+    pub ecg_alarm_vtach: bool,
+    #[serde(default = "d_true")]
+    pub ecg_alarm_vrun: bool,
+    #[serde(default = "d_true")]
+    pub ecg_alarm_pause: bool,
+    #[serde(default = "d_true")]
+    pub ecg_alarm_af: bool,
+    #[serde(default = "d_true")]
+    pub ecg_alarm_pvc: bool,
+    #[serde(default = "d_true")]
+    pub ecg_alarm_bigeminy: bool,
+    #[serde(default = "d_true")]
+    pub ecg_alarm_lead_off: bool,
+    #[serde(default = "d_true")]
+    pub ecg_alarm_svrun: bool,
 }
 fn d_wear_days() -> f32 {
     14.0
 }
 fn d_wear_warn_h() -> u32 {
     24
+}
+fn d_ecg_source() -> String {
+    "analysis".into()
+}
+fn d_ecg_af_sustain() -> u64 {
+    30
+}
+fn d_ecg_pvc() -> u32 {
+    10
+}
+fn d_ecg_hold() -> u64 {
+    60
+}
+fn d_true() -> bool {
+    true
 }
 
 impl Default for Rules {
@@ -69,6 +117,20 @@ impl Default for Rules {
             clear_s: 5,
             patch_wear_days: d_wear_days(),
             patch_wear_warn_h: d_wear_warn_h(),
+            ecg_source: d_ecg_source(),
+            ecg_af_sustain_s: d_ecg_af_sustain(),
+            ecg_pvc_per_min: d_ecg_pvc(),
+            ecg_hold_s: d_ecg_hold(),
+            ecg_alarm_asystole: true,
+            ecg_alarm_vf: true,
+            ecg_alarm_vtach: true,
+            ecg_alarm_vrun: true,
+            ecg_alarm_pause: true,
+            ecg_alarm_af: true,
+            ecg_alarm_pvc: true,
+            ecg_alarm_bigeminy: true,
+            ecg_alarm_lead_off: true,
+            ecg_alarm_svrun: true,
         }
     }
 }
@@ -136,6 +198,8 @@ struct Book {
 pub struct AlarmBook {
     inner: Mutex<Book>,
     next_id: AtomicU64,
+    /// 규칙 파일 (data/alarm_rules.json) — 없으면 메모리만
+    path: Option<std::path::PathBuf>,
 }
 
 impl Default for AlarmBook {
@@ -146,7 +210,19 @@ impl Default for AlarmBook {
 
 impl AlarmBook {
     pub fn new() -> Self {
-        Self { inner: Mutex::new(Book::default()), next_id: AtomicU64::new(1) }
+        Self { inner: Mutex::new(Book::default()), next_id: AtomicU64::new(1), path: None }
+    }
+
+    /// 파일에서 규칙을 읽어 시작 (없거나 깨졌으면 기본값). 저장 때마다 같은 파일에 쓴다 — 예전엔 재시작마다 초기화됐다.
+    pub fn load(path: &std::path::Path) -> Self {
+        let mut book = Book::default();
+        if let Ok(txt) = std::fs::read_to_string(path) {
+            match serde_json::from_str::<Rules>(&txt) {
+                Ok(r) => book.rules = r,
+                Err(e) => tracing::warn!("alarm rules {}: {} — 기본값 사용", path.display(), e),
+            }
+        }
+        Self { inner: Mutex::new(book), next_id: AtomicU64::new(1), path: Some(path.to_path_buf()) }
     }
 
     pub fn rules(&self) -> Rules {
@@ -154,6 +230,13 @@ impl AlarmBook {
     }
 
     pub fn set_rules(&self, r: Rules) {
+        if let Some(p) = &self.path {
+            if let Ok(txt) = serde_json::to_string_pretty(&r) {
+                if let Err(e) = std::fs::write(p, txt) {
+                    tracing::warn!("alarm rules save {}: {}", p.display(), e);
+                }
+            }
+        }
         self.inner.lock().unwrap().rules = r;
     }
 
@@ -267,13 +350,66 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
         if ch.battery > 0 && ch.battery <= rules.battery_low_pct && ch.flags & crate::wire::R_CHARGING == 0 {
             seen.push(base("battery_low", Severity::Low, format!("{}%", ch.battery), format!("배터리 {}%", ch.battery), 0));
         }
+        // ── ECG 분석 결과(내장 엔진)를 알람 소스로: 규칙 ecg_source = "analysis" 이고 5초 안에 갱신된 요약이 있을 때 ──
+        let ana = if rules.ecg_source == "analysis" { state.analysis.row(channel_id).filter(|a| now.saturating_sub(a.updated_ms) < 5000) } else { None };
+        let mut ana_hr: Option<u8> = None;
+        if let Some(a) = &ana {
+            let unusable = a.q == crate::ecg_engine::QUALITY_UNUSABLE;
+            let hold = rules.ecg_hold_s * 1000;
+            let recent = |kind: &str| a.episodes.iter().find(|(k, _, end)| k == kind && now.saturating_sub(*end) < hold).map(|(_, s, e)| (*s, *e));
+            // 박동 없음 시간은 패킷 시간대에서 검출 지연을 뺀 값 (서버 시각과 비교하면 지연·전송 시간이 더해져 과다 알람)
+            let since_beat = if a.last_beat_ms > 0 { a.pkt_ms.saturating_sub(a.last_beat_ms).saturating_sub(a.lag_ms as u64) } else { 0 };
+            ana_hr = a.hr.map(|h| h.round().clamp(0.0, 255.0) as u8);
+            if rules.ecg_alarm_lead_off && a.lead_off && !lead_off {
+                seen.push(base("ecg_lead_off", Severity::Medium, "LEAD_OFF".into(), "ECG 분석: 전극 접촉 불량".into(), rules.lead_off_s));
+            }
+            if rules.ecg_alarm_vf && a.vf {
+                seen.push(base("ecg_vf", Severity::Critical, "VF".into(), "ECG 분석: 심실세동 의심".into(), 0));
+            } else if rules.ecg_alarm_asystole && !unusable && !a.lead_off && a.last_beat_ms > 0 && since_beat >= 4000 {
+                seen.push(base("ecg_asystole", Severity::Critical, format!("{:.1}s", since_beat as f64 / 1000.0), format!("ECG 분석: 심정지 — 박동 없음 {:.1}초", since_beat as f64 / 1000.0), 0));
+            } else if rules.ecg_alarm_pause && !unusable && !a.lead_off && a.last_beat_ms > 0 && since_beat >= 2000 {
+                seen.push(base("ecg_pause", Severity::High, format!("{:.1}s", since_beat as f64 / 1000.0), format!("ECG 분석: 휴지 {:.1}초", since_beat as f64 / 1000.0), 0));
+            }
+            if rules.ecg_alarm_vtach {
+                if let Some((s0, e0)) = recent("vtach") {
+                    seen.push(base("ecg_vtach", Severity::Critical, format!("{:.0}s", (e0.saturating_sub(s0)) as f64 / 1000.0), "ECG 분석: 심실빈맥".into(), 0));
+                }
+            }
+            if rules.ecg_alarm_vrun {
+                if let Some((s0, e0)) = recent("vrun") {
+                    seen.push(base("ecg_vrun", Severity::High, format!("{:.0}s", (e0.saturating_sub(s0)) as f64 / 1000.0), "ECG 분석: 심실 연속 박동(런)".into(), 0));
+                }
+            }
+            if rules.ecg_alarm_af && a.af {
+                seen.push(base("ecg_af", Severity::Medium, format!("p={:.2}", a.af_p), format!("ECG 분석: 심방세동 (p {:.2})", a.af_p), rules.ecg_af_sustain_s));
+            }
+            if rules.ecg_alarm_pvc && a.pvc_min >= rules.ecg_pvc_per_min {
+                seen.push(base("ecg_pvc", Severity::Medium, format!("{}/min", a.pvc_min), format!("ECG 분석: 심실 조기 박동 {}회/분", a.pvc_min), 0));
+            }
+            if rules.ecg_alarm_bigeminy {
+                if recent("bigeminy").is_some() {
+                    seen.push(base("ecg_bigeminy", Severity::Low, "bigeminy".into(), "ECG 분석: 심실 이단맥".into(), 0));
+                } else if recent("trigeminy").is_some() {
+                    seen.push(base("ecg_bigeminy", Severity::Low, "trigeminy".into(), "ECG 분석: 심실 삼단맥".into(), 0));
+                } else if recent("ivr").is_some() {
+                    seen.push(base("ecg_ivr", Severity::Medium, "IVR".into(), "ECG 분석: 심실 고유 리듬".into(), 0));
+                }
+            }
+            if rules.ecg_alarm_svrun {
+                if let Some((s0, e0)) = recent("svrun") {
+                    seen.push(base("ecg_svrun", Severity::Low, format!("{:.0}s", (e0.saturating_sub(s0)) as f64 / 1000.0), "ECG 분석: 상심실 연속 박동".into(), 0));
+                }
+            }
+        }
         // Vitals are only trusted while fresh (< 5 s) and the electrodes are on.
         let fresh = ch.vitals_ts_ms > 0 && now.saturating_sub(ch.vitals_ts_ms) < 5000;
-        if !fresh || lead_off {
+        if (!fresh && ana_hr.is_none()) || lead_off {
             return;
         }
         let v = &ch.vitals;
-        if let Some(hr) = v.hr {
+        // 분석 HR 이 있으면(분석 소스) 그것으로, 없으면 패치 HR 로
+        let hr_used = ana_hr.or(if fresh { v.hr } else { None });
+        if let Some(hr) = hr_used {
             if hr <= rules.hr_crit_low || hr >= rules.hr_crit_high {
                 seen.push(base("hr_critical", Severity::Critical, format!("{hr} bpm"), format!("심박수 위험 {hr} bpm"), rules.sustain_s));
             } else if hr < rules.hr_low {
@@ -281,6 +417,9 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
             } else if hr > rules.hr_high {
                 seen.push(base("hr_high", Severity::High, format!("{hr} bpm"), format!("빈맥 {hr} bpm"), rules.sustain_s));
             }
+        }
+        if !fresh {
+            return;
         }
         if let Some(sp) = v.spo2 {
             if ch.flags & crate::wire::R_SPO2_OFF == 0 {

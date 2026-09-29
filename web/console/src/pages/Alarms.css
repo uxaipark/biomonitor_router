@@ -45,3 +45,17 @@
 .rl-savebar .rl-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .rl-savebar.dirty .rl-dot { background: var(--warn); }
 .rl-savebar .rl-diff { font-variant-numeric: tabular-nums; }
+
+/* ECG 분석 알람 카드 */
+.rl-ecg.off .rl-ecg-items { opacity: .55; }
+.rl-src { display: flex; align-items: center; gap: 10px; margin: 4px 0 10px; }
+.rl-src .seg button { padding: 4px 12px; }
+.rl-ecg-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; margin-bottom: 10px; }
+.rl-ecg-item { display: grid; grid-template-columns: auto auto 1fr; gap: 2px 8px; align-items: center; padding: 5px 8px; border: 1px solid transparent; border-radius: 7px; cursor: pointer; }
+.rl-ecg-item:hover { background: var(--panel2); }
+.rl-ecg-item.on { border-color: var(--line); }
+.rl-ecg-item.changed { border-color: var(--accent); }
+.rl-ecg-item input { margin: 0; }
+.rl-ecg-item b { font-size: 12.5px; }
+.rl-ecg-item small { grid-column: 2 / 4; font-size: 11px; }
+@media (max-width: 900px) { .rl-ecg-items { grid-template-columns: 1fr; } }

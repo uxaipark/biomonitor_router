@@ -19,6 +19,13 @@ pub struct Config {
     pub displays_path: String,
     /// 채널별 분석 대기 서큘러 버퍼 크기(패킷 수)
     pub ring_capacity: usize,
+    /// live-ecg 엔진 공유 라이브러리 경로 (없으면 분석 꺼짐), 프리셋 patch|clinical, 단계 선택 "kind=name;…", 샤드 스레드 수
+    pub ecg_lib: String,
+    pub ecg_preset: String,
+    pub ecg_stages: String,
+    pub ecg_threads: usize,
+    /// 옛 외부 분석 서버(TCP NDJSON) 링크를 켤지 — 내장 엔진이 기본
+    pub analysis_tcp: bool,
     /// 패치별 레코드 저장 루트 (patches/<id>/<hour>.rec[.gz], meta/gw_<id>.json)
     pub store_dir: String,
     /// 저장소 용량 상한 (GB). 초과 시 오래된 시간 파일부터 삭제 (0 = 무제한)
@@ -48,6 +55,11 @@ impl Config {
             groups_path: get("ROUTER_GROUPS_PATH", "groups.json"),
             displays_path: get("ROUTER_DISPLAYS_PATH", "displays.json"),
             ring_capacity: get("ROUTER_RING_CAPACITY", "512").parse().unwrap_or(512),
+            ecg_lib: get("ROUTER_ECG_LIB", "data/engine/libecg.so"),
+            ecg_preset: get("ROUTER_ECG_PRESET", "patch"),
+            ecg_stages: get("ROUTER_ECG_STAGES", ""),
+            ecg_threads: get("ROUTER_ECG_THREADS", "2").parse().unwrap_or(2),
+            analysis_tcp: get("ROUTER_ANALYSIS_TCP", "0") == "1",
             store_dir: get("ROUTER_STORE_DIR", "data/store"),
             store_max_gb: get("ROUTER_STORE_MAX_GB", "200").parse().unwrap_or(200),
             store_gzip: get("ROUTER_STORE_GZIP", "1").parse().unwrap_or(1),

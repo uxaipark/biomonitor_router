@@ -114,6 +114,9 @@ pub struct ChannelInfo {
     /// 패치 착용 시작 (발급 시각, 모르면 첫 수신 시각; 0 = 모름)
     pub wear_start_ms: u64,
     pub patch_issued_ms: u64,
+    /// 내장 ECG 분석 요약 (admin_api 가 채운다)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ana: Option<serde_json::Value>,
 }
 
 /// 패치 시퀀스 판정 (v3 record.seq)
@@ -617,6 +620,7 @@ impl Registry {
                 pseq_reorder: e.pseq_reorder,
                 wear_start_ms: e.wear_start_ms(),
                 patch_issued_ms: e.patch_issued_ms,
+                ana: None,
             })
             .collect();
         v.sort_by(|a, b| a.channel_id.cmp(&b.channel_id));

@@ -30,6 +30,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/patches/{id}/verify", get(patch_verify))
         .route("/api/channels", get(list_channels))
         .route("/api/wave/recent", get(wave_recent))
+        .route("/api/ecg/engine", get(ecg_engine_status))
+        .route("/api/ecg/engine/reload", post(ecg_engine_reload))
+        .route("/api/ecg/{channel_id}", get(ecg_row))
         .route("/api/wave/{channel_id}/info", get(wave_info))
         .route("/api/wave/{channel_id}", get(wave_read))
         .route("/api/wave/{channel_id}/waves", get(wave_read_all))
@@ -412,12 +415,12 @@ async fn list_channels(
     let (phi, bio) = (p.phi(), p.bio());
     if !KEYS.iter().any(|k| q.contains_key(*k)) {
         if phi && bio {
-            return cached_json(0, || serde_json::to_string(&state.registry.snapshot()).unwrap_or_else(|_| "[]".into()));
+            return cached_json(0, || serde_json::to_string(&attach_ana(&state, state.registry.snapshot())).unwrap_or_else(|_| "[]".into()));
         }
         // 마스킹본은 권한 조합별로 따로 1초 캐시 (2 = 개인정보만 가림, 3 = 생체신호만, 4 = 둘 다)
         let slot = match (phi, bio) { (false, true) => 2, (true, false) => 3, _ => 4 };
         return cached_json(slot, || {
-            let mut v = serde_json::to_value(state.registry.snapshot()).unwrap_or_default();
+            let mut v = serde_json::to_value(attach_ana(&state, state.registry.snapshot())).unwrap_or_default();
             mask_json(&mut v, phi, bio);
             serde_json::to_string(&v).unwrap_or_else(|_| "[]".into())
         });
@@ -465,6 +468,7 @@ async fn list_channels(
         }
         true
     });
+    let rows = attach_ana(&state, rows);
     let body = if phi && bio {
         serde_json::to_string(&rows).unwrap_or_else(|_| "[]".into())
     } else {
@@ -912,6 +916,42 @@ async fn wave_read(
     }
     Json(serde_json::json!({ "from_ms": from, "to_ms": to, "segments": segments }))
         .into_response()
+}
+
+/// 채널 행에 내장 ECG 분석 요약(`ana`: hr·rhythm·q·af·vf·pvc_min·since)을 붙인다 — 목록·지도·뷰어가 WS 없이도 리듬을 본다
+fn attach_ana(state: &AppState, mut rows: Vec<crate::registry::ChannelInfo>) -> Vec<crate::registry::ChannelInfo> {
+    if !state.analysis.enabled() {
+        return rows;
+    }
+    for r in rows.iter_mut() {
+        if let Some(a) = state.analysis.row(&r.channel_id) {
+            r.ana = Some(serde_json::json!({ "hr": a.hr, "rhythm": a.rhythm, "since_ms": a.rhythm_since_ms, "q": a.q, "qs": a.qs, "af": a.af, "af_p": a.af_p, "vf": a.vf, "pvc_min": a.pvc_min, "updated_ms": a.updated_ms }));
+        }
+    }
+    rows
+}
+
+/// 내장 ECG 분석 엔진 상태 (id·ABI·단계·채널·부하) / 다시 읽기 / 채널 하나의 분석 요약
+async fn ecg_engine_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(state.analysis.status_json())
+}
+async fn ecg_engine_reload(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> impl IntoResponse {
+    let st = state.clone();
+    match tokio::task::spawn_blocking(move || st.analysis.reload()).await.unwrap_or(Err("failed".into())) {
+        Ok(id) => {
+            state.set_analysis_up(true);
+            state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "ecg_engine_reload", &id);
+            state.push_event("ecg_engine", None, format!("ECG 분석 엔진 다시 읽음: {id}"));
+            Json(state.analysis.status_json()).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+async fn ecg_row(State(state): State<Arc<AppState>>, Path(channel_id): Path<String>) -> impl IntoResponse {
+    match state.analysis.row(&channel_id) {
+        Some(r) => Json(serde_json::to_value(r).unwrap_or_default()).into_response(),
+        None => (StatusCode::NOT_FOUND, "분석 결과 없음").into_response(),
+    }
 }
 
 /// 여러 환자의 "최근 N초 ECG" 미니 파형(환자 목록의 ECG(10초) 열): 저장 파일 꼬리 + 미플러시 버퍼를 읽어 서버에서

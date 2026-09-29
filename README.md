@@ -209,3 +209,22 @@ RP5 서비스 설치는 `sudo deploy/pi/install.sh` (systemd 유닛 + sysctl + `
 ## 다음 단계
 
 P2 WS 다채널 출력 + 뷰어 → P3 DB/어드민(도면 JSON 폴리곤) → P4 RP5 #2 배포(1 TB SSD, systemd) → P5 보존·인증. 세부는 [docs/PLAN.md](docs/PLAN.md).
+
+## 실시간 ECG 분석 (live-ecg 엔진)
+
+라우터는 [live_ecg](https://github.com/uxaipark/live_ecg) 엔진을 공유 라이브러리(`data/engine/libecg.so`, ABI 1.x)로 실행 중에 읽어 모든 채널의 ECG 를 직접 분석한다 — 박동 분류(N/S/V/F), 심방세동·심실세동·휴지·심정지·심실 런·이단맥·상심실 런, 신호 품질. 결과는 뷰어(리듬 태그·파형 위 V/S 표시), 환자 목록·지도, 그리고 알람(규칙 페이지 "ECG 분석 알람")에 쓰인다.
+
+```bash
+scripts/update-ecg-engine.sh            # live_ecg 레포 최신 → libecg.so 빌드·검사·설치 (라우터는 10초 안에 새 엔진으로, 재시작 없음)
+scripts/update-ecg-engine.sh /path/to/live_ecg data/engine/libecg.so
+```
+
+| 환경변수 | 기본 | 뜻 |
+|---|---|---|
+| `ROUTER_ECG_LIB` | `data/engine/libecg.so` | 엔진 파일 (없으면 분석 꺼짐) |
+| `ROUTER_ECG_PRESET` | `patch` | `patch` (며칠 착용 단일 유도) / `clinical` |
+| `ROUTER_ECG_STAGES` | (프리셋 기본) | 단계 선택 `"vf=vf.linear@1;beats=beats.clinical@3"` (`GET /api/ecg/engine` 의 stages 목록) |
+| `ROUTER_ECG_THREADS` | `2` | 분석 샤드 스레드 수 |
+| `ROUTER_ANALYSIS_TCP` | `0` | `1` 이면 옛 외부 분석 서버(TCP) 링크를 대신 쓴다 |
+
+API: `GET /api/ecg/engine`(상태·단계·부하) · `POST /api/ecg/engine/reload` · `GET /api/ecg/{patch}`(채널 요약). 스트림 헤더 `ana`, `/api/channels` 행 `ana`.

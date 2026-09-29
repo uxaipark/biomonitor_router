@@ -4,7 +4,7 @@ import HistoryPanel from './History.jsx'
 import { LIMITS, BAT_LOW, VM_TH, CS_C, CS_C_LIGHT, monAlarm, alarmKey } from './central.js'
 import { latest, latencyNow } from '../ws.js'
 import { api, usePoll, fmtTime } from '../api.js'
-import { alarmIndex } from '../model.js'
+import { alarmIndex, RHYTHM_LABEL, RHYTHM_SEV } from '../model.js'
 
 const BELL = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /></svg>
 const Dec = ({ v }) => { const t = String(v); const i = t.indexOf('.'); return i < 0 ? t : <>{t.slice(0, i)}<span className="vm-dec">{t.slice(i)}</span></> }
@@ -90,7 +90,8 @@ export default function BedViewer({ row, alarms, unit, onBack }) {
           <span className="ds-meta">{[emr?.sex, emr?.age && `${emr.age}y`, emr?.weight_kg && `${emr.weight_kg} kg`].filter(Boolean).join(' · ')}</span>
           <span className="ds-meta">{row.mrn}</span>
           <span className="vm-tags">
-            {emr?.rhythm && <span className={'tag ' + (a[0] ? 'tag-accent' : 'tag-neutral')}>{emr.rhythm}</span>}
+            {(() => { const an = live?.ana || row.ana; if (!an?.rhythm) return null; const sv = RHYTHM_SEV[an.rhythm]
+              return <span className={'tag vm-rhythm ' + (sv === 'critical' || sv === 'high' ? 'tag-accent' : 'tag-neutral')} title={`실시간 ECG 분석 (live-ecg) · 품질 ${['양호', '리듬만', '사용 불가', '미정'][an.q] || '—'}${an.pvc ? ` · PVC ${an.pvc}/분` : ''}`}>{RHYTHM_LABEL[an.rhythm] || an.rhythm}{an.hr != null ? ` · ${Math.round(an.hr)}` : ''}</span> })()}
             <span className="tag tag-outline">{flags & 0x10 ? 'Pacer: Yes' : 'Pacer: No'}</span>
             <span className={'tag ' + (bat <= BAT_LOW ? 'tag-accent' : 'tag-neutral')}>Patch {bat}% · {id} · {live?.rssi ?? row.rssi} dBm</span>
             {emr?.disease && <span className="tag tag-neutral">{emr.disease}</span>}

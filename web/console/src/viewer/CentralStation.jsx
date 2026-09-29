@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import Sweep from './Sweep.jsx'
 import { CS_C, CS_TH, CS_PRESETS, LIMITS, BAT_LOW, csLayout, monAlarm, shortAlarm, alarmKey } from './central.js'
 import { latest, latencyNow } from '../ws.js'
-import { alarmIndex } from '../model.js'
+import { alarmIndex, RHYTHM_SHORT } from '../model.js'
 import BedViewer from './BedViewer.jsx'
 import Dropdown from '../Dropdown.jsx'
 
@@ -91,7 +91,7 @@ function NumTile({ row, alarm, onOpen }) {
       <div className="cs-head"><span className="cs-bed">{bedOf(row)}</span><span className="ds-nm">{p.name || row.mrn}</span><span className="cs-bat"><BatIcon pct={live?.battery ?? row.battery} /></span></div>
       <div className="cn-grid">
         <V k="hr" label="HR" val={v.hr} /><V k="spo2" label="SpO₂" val={v.spo2} /><V k="rr" label="RR" val={v.resp} /><V k="nibp" label="NIBP" val={null} />
-        <div className="cn-st" title={a[1]}>{a[0] ? shortAlarm(a[1]) : (row.emr?.rhythm || 'NSR').toUpperCase()}</div>
+        <div className="cn-st" title={a[0] ? a[1] : 'ECG 실시간 분석 리듬'}>{a[0] ? shortAlarm(a[1]) : (RHYTHM_SHORT[(live?.ana || row.ana)?.rhythm] || '--')}</div>
         <div className="cn-v cn-minor"><span className="cn-l" style={{ color: CS_C.temp }}>Temp</span><b className={v.temp == null ? 'ds-none' : ''} style={{ color: CS_C.temp }}>{v.temp != null ? v.temp.toFixed(1) : '--'}</b><span className="cn-l" style={{ color: CS_C.gl }}>GLU</span><b className={v.glucose == null ? 'ds-none' : ''} style={{ color: CS_C.gl }}>{v.glucose != null ? v.glucose.toFixed(0) : '--'}</b></div>
       </div>
     </article>

@@ -1576,6 +1576,12 @@ fn requirement(path: &str, method: &axum::http::Method) -> Option<(Vec<&'static 
     if p == "/api/wave/reset" {
         return r(&["action.wave_reset"], 2);
     }
+    if p == "/api/ecg/engine/reload" {
+        return r(&["page.service_control"], 2);
+    }
+    if p.starts_with("/api/ecg/") {
+        return r(&["page.dashboard", "page.ops", "page.service_control", "page.settings_network", "page.patients", "page.viewers", "page.map"], 1);
+    }
     if p.starts_with("/api/wave/") || p.starts_with("/api/patches/") {
         return r(&["data.biosignal"], 1);
     }

@@ -119,7 +119,11 @@ function handleItems(items) {
     // pace marks arrive as their own record (no ECG block); keep the last set with the seq/ts they belong to,
     // so a viewer draws each spike once instead of re-drawing it under every later packet's timestamp
     const hasPace = Array.isArray(it.pace) && it.pace.length > 0
-    latest.set(id, { ...prev, ...it, vitals, patient: it.patient || prev.patient, rx: Date.now(), pace: hasPace ? it.pace : prev.pace, paceSeq: hasPace ? it.seq : prev.paceSeq, paceTs: hasPace ? it.ts_ms : prev.paceTs })
+    // 내장 ECG 분석 요약(ana)은 있는 패킷의 것을 유지; 박동 마크(ana.beats, 절대 ms)는 새로 온 것만 seq 로 구분해 한 번씩 그린다
+    const hasAna = it.ana != null
+    const hasBeats = hasAna && Array.isArray(it.ana.beats) && it.ana.beats.length > 0
+    latest.set(id, { ...prev, ...it, vitals, patient: it.patient || prev.patient, rx: Date.now(), pace: hasPace ? it.pace : prev.pace, paceSeq: hasPace ? it.seq : prev.paceSeq, paceTs: hasPace ? it.ts_ms : prev.paceTs,
+      ana: hasAna ? it.ana : prev.ana, beats: hasBeats ? it.ana.beats : prev.beats, beatSeq: hasBeats ? it.seq : prev.beatSeq })
   }
   emit('stream', items)
 }
