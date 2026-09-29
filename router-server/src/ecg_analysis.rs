@@ -637,7 +637,9 @@ impl AnalysisHub {
             };
             match job {
                 Job::Remove(id) => {
-                    slots.remove(&id);
+                    if slots.remove(&id).is_some() {
+                        self.channels_live.fetch_sub(1, Ordering::Relaxed);
+                    }
                 }
                 Job::Batch(pkts) => {
                     let t_start = Instant::now();
