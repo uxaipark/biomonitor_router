@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll, fmtAgo, fmtTime } from '../api.js'
 import { alarmIndex, flagNames, sortBy, SEV_LABEL, SEV_ORDER, FLAG_LABEL, FLAG_WARN, wardText, wardRoom, patchLife, fmtDays, nowPlace, spaceName, isAway } from '../model.js'
 import { openLive } from '../App.jsx'
