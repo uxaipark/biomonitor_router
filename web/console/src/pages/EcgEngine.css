@@ -31,3 +31,9 @@
 .ecg-bench-h button[disabled] { opacity: .8; }
 .ecg-eval td.num b.warnv { color: var(--warn); }
 .ecg-eval tr.muted td { color: var(--muted); }
+/* 접이식 카드 */
+.ecg-fold > summary { list-style: none; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.ecg-fold > summary::-webkit-details-marker { display: none; }
+.ecg-fold > summary h3 { margin: 0; }
+.ecg-fold > summary .ecg-fold-hint { margin-left: auto; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
+.ecg-fold[open] > summary { margin-bottom: 8px; }

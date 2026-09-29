@@ -61,6 +61,8 @@ export default function EcgEngine() {
   const [bench, setBench] = useState(null)
   useEffect(() => { if (e?.bench && !bench) setBench(e.bench) }, [e, bench])
   const [benchFlash, setBenchFlash] = useState(false)
+  const [reportOpen, setReportOpen] = useState(() => { try { return localStorage.getItem('ecg.report.open') === '1' } catch { return false } })
+  useEffect(() => { try { localStorage.setItem('ecg.report.open', reportOpen ? '1' : '0') } catch { /* ignore */ } }, [reportOpen])
   // 알고리즘 검증 (에뮬레이터 정답지)
   const [evalR, , refreshEval] = usePoll(api.ecg.evalLast, 30000)
   const [evalBusy, setEvalBusy] = useState(false)
@@ -223,7 +225,7 @@ export default function EcgEngine() {
 
       {/* 성능 */}
       <section className="ecg-card">
-        <h3>엔진 성능 <small className="muted">live_ecg 보고서(README · reports/PERFORMANCE.md) — 학습·조정에 쓰지 않은 봉인(TEST) 구역 수치</small></h3>
+        <h3>엔진 성능 <small className="muted">이 기기 시뮬레이션 실측</small></h3>
         <div className="ecg-bench">
           <div className="ecg-bench-h"><b>이 기기 시뮬레이션 성능</b><span className="muted small">합성 ECG(60 bpm)를 64채널 × 120초 분량 처리해 시간을 잽니다 — 운영과 별도 스레드, 1~2초</span><span className="spacer" /><button onClick={runBench} disabled={!edit || benchBusy || !e?.enabled}>{benchBusy ? '측정 중…' : '측정 실행'}</button></div>
           {bench && bench.ns_per_sample != null && (
@@ -235,11 +237,15 @@ export default function EcgEngine() {
             </div>
           )}
         </div>
-        <h5 className="muted" style={{ margin: '10px 0 4px' }}>레포 보고서 수치</h5>
-        <table className="tbl ecg-perf"><thead><tr><th>항목</th><th>수치</th><th>데이터 · 비고</th></tr></thead>
-          <tbody>{PERF_SUMMARY.map(([a, b, c]) => <tr key={a}><td>{a}</td><td className="num"><b>{b}</b></td><td className="small muted">{c}</td></tr>)}</tbody></table>
-        <p className="muted small">한계도 보고서에 그대로 있습니다: 상심실 박동은 단일 유도의 P파 한계로 낮고(패치 설정은 런 단위로 찾음), 심실빈맥 경보 정밀도는 22.9 %(변행전도 구분 문제). 수치는 Apple M1 Ultra 에서 측정된 것이라 이 기기의 처리량은 위 "분석 부하"로 확인하세요.{activeV?.has_perf ? ' 활성 엔진의 보고서 전문은 보관함의 "성능" 버튼에서.' : ''}</p>
       </section>
+
+      {/* 레포 보고서 수치 — 독립 카드, 접기/펴기 (기본 접힘) */}
+      <details className="ecg-card ecg-fold" open={reportOpen} onToggle={(ev) => setReportOpen(ev.currentTarget.open)}>
+        <summary><h3>레포 보고서 수치 <small className="muted">live_ecg README · reports/PERFORMANCE.md — 학습·조정에 쓰지 않은 봉인(TEST) 구역</small></h3><span className="ecg-fold-hint">{reportOpen ? '접기' : '펴기'}</span></summary>
+        <div className="tbl-wrap"><table className="tbl ecg-perf"><thead><tr><th>항목</th><th>수치</th><th>데이터 · 비고</th></tr></thead>
+          <tbody>{PERF_SUMMARY.map(([a, b, c]) => <tr key={a}><td>{a}</td><td className="num"><b>{b}</b></td><td className="small muted">{c}</td></tr>)}</tbody></table></div>
+        <p className="muted small">보고서의 한계: 상심실 박동은 단일 유도의 P파 한계로 낮고(패치 설정은 런 단위), 심실빈맥 경보 정밀도는 22.9 %. 처리량은 Apple M1 Ultra 기준이라 이 기기 값은 위 시뮬레이션 성능을 보세요.{activeV?.has_perf ? ' 보고서 전문은 보관함의 "성능" 버튼.' : ''}</p>
+      </details>
     </div>
   )
 }
