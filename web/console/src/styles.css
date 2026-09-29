@@ -1363,3 +1363,12 @@ main.adm-main { padding: 0; }
 
 /* 뷰어 세션 끊김 배너 (뷰어는 로그인 화면으로 바뀌지 않는다) */
 .viewer-lost { position: fixed; left: 50%; top: 8px; transform: translateX(-50%); z-index: 1000; background: #7a1d1d; color: #fff; padding: 6px 14px; border-radius: 8px; font-size: 12.5px; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+
+/* 환자 목록 ECG(10초) 스냅샷: 검은 바탕 + 초록 파형, ↻ 로 최신 10초 */
+.ecg-box { position: relative; display: inline-flex; align-items: center; background: #000; border-radius: 4px; padding: 1px 2px; line-height: 0; }
+.ecg-box .lk-spark { display: block; }
+.ecg-box .lk-spark polyline, .ecg-box .lk-spark path { stroke: #3ddc84; }
+.ecg-box .lk-spark line { stroke: #4b5563; }
+.ecg-refresh { position: absolute; right: 2px; top: 1px; width: 16px; height: 16px; padding: 0; line-height: 14px; font-size: 12px; border-radius: 4px; border: 0; background: rgba(255,255,255,.14); color: #fff; opacity: 0; cursor: pointer; }
+.ecg-box:hover .ecg-refresh { opacity: 1; }
+.ecg-th .ecg-refresh, .ecg-refresh.on { position: static; opacity: 1; background: var(--panel2); color: var(--text); border: 1px solid var(--line); vertical-align: middle; }
