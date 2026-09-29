@@ -174,6 +174,7 @@ impl AppState {
         let ecg_preset = if cfg.ecg_preset == "clinical" { crate::ecg_engine::ECG_PRESET_CLINICAL } else { crate::ecg_engine::ECG_PRESET_PATCH };
         let ecg_stages = cfg.ecg_stages.clone();
         let ecg_threads = cfg.ecg_threads;
+        let cfg_db_path = cfg.db_path.clone();
         let alarm_rules_path = std::path::Path::new(&cfg.db_path).parent().map(|d| d.join("alarm_rules.json")).unwrap_or_else(|| "alarm_rules.json".into());
         let (db_tx, db_rx) = mpsc::channel(16384);
         // store 262,144 ops ≈ 25 s of records at 10k/s (~90 MB worst case): absorbs the store-and-forward replay
@@ -222,7 +223,7 @@ impl AppState {
             sub_groups: dashmap::DashMap::new(),
             sub_gateways: dashmap::DashMap::new(),
             alarms: AlarmBook::load(&alarm_rules_path),
-            analysis: crate::ecg_analysis::AnalysisHub::start(&ecg_lib, ecg_preset, &ecg_stages, ecg_threads),
+            analysis: crate::ecg_analysis::AnalysisHub::start(&ecg_lib, ecg_preset, &ecg_stages, ecg_threads, &cfg_db_path),
             last_store_drop_ms: AtomicU64::new(0),
             emr_cache: Mutex::new(std::collections::HashMap::new()),
         });

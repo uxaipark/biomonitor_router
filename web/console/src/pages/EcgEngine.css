@@ -37,3 +37,4 @@
 .ecg-fold > summary h3 { margin: 0; }
 .ecg-fold > summary .ecg-fold-hint { margin-left: auto; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
 .ecg-fold[open] > summary { margin-bottom: 8px; }
+.ecg-bench-h-tbl tr.active td { background: color-mix(in srgb, var(--accent) 8%, transparent); }

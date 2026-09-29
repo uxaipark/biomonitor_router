@@ -135,6 +135,11 @@ pub struct AnalysisHub {
     last_error: Mutex<String>,
     loaded_ms: AtomicU64,
     bench_last: Mutex<serde_json::Value>,
+    /// 벤치 이력(최근 10회)·판정 이력(ecg_trace: 라벨 전환, ecg_beatmin: 분당 V/S 박동 수, 14일 보관)을 남기는 라우터 DB 연결
+    db: Mutex<Option<rusqlite::Connection>>,
+    /// DB 에 아직 안 쓴 이력 (10초마다 감시 스레드가 쓴다)
+    pend_db: Mutex<(Vec<(u32, u64, String)>, HashMap<(u32, u64), (u32, u32)>)>,
+    last_prune_ms: AtomicU64,
 }
 
 fn now_ms() -> u64 {
@@ -143,7 +148,7 @@ fn now_ms() -> u64 {
 
 impl AnalysisHub {
     /// 엔진을 읽고(없으면 꺼진 채로) 샤드 스레드와 감시 스레드를 띄운다.
-    pub fn start(lib_path: &str, preset: u32, stages: &str, threads: usize) -> Arc<AnalysisHub> {
+    pub fn start(lib_path: &str, preset: u32, stages: &str, threads: usize, db_path: &str) -> Arc<AnalysisHub> {
         let n = threads.clamp(1, 8);
         let mut shards = Vec::with_capacity(n);
         let mut rxs = Vec::with_capacity(n);
@@ -183,6 +188,12 @@ impl AnalysisHub {
             last_error: Mutex::new(String::new()),
             loaded_ms: AtomicU64::new(0),
             bench_last: Mutex::new(serde_json::Value::Null),
+            db: Mutex::new(rusqlite::Connection::open(db_path).ok().and_then(|c| {
+                let _ = c.execute_batch("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS ecg_bench (ms INTEGER PRIMARY KEY, engine TEXT NOT NULL, json TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ecg_trace (patch INTEGER NOT NULL, ms INTEGER NOT NULL, label TEXT NOT NULL); CREATE INDEX IF NOT EXISTS ecg_trace_pm ON ecg_trace(patch, ms); CREATE INDEX IF NOT EXISTS ecg_trace_ms ON ecg_trace(ms); CREATE TABLE IF NOT EXISTS ecg_beatmin (patch INTEGER NOT NULL, minute_ms INTEGER NOT NULL, v INTEGER NOT NULL, s INTEGER NOT NULL, PRIMARY KEY (patch, minute_ms)); CREATE INDEX IF NOT EXISTS ecg_beatmin_ms ON ecg_beatmin(minute_ms);");
+                Some(c)
+            })),
+            pend_db: Mutex::new((Vec::new(), HashMap::new())),
+            last_prune_ms: AtomicU64::new(0),
         });
         match hub.reload() {
             Ok(id) => info!("ecg engine: {} ({})", id, lib_path),
@@ -199,6 +210,7 @@ impl AnalysisHub {
                 .spawn(move || loop {
                     std::thread::sleep(Duration::from_secs(10));
                     h.check_file();
+                    h.flush_db();
                 })
                 .expect("ecg watch thread");
         }
@@ -453,10 +465,76 @@ impl AnalysisHub {
             "threads_live": self.shards.len(), "channels_live": self.channels_live.load(Ordering::Relaxed),
         });
         *self.bench_last.lock().unwrap() = r.clone();
+        if let Some(db) = self.db.lock().unwrap().as_ref() {
+            let _ = db.execute("INSERT OR REPLACE INTO ecg_bench (ms, engine, json) VALUES (?1, ?2, ?3)", rusqlite::params![now_ms() as i64, e.id, r.to_string()]);
+            let _ = db.execute("DELETE FROM ecg_bench WHERE ms NOT IN (SELECT ms FROM ecg_bench ORDER BY ms DESC LIMIT 10)", []);
+        }
         Ok(r)
     }
     pub fn bench_last(&self) -> serde_json::Value {
         self.bench_last.lock().unwrap().clone()
+    }
+    /// 벤치 이력 최근 10회 (최신 먼저)
+    pub fn bench_history(&self) -> Vec<serde_json::Value> {
+        let g = self.db.lock().unwrap();
+        let Some(db) = g.as_ref() else { return Vec::new() };
+        let Ok(mut st) = db.prepare("SELECT json FROM ecg_bench ORDER BY ms DESC LIMIT 10") else { return Vec::new() };
+        st.query_map([], |r| r.get::<_, String>(0)).map(|rows| rows.flatten().filter_map(|t| serde_json::from_str(&t).ok()).collect()).unwrap_or_default()
+    }
+
+    /// 판정 이력을 DB 에 쓴다 (10초마다). 하루에 한 번 14일 지난 행 정리.
+    pub fn flush_db(&self) {
+        let (tr, bm) = { let mut q = self.pend_db.lock().unwrap(); (std::mem::take(&mut q.0), std::mem::take(&mut q.1)) };
+        if tr.is_empty() && bm.is_empty() && now_ms().saturating_sub(self.last_prune_ms.load(Ordering::Relaxed)) < 86_400_000 {
+            return;
+        }
+        let mut g = self.db.lock().unwrap();
+        let Some(db) = g.as_mut() else { return };
+        if let Ok(tx) = db.transaction() {
+            for (p, ms, l) in &tr {
+                let _ = tx.execute("INSERT INTO ecg_trace (patch, ms, label) VALUES (?1, ?2, ?3)", rusqlite::params![*p as i64, *ms as i64, l]);
+            }
+            for ((p, m), (v, s)) in &bm {
+                let _ = tx.execute("INSERT INTO ecg_beatmin (patch, minute_ms, v, s) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(patch, minute_ms) DO UPDATE SET v = v + excluded.v, s = s + excluded.s", rusqlite::params![*p as i64, *m as i64, *v as i64, *s as i64]);
+            }
+            let _ = tx.commit();
+        }
+        let now = now_ms();
+        if now.saturating_sub(self.last_prune_ms.load(Ordering::Relaxed)) >= 86_400_000 {
+            self.last_prune_ms.store(now, Ordering::Relaxed);
+            let cut = (now - 14 * 86_400_000) as i64;
+            let _ = db.execute("DELETE FROM ecg_trace WHERE ms < ?1", rusqlite::params![cut]);
+            let _ = db.execute("DELETE FROM ecg_beatmin WHERE minute_ms < ?1", rusqlite::params![cut]);
+        }
+    }
+    /// DB 에서 구간 [from, to] 의 판정 이력 (검증용, 긴 구간): 패치별 (전환 목록, V 박동 분 시각, S 박동 분 시각). 구간 시작 시점의 상태는
+    /// 그 전 마지막 전환으로 채운다.
+    pub fn traces_db(&self, from_ms: u64, to_ms: u64) -> Vec<(u32, String, u64, Vec<(u64, String)>, Vec<u64>, Vec<u64>)> {
+        self.flush_db();
+        let g = self.db.lock().unwrap();
+        let Some(db) = g.as_ref() else { return Vec::new() };
+        let mut per: HashMap<u32, (Vec<(u64, String)>, Vec<u64>, Vec<u64>)> = HashMap::new();
+        if let Ok(mut st) = db.prepare("SELECT patch, ms, label FROM ecg_trace WHERE ms >= ?1 AND ms <= ?2 ORDER BY patch, ms") {
+            if let Ok(rows) = st.query_map(rusqlite::params![from_ms as i64, to_ms as i64], |r| Ok((r.get::<_, i64>(0)? as u32, r.get::<_, i64>(1)? as u64, r.get::<_, String>(2)?))) {
+                for (p, ms, l) in rows.flatten() { per.entry(p).or_default().0.push((ms, l)); }
+            }
+        }
+        // 구간 시작 시점 상태: 그 전 마지막 전환 (패치별)
+        if let Ok(mut st) = db.prepare("SELECT patch, label, MAX(ms) FROM ecg_trace WHERE ms < ?1 AND ms >= ?1 - 86400000 GROUP BY patch") {
+            if let Ok(rows) = st.query_map(rusqlite::params![from_ms as i64], |r| Ok((r.get::<_, i64>(0)? as u32, r.get::<_, String>(1)?))) {
+                for (p, l) in rows.flatten() { per.entry(p).or_default().0.insert(0, (from_ms, l)); }
+            }
+        }
+        if let Ok(mut st) = db.prepare("SELECT patch, minute_ms, v, s FROM ecg_beatmin WHERE minute_ms >= ?1 - 60000 AND minute_ms <= ?2") {
+            if let Ok(rows) = st.query_map(rusqlite::params![from_ms as i64, to_ms as i64], |r| Ok((r.get::<_, i64>(0)? as u32, r.get::<_, i64>(1)? as u64, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?))) {
+                for (p, m, v, s) in rows.flatten() {
+                    let e = per.entry(p).or_default();
+                    if v > 0 { e.1.push(m + 30_000) }
+                    if s > 0 { e.2.push(m + 30_000) }
+                }
+            }
+        }
+        per.into_iter().map(|(p, (tr, v, s))| { let (cur, since) = tr.last().cloned().map(|(t, l)| (l, t)).unwrap_or(("unknown".into(), from_ms)); (p, cur, since, tr, v, s) }).collect()
     }
 
     fn shard_of(&self, channel_id: u32) -> usize {
@@ -541,6 +619,7 @@ impl AnalysisHub {
             "busy_ms": self.busy_ns.load(Ordering::Relaxed) / 1_000_000,
             "last_error": self.last_error(),
             "bench": self.bench_last(),
+            "bench_history": self.bench_history(),
         })
     }
 
@@ -808,9 +887,12 @@ impl AnalysisHub {
             let cut = row.marks.len() - 200;
             row.marks.drain(..cut);
         }
-        for x in s.pend_trace.drain(..) { row.trace.push_back(x); }
-        for x in s.pend_v.drain(..) { row.vbeats.push_back(x); }
-        for x in s.pend_s.drain(..) { row.sbeats.push_back(x); }
+        {
+            let mut q = self.pend_db.lock().unwrap();
+            for x in s.pend_trace.drain(..) { q.0.push((id, x.0, x.1.clone())); row.trace.push_back(x); }
+            for x in s.pend_v.drain(..) { q.1.entry((id, x / 60_000 * 60_000)).or_default().0 += 1; row.vbeats.push_back(x); }
+            for x in s.pend_s.drain(..) { q.1.entry((id, x / 60_000 * 60_000)).or_default().1 += 1; row.sbeats.push_back(x); }
+        }
         while row.trace.len() > 160 { row.trace.pop_front(); }
         while row.vbeats.len() > 300 { row.vbeats.pop_front(); }
         while row.sbeats.len() > 300 { row.sbeats.pop_front(); }

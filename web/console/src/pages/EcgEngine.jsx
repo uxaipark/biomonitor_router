@@ -77,7 +77,7 @@ export default function EcgEngine() {
     try {
       const r = await api.ecg.bench(120, 64) // 1.9M 샘플 — 이 기기에서 1초 남짓
       await new Promise((res) => setTimeout(res, Math.max(0, 600 - (Date.now() - t0)))) // 너무 빨리 끝나도 '측정 중' 이 보이게
-      setBench({ ...r, _fresh: Date.now() }); setBenchFlash(true); setTimeout(() => setBenchFlash(false), 2500)
+      setBench({ ...r, _fresh: Date.now() }); setBenchFlash(true); setTimeout(() => setBenchFlash(false), 2500); refreshE() // 이력 표 갱신 — 가장 오래된 것이 밀려난다
       setMsg(`시뮬레이션 측정 완료 — ${r.elapsed_ms} ms 동안 ${(r.samples || 0).toLocaleString()} 샘플 처리`)
     } catch (x) { setMsg('측정 실패: ' + x.message) } finally { setBenchBusy(false) }
   }
@@ -197,7 +197,7 @@ export default function EcgEngine() {
       <section className="ecg-card">
         <h3>알고리즘 검증 <small className="muted">에뮬레이터 정답지(리듬 에피소드·전극 탈락) 대비 — 엔진 판정 흔적과 대조</small></h3>
         <div className="ecg-bench-h">
-          <span className="seg">{[0.5, 1, 3, 6].map((h) => <button key={h} className={evalHours === h ? 'active' : ''} onClick={() => setEvalHours(h)}>{h < 1 ? '30분' : `${h}시간`}</button>)}</span>
+          <span className="seg">{[[1 / 12, '5분'], [0.5, '30분'], [1, '1시간'], [6, '6시간'], [24, '1일'], [168, '7일'], [336, '14일']].map(([h, l]) => <button key={l} className={evalHours === h ? 'active' : ''} onClick={() => setEvalHours(h)} title={h > 1 ? '1시간 넘는 창은 DB 이력(분 단위 박동)으로 — 허용 오차 60초' : '메모리 흔적(정밀)'}>{l}</button>)}</span>
           <button className="primary" onClick={runEval} disabled={!edit || evalBusy || !e?.enabled}>{evalBusy ? '검증 중…' : '지금 검증'}</button>
           {ev && <span className="muted small">마지막 검증 {fmtDT(ev.ms)} · 정답 {ev.labels?.toLocaleString()}개 · 채널 {ev.channels?.toLocaleString()}개</span>}
         </div>
@@ -206,7 +206,7 @@ export default function EcgEngine() {
             <div className="ecg-grid" style={{ margin: '8px 0' }}>
               <div><small>지원 클래스 합계 · 민감도</small><b>{pct(ev.overall?.sensitivity)}</b><span className="muted">검출 {ev.overall?.tp} · 놓침 {ev.overall?.fn}</span></div>
               <div><small>지원 클래스 합계 · 정밀도</small><b>{pct(ev.overall?.precision)}</b><span className="muted">오검출 {ev.overall?.fp}</span></div>
-              <div><small>박동 단위 (R파 · N/S/V)</small><b>—</b><span className="muted">에뮬레이터 박동 정답 대기</span></div>
+              <div><small>기저 리듬 일치</small><b>{(ev.base || []).reduce((a, b) => a + (b.matched || 0), 0)} / {(ev.base || []).reduce((a, b) => a + (b.patients || 0), 0)}</b><span className="muted">{(ev.base || []).slice(0, 4).map((b) => `${b.name} ${b.matched}/${b.patients}`).join(' · ') || '—'}</span></div>
               <div><small>구간</small><b>{fmtDT(ev.from_ms)} ~</b><span className="muted">{fmtDT(ev.to_ms)}</span></div>
             </div>
             <div className="tbl-wrap"><table className="tbl ecg-eval"><thead><tr><th>정답 클래스</th><th>엔진 라벨</th><th className="num">정답</th><th className="num">검출</th><th className="num">놓침</th><th className="num">오검출</th><th className="num">민감도</th><th className="num">정밀도</th><th className="num">지연 중앙값</th><th className="num">p90</th></tr></thead>
@@ -236,6 +236,10 @@ export default function EcgEngine() {
               <div><small>측정</small><b>{bench._fresh && Date.now() - bench._fresh < 60000 ? '방금 측정' : fmtDT(bench.ms)}</b><span className="muted">{bench.engine} · {bench.samples?.toLocaleString()} 샘플 / {bench.elapsed_ms} ms{bench._fresh ? '' : ' · 마지막 측정값'}</span></div>
             </div>
           )}
+          <h5 className="muted" style={{ margin: '10px 0 4px' }}>측정 이력 <small>(최근 10회 · 라우터 DB)</small></h5>
+          <div className="tbl-wrap"><table className="tbl ecg-bench-h-tbl"><thead><tr><th>측정 시각</th><th>엔진</th><th className="num">ns/샘플</th><th className="num">채널/코어</th><th className="num">박동 검출</th><th className="num">샘플 · 소요</th></tr></thead>
+            <tbody>{(e?.bench_history || []).map((b, i) => <tr key={b.ms} className={i === 0 ? 'active' : ''}><td>{fmtDT(b.ms)}</td><td className="mono small">{b.engine}</td><td className="num"><b>{b.ns_per_sample}</b></td><td className="num">{(b.channels_per_core || 0).toLocaleString()}</td><td className="num">{b.beats}/{b.beats_expected}</td><td className="num small muted">{(b.samples || 0).toLocaleString()} · {b.elapsed_ms} ms</td></tr>)}
+              {!(e?.bench_history || []).length && <tr><td colSpan="6" className="muted">아직 측정 이력이 없습니다.</td></tr>}</tbody></table></div>
         </div>
       </section>
 
