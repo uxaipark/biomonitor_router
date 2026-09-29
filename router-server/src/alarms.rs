@@ -358,7 +358,8 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
             let hold = rules.ecg_hold_s * 1000;
             let recent = |kind: &str| a.episodes.iter().find(|(k, _, end)| k == kind && now.saturating_sub(*end) < hold).map(|(_, s, e)| (*s, *e));
             // 박동 없음 시간은 패킷 시간대에서 검출 지연을 뺀 값 (서버 시각과 비교하면 지연·전송 시간이 더해져 과다 알람)
-            let since_beat = if a.last_beat_ms > 0 { a.pkt_ms.saturating_sub(a.last_beat_ms).saturating_sub(a.lag_ms as u64) } else { 0 };
+            let settled = a.gap_ms == 0 || a.pkt_ms.saturating_sub(a.gap_ms) >= 5000 || a.last_beat_ms > a.gap_ms; // 유실 직후 5초는 제외
+            let since_beat = if a.last_beat_ms > 0 && settled { a.pkt_ms.saturating_sub(a.last_beat_ms).saturating_sub(a.lag_ms as u64) } else { 0 };
             ana_hr = a.hr.map(|h| h.round().clamp(0.0, 255.0) as u8);
             if rules.ecg_alarm_lead_off && a.lead_off && !lead_off {
                 seen.push(base("ecg_lead_off", Severity::Medium, "LEAD_OFF".into(), "ECG 분석: 전극 접촉 불량".into(), rules.lead_off_s));

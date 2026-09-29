@@ -35,6 +35,8 @@ pub struct AnaRow {
     /// 마지막으로 분석한 샘플의 시각(패킷 시간대) 과 검출 지연 추정(ms): 휴지·심정지는 (pkt_ms − last_beat_ms − lag) 로 잰다
     pub pkt_ms: u64,
     pub lag_ms: u32,
+    /// 마지막으로 유실(gap)을 선언한 시각 — 그 뒤 몇 초는 검출기가 다시 자리 잡는 동안이라 휴지·심정지로 보지 않는다
+    pub gap_ms: u64,
     /// 최근 에피소드 (kind, start_ms, end_ms) — kind 는 rhythm_name / "vf" / "svrun" / "leadoff"
     pub episodes: Vec<(String, u64, u64)>,
     pub stages: String,
@@ -106,6 +108,7 @@ struct Slot {
     last_touch: Instant,
     /// 박동 검출 지연(패킷 시각 − 보고된 R 시각) 의 지수 이동 평균
     lag_ms: f64,
+    last_gap_ms: u64,
     /// 요약 행을 마지막으로 쓴 패킷 번호 (이벤트 없으면 5패킷=1초마다만 쓴다)
     row_seq: u64,
     dirty: bool,
@@ -704,6 +707,7 @@ impl AnalysisHub {
                             marks: Vec::new(),
                             last_touch: Instant::now(),
                             lag_ms: 600.0,
+                            last_gap_ms: 0,
                             row_seq: 0,
                             dirty: true,
                             pend_trace: Vec::new(),
@@ -731,6 +735,7 @@ impl AnalysisHub {
             let g = ((t0 - s.last_end_ms) / step).round().max(1.0) as u64;
             s.chan.gap(g);
             s.idx += g;
+            s.last_gap_ms = ts_ms;
             self.gaps.fetch_add(1, Ordering::Relaxed);
         }
         s.chan.push(&samples);
@@ -815,13 +820,15 @@ impl AnalysisHub {
         let since_beat = if s.last_beat_ms > 0.0 { (ts_ms as f64 - s.last_beat_ms - s.lag_ms).max(0.0) } else { 0.0 };
         let recent_ep = |kind: &str, hold_ms: u64| s.episodes.iter().rev().any(|(k, _, end)| k == kind && ts_ms.saturating_sub(*end) < hold_ms);
         let unusable = s.status.quality == eng::QUALITY_UNUSABLE;
+        // 유실 직후 5초는 검출기가 자리 잡는 동안이라 '박동 없음'으로 치지 않는다 (유실마다 가짜 휴지 라벨·알람이 나던 원인)
+        let settled = s.last_gap_ms == 0 || ts_ms.saturating_sub(s.last_gap_ms) >= 5000 || (s.last_beat_ms as u64) > s.last_gap_ms;
         let label = if lead_off {
             "leadoff"
         } else if in_vf {
             "vf"
-        } else if !unusable && s.last_beat_ms > 0.0 && since_beat >= 4000.0 {
+        } else if !unusable && settled && s.last_beat_ms > 0.0 && since_beat >= 4000.0 {
             "asystole"
-        } else if !unusable && s.last_beat_ms > 0.0 && since_beat >= 2000.0 {
+        } else if !unusable && settled && s.last_beat_ms > 0.0 && since_beat >= 2000.0 {
             "pause"
         } else if recent_ep("vtach", 30_000) {
             "vtach"
@@ -878,6 +885,7 @@ impl AnalysisHub {
         row.last_beat_ms = s.last_beat_ms as u64;
         row.pkt_ms = ts_ms;
         row.lag_ms = s.lag_ms as u32;
+        row.gap_ms = s.last_gap_ms;
         if row.episodes.len() != s.episodes.len() || row.episodes.first().map(|e| e.1) != s.episodes.back().map(|e| e.1) {
             row.episodes = s.episodes.iter().rev().take(10).cloned().collect();
         }
