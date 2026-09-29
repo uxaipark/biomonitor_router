@@ -152,14 +152,19 @@ export default function OpsStats() {
   // 5분 구간은 2 s 샘플이라 5 s 마다, 나머지는 30 s 마다 새로 읽는다
   const [info, , refreshInfo] = usePoll(api.metricsInfo, 30000)
   // 자동: 쌓인 로그가 그 구간을 가득 채운(≥ 98 %) 것 중 가장 긴 구간. 1개월에서 멈춤. 아무것도 못 채우면 5분.
+  // 자동 구간: 채움 비율(info)이 오기 전에는 지난번에 고른 자동 구간을 쓴다 — 예전엔 info 가 없을 때 5분으로 그렸다가
+  // 100 ms 뒤 info 가 오면 1일 등으로 바뀌어 그래프가 확 바뀌었다(캐시가 아니라 두 단계 렌더). 처음 방문이면 info 를 기다린다.
   const autoRange = useMemo(() => {
-    const f = info?.fill || {}
+    if (!info) { try { return localStorage.getItem('ops.autoRange') || null } catch { return null } }
+    const f = info.fill || {}
     const full = (k) => (f[k] ?? 0) >= 0.98
-    return full('month') ? 'month' : full('week') ? 'week' : full('day') ? 'day' : full('hour') ? 'hour' : '5min'
+    const r = full('month') ? 'month' : full('week') ? 'week' : full('day') ? 'day' : full('hour') ? 'hour' : '5min'
+    try { localStorage.setItem('ops.autoRange', r) } catch { /* ignore */ }
+    return r
   }, [info])
-  const range = sel === 'auto' ? autoRange : sel
+  const range = sel === 'auto' ? autoRange : sel // null = 아직 모름(첫 방문, info 대기)
   // 5분 구간은 2초 샘플이라 2초마다 다시 그린다 (사용자 요청); 나머지는 30초
-  const [data, , refresh] = usePoll(() => api.metrics(range), range === '5min' ? 2000 : 30000, [range])
+  const [data, , refresh] = usePoll(() => (range ? api.metrics(range) : Promise.resolve(null)), range === '5min' ? 2000 : 30000, [range])
   const [stats] = usePoll(api.stats, 5000)
   const [msg, setMsg] = useState('')
   const setR = (r) => { setSel(r); try { localStorage.setItem('ops.range', r) } catch { /* ignore */ } }
