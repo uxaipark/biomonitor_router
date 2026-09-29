@@ -60,6 +60,7 @@ export const api = {
   setAlarmRules: (r) => send('PUT', '/api/alarms/rules', r),
   ackAlarm: (id) => send('POST', `/api/alarms/${id}/ack`),
   patch: (id) => get(`/api/patches/${id}`),
+  waveRecent: (ids, secs = 10, points = 96) => get(`/api/wave/recent?ids=${encodeURIComponent(ids.join(','))}&secs=${secs}&points=${points}`), // 여러 환자 최근 N초 ECG 미니 파형
   groups: () => get('/api/groups'),
   createGroup: (g) => send('POST', '/api/groups', g),
   updateGroup: (id, g) => send('PUT', `/api/groups/${id}`, g),

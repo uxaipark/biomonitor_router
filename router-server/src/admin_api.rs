@@ -29,6 +29,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/patches/{id}", get(patch_index))
         .route("/api/patches/{id}/verify", get(patch_verify))
         .route("/api/channels", get(list_channels))
+        .route("/api/wave/recent", get(wave_recent))
         .route("/api/wave/{channel_id}/info", get(wave_info))
         .route("/api/wave/{channel_id}", get(wave_read))
         .route("/api/wave/{channel_id}/waves", get(wave_read_all))
@@ -911,6 +912,81 @@ async fn wave_read(
     }
     Json(serde_json::json!({ "from_ms": from, "to_ms": to, "segments": segments }))
         .into_response()
+}
+
+/// 여러 환자의 "최근 N초 ECG" 미니 파형(환자 목록의 ECG(10초) 열): 저장 파일 꼬리 + 미플러시 버퍼를 읽어 서버에서
+/// min/max 버킷(points 쌍)으로 줄여 한 번에 돌려준다 — 브라우저가 10초 동안 스트림을 모으던 것(지연 ≥ 10 s)을 대체.
+/// `?ids=a,b,c&secs=10&points=96` (ids ≤ 120). 응답 {"t","secs","points":{id:{"n","pts":[max,min,…]}}}, pts 는 최솟값을 0 으로 옮긴 mV.
+async fn wave_recent(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let now = crate::protocol::now_ms();
+    let getn = |k: &str, d: u64| q.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
+    let secs = getn("secs", 10).clamp(2, 30);
+    let points = getn("points", 96).clamp(16, 400) as usize;
+    let ids: Vec<String> = q.get("ids").map(|v| v.split(',').filter(|x| !x.is_empty()).take(120).map(String::from).collect()).unwrap_or_default();
+    let from = now.saturating_sub(secs * 1000);
+    // 미플러시 버퍼는 저장 스레드에 한꺼번에 묻고 한꺼번에 받는다
+    let mut waits = Vec::new();
+    for id in &ids {
+        if let Some(pid) = patch_id_of(id) {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            state.send_store(crate::patch_store::StoreOp::Pending { pid, tx });
+            waits.push((pid, rx));
+        }
+    }
+    let mut bufs: std::collections::HashMap<u32, Vec<u8>> = std::collections::HashMap::new();
+    for (pid, rx) in waits {
+        if let Ok(Ok(b)) = tokio::time::timeout(std::time::Duration::from_millis(300), rx).await {
+            bufs.insert(pid, b);
+        }
+    }
+    let root = std::path::PathBuf::from(&state.cfg.store_dir);
+    let _permit = hist_sem().acquire().await;
+    let out = tokio::task::spawn_blocking(move || {
+        let mut m = serde_json::Map::new();
+        for id in ids {
+            let Some(pid) = patch_id_of(&id) else { continue };
+            let mut recs: Vec<(u64, Vec<f32>)> = crate::patch_store::read_ecg_range(&root, pid, from, now).into_iter().map(|(ts, _seq, s)| (ts, s)).collect();
+            if let Some(b) = bufs.get(&pid) {
+                for r in crate::patch_store::wave_recs_in_buf(b, from, now) {
+                    for (ch, _n, data) in r.blocks {
+                        if ch == crate::wire::CH_ECG {
+                            recs.push((r.ts_ms, data.iter().map(|v| *v as f32 * 0.001).collect()));
+                        }
+                    }
+                }
+            }
+            recs.sort_by_key(|r| r.0);
+            recs.dedup_by_key(|r| r.0);
+            let samples: Vec<f32> = recs.into_iter().flat_map(|r| r.1).collect();
+            let n = samples.len();
+            if n < 2 {
+                continue;
+            }
+            let stride = (n / points).max(1);
+            let mut pts: Vec<f32> = Vec::with_capacity(points * 2 + 2);
+            let mut lo_all = f32::INFINITY;
+            let mut i = 0;
+            while i < n {
+                let end = (i + stride).min(n);
+                let (mut mn, mut mx) = (f32::INFINITY, f32::NEG_INFINITY);
+                for v in &samples[i..end] {
+                    if *v < mn { mn = *v }
+                    if *v > mx { mx = *v }
+                }
+                pts.push(mx);
+                pts.push(mn);
+                if mn < lo_all { lo_all = mn }
+                i += stride;
+            }
+            let arr: Vec<serde_json::Value> = pts.iter().map(|v| serde_json::json!(((v - lo_all) * 1000.0).round() / 1000.0)).collect();
+            m.insert(id, serde_json::json!({ "n": n, "pts": arr }));
+        }
+        m
+    }).await.unwrap_or_default();
+    Json(serde_json::json!({ "t": now, "secs": secs, "points": out })).into_response()
 }
 
 /// 저장 파형 전 채널 조회 (이력 뷰어). 범위 최대 10분. 바이너리 응답:

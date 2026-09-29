@@ -4,8 +4,6 @@ import { alarmIndex, flagNames, sortBy, SEV_LABEL, SEV_ORDER, FLAG_LABEL, FLAG_W
 import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
 import Trips from './Trips.jsx'
-import { getStream } from '../waveStore.js'
-import { claimLive, releaseLive } from '../ws.js'
 import {
   useQuery, go, useRevealSelected, Cols, tableMin, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, GwLink, RoomLink, WardLink,
   TwoLine, Dot, Pill, Spark, GroupRow, useDensity, DensityToggle, RowActions, Ago, ago, TONE,
@@ -50,29 +48,6 @@ const vc = (k, v) => {
   if (k === 'resp') return v > 30 || v < 8 ? 'v warnv' : 'v'
   if (k === 'temp') return v >= 39 ? 'v bad' : v >= 38 ? 'v warnv' : 'v'
   return 'v'
-}
-
-/** ECG 링(구독 중인 채널만 있다)에서 최근 10초를 96개 점으로 — 구독이 없으면 null */
-function ecgPoints(channelId, n = 96, spanMs = 10000) {
-  const ring = getStream(`${channelId}:ecg`)
-  if (!ring || ring.len < 2) return null
-  const last = ring.tAt(ring.len - 1)
-  const from = last - spanMs
-  let start = 0
-  while (start < ring.len - 1 && ring.tAt(start) < from) start++
-  const count = ring.len - start
-  if (count < 2) return null
-  const out = []
-  const stride = Math.max(1, Math.floor(count / n))
-  // 각 구간의 최대·최소를 번갈아 두어 R파가 사라지지 않게 (병상 모니터 방식)
-  for (let i = start; i < ring.len; i += stride) {
-    let mn = Infinity, mx = -Infinity
-    for (let j = i; j < Math.min(ring.len, i + stride); j++) { const v = ring.vAt(j); if (v < mn) mn = v; if (v > mx) mx = v }
-    out.push(mx, mn)
-  }
-  // Spark 는 0 을 바닥으로 그리므로 최소값을 0 으로 옮긴다
-  const lo = Math.min(...out)
-  return out.map((v) => v - lo)
 }
 
 /** 환자 목록: 요약 칩 · 병동/담당의/검색 필터(주소에 남음) · 표(병동 묶음) · 오른쪽 환자 상세 */
@@ -131,30 +106,30 @@ export default function Patients({ alarms }) {
   const pages = Math.max(1, Math.ceil(shown.length / PAGE))
   const cur = Math.min(page, pages - 1)
   const slice = shown.slice(cur * PAGE, cur * PAGE + PAGE)
-  // ECG(10초)는 스냅샷: 페이지가 뜨면 보이는 환자(최대 100명)를 한 번 구독해 두고, 각자 링에 10초가 다 모인 순간에만 찍는다
-  // (덜 모인 채로 찍지 않는다 — 짧은 파형이 들어오던 원인). 모두 찍히거나 30초가 지나면 구독을 풀고 더는 갱신하지 않는다.
-  // 스냅샷은 ref 에 두어 한 명이 찍힐 때마다 구독이 풀렸다 다시 걸리는 일(시한 초기화·흐름 끊김)이 없게 한다.
-  const liveIds = slice.filter((r) => r.connected && !r.stale).map((r) => String(r.channel_id)).join(',')
-  const snaps = useRef(new Map()) // channel_id → 점 배열 (한 번 찍으면 고정)
+  // ECG(10초) 열: 옵션(계정별 선호 patients.ecg, 기본 꺼짐)을 켜면 보이는 환자의 최근 10초를 라우터가 저장본(파일 꼬리 +
+  // 미플러시 버퍼)에서 한 번에 줄여 보내 준다(/api/wave/recent, 40명씩 병렬) — 브라우저에서 10초를 모으던 방식(지연 ≥ 10 s)보다
+  // 훨씬 빠르다. 한 번 받으면 고정, ↻ 로 다시 받는다.
+  const [ecgOn, setEcgOn] = useState(false)
+  useEffect(() => { let ok = true; api.auth.prefs().then((p) => { if (ok && p?.['patients.ecg'] === true) setEcgOn(true) }).catch(() => {}); return () => { ok = false } }, [])
+  const toggleEcg = (on) => { setEcgOn(on); api.auth.setPrefs({ 'patients.ecg': on }).catch(() => {}) }
+  const liveIds = ecgOn ? slice.filter((r) => r.connected && !r.stale).map((r) => String(r.channel_id)).join(',') : ''
+  const snaps = useRef(new Map()) // channel_id → 점 배열 (한 번 받으면 고정)
   const [, bump] = useState(0)
   const [gen, setGen] = useState(0)
-  const refreshEcg = (ids) => { for (const id of ids) snaps.current.delete(String(id)); bump((x) => x + 1); setGen((g) => g + 1) } // 지우고 다시 찍는다
+  const [ecgBusy, setEcgBusy] = useState(false)
+  const refreshEcg = (ids) => { for (const id of ids) snaps.current.delete(String(id)); bump((x) => x + 1); setGen((g) => g + 1) }
   useEffect(() => {
     const ids = liveIds ? liveIds.split(',').filter((id) => !snaps.current.has(id)) : []
-    if (!ids.length) { releaseLive('patients'); return }
-    claimLive('patients', ids)
-    const t0 = Date.now(), pending = new Set(ids)
-    const t = setInterval(() => {
-      for (const id of [...pending]) {
-        const ring = getStream(`${id}:ecg`)
-        const span = ring && ring.len > 1 ? ring.tAt(ring.len - 1) - ring.tAt(0) : 0
-        if (span >= 9800) { const pts = ecgPoints(id); if (pts) { snaps.current.set(id, pts); pending.delete(id) } }
-      }
-      bump((x) => x + 1)
-      if (!pending.size || Date.now() - t0 > 30000) { clearInterval(t); releaseLive('patients') }
-    }, 1000)
-    return () => { clearInterval(t); releaseLive('patients') }
+    if (!ids.length) return
+    let dead = false
+    setEcgBusy(true)
+    const chunks = []; for (let i = 0; i < ids.length; i += 40) chunks.push(ids.slice(i, i + 40))
+    Promise.all(chunks.map((c) => api.waveRecent(c).then((d) => { if (dead) return; for (const [id, v] of Object.entries(d?.points || {})) if (v?.pts?.length > 1) snaps.current.set(id, v.pts); bump((x) => x + 1) }).catch(() => {})))
+      .finally(() => { if (!dead) setEcgBusy(false) })
+    return () => { dead = true }
   }, [liveIds, gen])
+  const cols = ecgOn ? COLS : COLS.filter((c) => c[0] !== 'ecg')
+  const Wc = cols.map((c) => c[2])
   const wardStats = useMemo(() => { const m = new Map(); for (const r of shown) { const s = m.get(r.ward) || { n: 0, alarms: 0 }; s.n++; if (r.alarm) s.alarms++; m.set(r.ward, s) } return m }, [shown])
   const selRow = sel ? flat.find((r) => r.channel_id === sel) : null
   useRevealSelected(sel, shown, (r) => r.channel_id, PAGE, setPage)
@@ -189,7 +164,7 @@ export default function Patients({ alarms }) {
     if (grouped && r.ward !== lastWard) {
       lastWard = r.ward
       const st = wardStats.get(r.ward) || { n: 0, alarms: 0 }
-      rowsOut.push(<GroupRow key={'g:' + (r.ward || '-')} colSpan={COLS.length}>{r.ward ? wardText(r.ward) : '병동 미지정'} · {st.n.toLocaleString()}명{st.alarms ? ` · 알람 ${st.alarms}` : ''}</GroupRow>)
+      rowsOut.push(<GroupRow key={'g:' + (r.ward || '-')} colSpan={cols.length}>{r.ward ? wardText(r.ward) : '병동 미지정'} · {st.n.toLocaleString()}명{st.alarms ? ` · 알람 ${st.alarms}` : ''}</GroupRow>)
     }
     const lost = r.stale || !r.connected
     const ecg = lost ? null : snaps.current.get(String(r.channel_id)) || null
@@ -209,10 +184,10 @@ export default function Patients({ alarms }) {
         <td className={'num ' + vc('spo2', lost ? null : r.spo2)}>{lost ? '—' : r.spo2 ?? '—'}</td>
         <td className={'num ' + vc('resp', lost ? null : r.resp)}>{lost ? '—' : r.resp ?? '—'}</td>
         <td className={'num ' + vc('temp', lost ? null : r.temp)}>{lost ? '—' : r.temp != null ? r.temp.toFixed(1) : '—'}</td>
-        <td className="ecg-cell">{lost ? <small className="muted">{r.connected ? '무신호' : '해제'} {ago(r.last, now).replace(' 전', '')}</small> : <span className="ecg-box" title={ecg ? '페이지를 열었을 때의 최근 10초 ECG — ↻ 로 최신 10초' : '10초를 모으는 중 (30초 안에 못 모으면 점선으로 남음 — 열 머리 ↻ 로 다시)'}>
+        {ecgOn && <td className="ecg-cell">{lost ? <small className="muted">{r.connected ? '무신호' : '해제'} {ago(r.last, now).replace(' 전', '')}</small> : <span className="ecg-box" title={ecg ? '받았을 때의 최근 10초 ECG — ↻ 로 최신 10초' : (ecgBusy ? '받는 중…' : '저장된 최근 10초가 없음 — ↻ 로 다시')}>
           {ecg ? <Spark values={ecg} tone="ok" width={100} height={20} /> : <Spark values={[]} width={100} height={20} />}
           {ecg && <button className="ecg-refresh" onClick={(e) => { e.stopPropagation(); refreshEcg([r.channel_id]) }} title="이 환자의 최신 10초로">↻</button>}
-        </span>}</td>
+        </span>}</td>}
         <td className="num"><TwoLine mono main={<span className={r.battery != null && r.battery <= 15 ? 'warnv' : ''}>{r.battery != null ? `${r.battery}%` : '—'}</span>}
           sub={r.life ? <span className={r.life.level === 'err' ? 'err' : r.life.level ? 'warn' : ''} title={`착용 ${fmtDays(r.life.worn)}째 · 배터리 약 ${fmtDays(r.life.batLeft)} · ${r.life.reason} 기준`}>{r.life.left <= 0 ? '지금 교체' : `D-${fmtDays(r.life.left)}`}</span> : null} /></td>
         <td className="num v">{r.rssi ?? '—'}</td>
@@ -241,19 +216,20 @@ export default function Patients({ alarms }) {
         <Dropdown value={ward} options={wards} onChange={(v) => { setQs({ ward: v }); setPage(0) }} placeholder="모든 병동" width={200} />
         {doctors.length > 1 && <Dropdown value={doctor} options={doctors} onChange={(v) => { setQs({ doc: v }); setPage(0) }} placeholder="모든 담당의" width={170} />}
         <Dropdown value={sort[0]} options={SORTS.map(([k, l]) => ({ value: k, label: `정렬: ${l}` }))} onChange={(v) => { setSort([v, SORT_DIR[v] || 'asc']); setPage(0) }} searchable={false} width={170} />
+        <label className="chk" title="켜면 보이는 환자의 최근 10초 ECG 를 라우터에서 받아 표에 그립니다 (계정별로 기억)"><input type="checkbox" checked={ecgOn} onChange={(e) => toggleEcg(e.target.checked)} /><span>ECG (10초)</span></label>
         <label className="chk" title={ward ? "병동 필터를 지우면 병동별로 묶어 볼 수 있습니다" : "켜면 표를 병동별 묶음 헤더로 나눠 보여 줍니다"}><input type="checkbox" checked={groupPref} disabled={!!ward} onChange={(e) => setGroup(e.target.checked)} /><span>병동 묶기</span></label>
         <DensityToggle value={density} onChange={setDensity} />
       </FilterBar>
       <ListLayout detail={selRow ? <PatientDetail r={selRow} alarms={alarms} onClose={() => setQs({ sel: '' })} /> : sel ? <DetailPanel title={`패치 ${sel}`} onClose={() => setQs({ sel: '' })}><p className="muted">목록에 없는 패치입니다 (퇴원·교체).</p></DetailPanel> : null}>
-        <table className={'tbl fixed' + (density === 'dense' ? ' dense' : '')} style={{ minWidth: tableMin(W, 200) }}>
-          <Cols w={W} />
-          <thead><tr>{COLS.map(([k, l, , num]) => (k === 'ecg' ? <th key={k} className="ecg-th">{l} <button className="ecg-refresh on" onClick={() => refreshEcg(slice.map((r) => r.channel_id))} title="보이는 환자 모두 최신 10초로">↻</button></th> : th(k, l, num)))}</tr></thead>
+        <table className={'tbl fixed' + (density === 'dense' ? ' dense' : '')} style={{ minWidth: tableMin(Wc, 200) }}>
+          <Cols w={Wc} />
+          <thead><tr>{cols.map(([k, l, , num]) => (k === 'ecg' ? <th key={k} className="ecg-th">{l} <button className="ecg-refresh on" onClick={() => refreshEcg(slice.map((r) => r.channel_id))} title="보이는 환자 모두 최신 10초로" disabled={ecgBusy}>{ecgBusy ? '…' : '↻'}</button></th> : th(k, l, num)))}</tr></thead>
           <tbody>
             {rowsOut}
-            {!shown.length && <tr><td colSpan={COLS.length} className="muted">조건에 맞는 환자가 없습니다.</td></tr>}
+            {!shown.length && <tr><td colSpan={cols.length} className="muted">조건에 맞는 환자가 없습니다.</td></tr>}
           </tbody>
         </table>
-        <p className="lk-legend">수치는 임계 밖일 때만 색(주황 = 주의, 빨강 = 위험). ECG 는 페이지를 열었을 때의 최근 10초 스냅샷이며(모이는 동안은 점선) 갱신하지 않습니다. 두 번 누르면 실시간 파형이 열립니다.</p>
+        <p className="lk-legend">수치는 임계 밖일 때만 색(주황 = 주의, 빨강 = 위험). ECG (10초) 옵션을 켜면 받았을 때의 최근 10초를 그리고 갱신하지 않습니다(↻ 로 최신). 두 번 누르면 실시간 파형이 열립니다.</p>
       </ListLayout>
     </div>
   )
@@ -267,7 +243,14 @@ export function PatientDetail({ r, alarms, onClose }) {
   const age = ageOf(p.birth)
   const mine = (alarms?.alarms || []).filter((a) => a.channel_id === r.channel_id).sort((a, b) => (SEV_ORDER[b.severity] ?? 0) - (SEV_ORDER[a.severity] ?? 0))
   const lost = !r.connected || r.stale
-  const ecg = lost ? null : ecgPoints(r.channel_id, 140)
+  // 상세의 ECG 도 라우터 저장본에서 최근 10초를 받아 한 번 그린다 (환자를 바꾸면 다시)
+  const [ecg, setEcg] = useState(null)
+  useEffect(() => {
+    let ok = true; setEcg(null)
+    if (lost) return
+    api.waveRecent([r.channel_id], 10, 140).then((d) => { if (ok) setEcg(d?.points?.[r.channel_id]?.pts || null) }).catch(() => {})
+    return () => { ok = false }
+  }, [r.channel_id, lost])
   return (
     <DetailPanel title={p.name || r.mrn || r.channel_id} sub={[SEX[p.sex] || p.sex, age != null && `${age}세`, r.mrn, r.channel_id].filter(Boolean).join(' · ')} onClose={onClose}
       actions={<>
