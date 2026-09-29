@@ -1,6 +1,11 @@
 .ecg-page { max-width: 1200px; }
 .ecg-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; } .ecg-head .h { margin: 0; }
-.ecg-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+.ecg-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; min-width: 0; overflow: hidden; }
+.ecg-card .tbl-wrap { overflow-x: auto; max-width: 100%; }
+.ecg-ver { width: 100%; table-layout: auto; }
+.ecg-ver td, .ecg-ver th { white-space: nowrap; }
+.ecg-ver td.mono { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.ecg-ver td.small.muted, .ecg-ver td.small { white-space: normal; }
 .ecg-card h3 { margin: 0 0 8px; font-size: 14px; } .ecg-card h3 small { font-weight: 400; font-size: 12px; margin-left: 6px; }
 .ecg-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 14px; }
 .ecg-grid > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }

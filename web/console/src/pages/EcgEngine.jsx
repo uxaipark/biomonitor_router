@@ -146,7 +146,7 @@ export default function EcgEngine() {
         {/* 버전 보관함 */}
         <section className="ecg-card">
           <h3>엔진 보관함 <small className="muted">{versions.length}개 · {e?.versions_dir}</small></h3>
-          <table className="tbl ecg-ver"><thead><tr><th>상태</th><th>엔진</th><th>버전 키</th><th>빌드</th><th>크기</th><th>소스</th><th>단계</th><th>문서</th><th></th></tr></thead>
+          <div className="tbl-wrap"><table className="tbl ecg-ver"><thead><tr><th>상태</th><th>엔진</th><th>버전 키</th><th>빌드</th><th>크기</th><th>소스</th><th>단계</th><th>문서</th><th></th></tr></thead>
             <tbody>{versions.map((v) => (
               <tr key={v.key} className={v.active ? 'active' : ''}>
                 <td>{v.active ? <span className="tag ok">활성</span> : <span className="muted">보관</span>}</td>
@@ -158,7 +158,7 @@ export default function EcgEngine() {
                 <td className="actions">{!v.active && <button onClick={() => activate(v)} disabled={busy}>활성화</button>}{!v.active && <button className="ghost danger" onClick={() => remove(v)} disabled={busy}>삭제</button>}</td>
               </tr>))}
               {!versions.length && <tr><td colSpan="9" className="muted">보관함이 비어 있습니다. 갱신 스크립트가 빌드한 엔진은 자동으로 등록됩니다.</td></tr>}
-            </tbody></table>
+            </tbody></table></div>
           {doc && <div className="ecg-doc"><div className="ecg-doc-h"><b>{doc.key} · {doc.name}</b><span className="spacer" /><button className="icon" onClick={() => setDoc(null)}>✕</button></div>{doc.name.endsWith('.md') ? <MdTable text={doc.text} /> : <pre>{doc.text}</pre>}</div>}
         </section>
       </ReadOnly>
@@ -166,9 +166,9 @@ export default function EcgEngine() {
       {/* 이력 */}
       <section className="ecg-card">
         <h3>엔진 이력 <small className="muted">읽기 · 활성화 · 설정 변경</small></h3>
-        <table className="tbl"><thead><tr><th>시각</th><th>동작</th><th>엔진</th><th>내용</th></tr></thead>
+        <div className="tbl-wrap"><table className="tbl"><thead><tr><th>시각</th><th>동작</th><th>엔진</th><th>내용</th></tr></thead>
           <tbody>{[...(hist || [])].reverse().slice(0, 50).map((h, i) => <tr key={i}><td>{fmtDT(h.ms)}</td><td>{{ load: '읽음', activate: '활성화', config: '설정' }[h.action] || h.action}</td><td className="mono small">{h.engine}</td><td className="small">{h.detail}</td></tr>)}
-            {!(hist || []).length && <tr><td colSpan="4" className="muted">이력 없음</td></tr>}</tbody></table>
+            {!(hist || []).length && <tr><td colSpan="4" className="muted">이력 없음</td></tr>}</tbody></table></div>
       </section>
 
       {/* 지금 판정 분포 */}
