@@ -5,6 +5,7 @@ import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
 import Trips from './Trips.jsx'
 import { getStream } from '../waveStore.js'
+import { claimLive, releaseLive } from '../ws.js'
 import {
   useQuery, go, useRevealSelected, Cols, tableMin, SummaryChips, FilterBar, ListLayout, DetailPanel, KV, Pager, GwLink, RoomLink, WardLink,
   TwoLine, Dot, Pill, Spark, GroupRow, useDensity, DensityToggle, RowActions, Ago, ago, TONE,
@@ -130,6 +131,12 @@ export default function Patients({ alarms }) {
   const pages = Math.max(1, Math.ceil(shown.length / PAGE))
   const cur = Math.min(page, pages - 1)
   const slice = shown.slice(cur * PAGE, cur * PAGE + PAGE)
+  // 보이는 페이지(최대 100명)의 실시간 스트림을 구독해 ECG(10초) 미니 파형을 실제로 그린다 — 예전엔 어디서도 구독하지 않아
+  // 이 열이 늘 점선(---)이었다. 페이지를 넘기면 이전 구독은 풀린다. 1초마다 다시 그림.
+  const liveIds = slice.filter((r) => r.connected && !r.stale).map((r) => String(r.channel_id)).join(',')
+  useEffect(() => { if (!liveIds) { releaseLive('patients'); return } claimLive('patients', liveIds.split(',')); return () => releaseLive('patients') }, [liveIds])
+  const [, tick] = useState(0)
+  useEffect(() => { if (!liveIds) return; const t = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(t) }, [liveIds])
   const wardStats = useMemo(() => { const m = new Map(); for (const r of shown) { const s = m.get(r.ward) || { n: 0, alarms: 0 }; s.n++; if (r.alarm) s.alarms++; m.set(r.ward, s) } return m }, [shown])
   const selRow = sel ? flat.find((r) => r.channel_id === sel) : null
   useRevealSelected(sel, shown, (r) => r.channel_id, PAGE, setPage)
@@ -184,7 +191,7 @@ export default function Patients({ alarms }) {
         <td className={'num ' + vc('spo2', lost ? null : r.spo2)}>{lost ? '—' : r.spo2 ?? '—'}</td>
         <td className={'num ' + vc('resp', lost ? null : r.resp)}>{lost ? '—' : r.resp ?? '—'}</td>
         <td className={'num ' + vc('temp', lost ? null : r.temp)}>{lost ? '—' : r.temp != null ? r.temp.toFixed(1) : '—'}</td>
-        <td>{lost ? <small className="muted">{r.connected ? '무신호' : '해제'} {ago(r.last, now).replace(' 전', '')}</small> : ecg ? <Spark values={ecg} tone="ok" width={100} height={20} title="최근 10초 ECG" /> : <Spark values={[]} width={100} height={20} title="스트림 구독 없음 — 두 번 누르면 실시간 파형" />}</td>
+        <td>{lost ? <small className="muted">{r.connected ? '무신호' : '해제'} {ago(r.last, now).replace(' 전', '')}</small> : ecg ? <Spark values={ecg} tone="ok" width={100} height={20} title="최근 10초 ECG" /> : <Spark values={[]} width={100} height={20} title="파형 수신 대기 중 (구독 직후 몇 초) — 두 번 누르면 실시간 파형" />}</td>
         <td className="num"><TwoLine mono main={<span className={r.battery != null && r.battery <= 15 ? 'warnv' : ''}>{r.battery != null ? `${r.battery}%` : '—'}</span>}
           sub={r.life ? <span className={r.life.level === 'err' ? 'err' : r.life.level ? 'warn' : ''} title={`착용 ${fmtDays(r.life.worn)}째 · 배터리 약 ${fmtDays(r.life.batLeft)} · ${r.life.reason} 기준`}>{r.life.left <= 0 ? '지금 교체' : `D-${fmtDays(r.life.left)}`}</span> : null} /></td>
         <td className="num v">{r.rssi ?? '—'}</td>
@@ -225,7 +232,7 @@ export default function Patients({ alarms }) {
             {!shown.length && <tr><td colSpan={COLS.length} className="muted">조건에 맞는 환자가 없습니다.</td></tr>}
           </tbody>
         </table>
-        <p className="lk-legend">수치는 임계 밖일 때만 색(주황 = 주의, 빨강 = 위험). ECG 는 실시간 스트림을 받는 환자만 그려지고, 두 번 누르면 실시간 파형이 열립니다.</p>
+        <p className="lk-legend">수치는 임계 밖일 때만 색(주황 = 주의, 빨강 = 위험). ECG 는 이 페이지에 보이는 환자의 최근 10초이며(구독 직후 몇 초는 점선), 두 번 누르면 실시간 파형이 열립니다.</p>
       </ListLayout>
     </div>
   )
