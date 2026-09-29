@@ -61,6 +61,14 @@ export default function EcgEngine() {
   const [bench, setBench] = useState(null)
   useEffect(() => { if (e?.bench && !bench) setBench(e.bench) }, [e, bench])
   const [benchFlash, setBenchFlash] = useState(false)
+  // 알고리즘 검증 (에뮬레이터 정답지)
+  const [evalR, , refreshEval] = usePoll(api.ecg.evalLast, 30000)
+  const [evalBusy, setEvalBusy] = useState(false)
+  const [evalHours, setEvalHours] = useState(1)
+  const [evalNow, setEvalNow] = useState(null)
+  const runEval = async () => { setEvalBusy(true); setMsg(''); try { const r = await api.ecg.evalRun(evalHours); setEvalNow(r); refreshEval(); setMsg(`검증 완료 — 정답 ${r.labels}개 · 채널 ${r.channels}개`) } catch (x) { setMsg('검증 실패: ' + x.message) } finally { setEvalBusy(false) } }
+  const ev = evalNow || evalR?.last
+  const pct = (x) => (x == null ? '—' : `${(x * 100).toFixed(1)}%`)
   const runBench = async () => {
     setBenchBusy(true); setMsg('')
     const t0 = Date.now()
@@ -181,6 +189,36 @@ export default function EcgEngine() {
         <h5 className="muted" style={{ margin: '10px 0 4px' }}>오늘 ECG 분석 알람 <small>(이력 최근 500건 기준)</small></h5>
         <div className="ecg-dist">{ecgAlarms.map(([k, n]) => <div key={k} className="ecg-dist-i"><b>{n}</b><small>{ALARM_KIND[k] || k}</small></div>)}{!ecgAlarms.length && <span className="muted small">오늘 발생한 ECG 분석 알람 없음</span>}</div>
         <p className="muted small">품질: 양호 {sum?.quality?.good ?? 0} · 리듬만 신뢰 {sum?.quality?.acceptable ?? 0} · 사용 불가 {sum?.quality?.unusable ?? 0} · 미정 {sum?.quality?.unknown ?? 0} · 평균 분석 HR {sum?.hr_mean ? Math.round(sum.hr_mean) : '—'} · PVC 합계 {sum?.pvc_min_total ?? 0}/분</p>
+      </section>
+
+      {/* 알고리즘 검증 */}
+      <section className="ecg-card">
+        <h3>알고리즘 검증 <small className="muted">에뮬레이터 정답지(리듬 에피소드·전극 탈락) 대비 — 엔진 판정 흔적과 대조</small></h3>
+        <div className="ecg-bench-h">
+          <span className="seg">{[0.5, 1, 3, 6].map((h) => <button key={h} className={evalHours === h ? 'active' : ''} onClick={() => setEvalHours(h)}>{h < 1 ? '30분' : `${h}시간`}</button>)}</span>
+          <button className="primary" onClick={runEval} disabled={!edit || evalBusy || !e?.enabled}>{evalBusy ? '검증 중…' : '지금 검증'}</button>
+          {ev && <span className="muted small">마지막 검증 {fmtDT(ev.ms)} · 정답 {ev.labels?.toLocaleString()}개 · 채널 {ev.channels?.toLocaleString()}개</span>}
+        </div>
+        {ev ? (
+          <>
+            <div className="ecg-grid" style={{ margin: '8px 0' }}>
+              <div><small>지원 클래스 합계 · 민감도</small><b>{pct(ev.overall?.sensitivity)}</b><span className="muted">검출 {ev.overall?.tp} · 놓침 {ev.overall?.fn}</span></div>
+              <div><small>지원 클래스 합계 · 정밀도</small><b>{pct(ev.overall?.precision)}</b><span className="muted">오검출 {ev.overall?.fp}</span></div>
+              <div><small>박동 단위 (R파 · N/S/V)</small><b>—</b><span className="muted">에뮬레이터 박동 정답 대기</span></div>
+              <div><small>구간</small><b>{fmtDT(ev.from_ms)} ~</b><span className="muted">{fmtDT(ev.to_ms)}</span></div>
+            </div>
+            <div className="tbl-wrap"><table className="tbl ecg-eval"><thead><tr><th>정답 클래스</th><th>엔진 라벨</th><th className="num">정답</th><th className="num">검출</th><th className="num">놓침</th><th className="num">오검출</th><th className="num">민감도</th><th className="num">정밀도</th><th className="num">지연 중앙값</th><th className="num">p90</th></tr></thead>
+              <tbody>{(ev.classes || []).map((c) => (
+                <tr key={c.name + c.engine.join()} className={c.unsupported ? 'muted' : ''}>
+                  <td>{c.name}</td><td className="mono small">{c.unsupported ? '미지원' : c.engine.join(' · ')}</td>
+                  <td className="num">{c.labels}</td><td className="num">{c.unsupported ? '—' : c.tp}</td><td className="num">{c.unsupported ? '—' : c.fn_}</td><td className="num">{c.unsupported ? '—' : c.fp}</td>
+                  <td className="num"><b className={c.sensitivity != null && c.sensitivity < 0.7 ? 'warnv' : ''}>{c.unsupported ? '—' : pct(c.sensitivity)}</b></td><td className="num">{c.unsupported ? '—' : pct(c.precision)}</td>
+                  <td className="num">{c.latency_median_ms != null ? `${(c.latency_median_ms / 1000).toFixed(1)} s` : '—'}</td><td className="num">{c.latency_p90_ms != null ? `${(c.latency_p90_ms / 1000).toFixed(1)} s` : '—'}</td>
+                </tr>))}</tbody></table></div>
+            <p className="muted small">{ev.note}</p>
+            {(evalR?.history || []).length > 1 && <p className="muted small">검증 이력 {(evalR.history || []).length}회 — 민감도 추이: {(evalR.history || []).slice(-8).map((h) => h.overall?.sensitivity != null ? (h.overall.sensitivity * 100).toFixed(0) + '%' : '—').join(' → ')}</p>}
+          </>
+        ) : <p className="muted small">아직 검증하지 않았습니다. 최근 구간을 고르고 "지금 검증"을 누르면 에뮬레이터에서 정답을 받아 엔진의 판정 흔적(라벨 전환·V/S 박동 시각)과 대조합니다. 흔적은 채널당 최근 160회 전환·300박동까지 남으므로 긴 구간은 오래된 부분이 빠질 수 있습니다.</p>}
       </section>
 
       {/* 성능 */}

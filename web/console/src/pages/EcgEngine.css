@@ -29,3 +29,5 @@
 .ecg-bench-r { border-radius: 8px; padding: 6px; transition: background .5s, box-shadow .5s; }
 .ecg-bench-r.flash { background: color-mix(in srgb, var(--ok) 14%, transparent); box-shadow: 0 0 0 2px var(--ok); }
 .ecg-bench-h button[disabled] { opacity: .8; }
+.ecg-eval td.num b.warnv { color: var(--warn); }
+.ecg-eval tr.muted td { color: var(--muted); }

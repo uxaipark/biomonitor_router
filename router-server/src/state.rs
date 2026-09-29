@@ -546,6 +546,7 @@ impl AppState {
     /// 채널 명시적 제거: 레지스트리에서 삭제 + 소속 그룹에 leave 전파
     /// (접속 끊김과 달리 뷰어/어드민에서 채널이 완전히 사라진다)
     pub fn remove_channel(&self, channel_id: &str) {
+        self.analysis.remove(channel_id);
         if let Some(st) = self.registry.remove(channel_id) {
             if !st.groups.is_empty() {
                 let msg = OutMsg::Membership {

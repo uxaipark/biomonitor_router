@@ -43,6 +43,13 @@ pub struct AnaRow {
     /// 아직 스트림에 실어 보내지 않은 박동 마크 (t_ms, code) — 스트림 방출 때 비운다
     #[serde(skip)]
     pub marks: Vec<(u64, u32)>,
+    /// 검증용 흔적: 리듬 라벨 전환 (t_ms, label) 최근 160개, 심실(V)·상심실(S) 박동 시각 최근 300개
+    #[serde(skip)]
+    pub trace: VecDeque<(u64, String)>,
+    #[serde(skip)]
+    pub vbeats: VecDeque<u64>,
+    #[serde(skip)]
+    pub sbeats: VecDeque<u64>,
 }
 
 /// 스트림 헤더에 싣는 축약본
@@ -59,9 +66,18 @@ pub struct AnaBrief {
     pub beats: Vec<(u64, u32)>,
 }
 
+pub struct Pkt {
+    /// 패치 번호 (채널 id 는 숫자 문자열) — 패킷마다 문자열을 만들지 않는다
+    pub channel_id: u32,
+    pub seq: u64,
+    pub ts_ms: u64,
+    pub fs: u32,
+    pub samples: Vec<f32>,
+}
 enum Job {
-    Packet { channel_id: String, seq: u64, ts_ms: u64, fs: u32, samples: Vec<f32> },
-    Remove(String),
+    /// 게이트웨이 프레임 하나에 든 패킷들을 샤드별로 묶어 보낸다 — 패킷마다 스레드를 깨우지 않는다
+    Batch(Vec<Pkt>),
+    Remove(u32),
 }
 
 struct Slot {
@@ -93,6 +109,10 @@ struct Slot {
     /// 요약 행을 마지막으로 쓴 패킷 번호 (이벤트 없으면 5패킷=1초마다만 쓴다)
     row_seq: u64,
     dirty: bool,
+    /// 행에 아직 옮기지 않은 검증 흔적
+    pend_trace: Vec<(u64, String)>,
+    pend_v: Vec<u64>,
+    pend_s: Vec<u64>,
 }
 
 pub struct AnalysisHub {
@@ -103,7 +123,7 @@ pub struct AnalysisHub {
     engine: RwLock<Option<Arc<Engine>>>,
     gen: AtomicU64,
     shards: Vec<mpsc::SyncSender<Job>>,
-    rows: DashMap<String, AnaRow>,
+    rows: DashMap<u32, AnaRow>,
     pub packets: AtomicU64,
     pub dropped: AtomicU64,
     pub stale: AtomicU64,
@@ -439,39 +459,56 @@ impl AnalysisHub {
         self.bench_last.lock().unwrap().clone()
     }
 
-    fn shard_of(&self, channel_id: &str) -> usize {
-        let mut h: u64 = 1469598103934665603;
-        for b in channel_id.bytes() {
-            h ^= b as u64;
-            h = h.wrapping_mul(1099511628211);
-        }
-        (h % self.shards.len() as u64) as usize
+    fn shard_of(&self, channel_id: u32) -> usize {
+        (channel_id as usize).wrapping_mul(2654435761) % self.shards.len()
+    }
+    fn key(channel_id: &str) -> Option<u32> {
+        channel_id.trim().parse::<u32>().ok()
     }
 
-    /// ingest 에서: 패킷의 ECG 샘플(mV)을 분석 큐에 넣는다 (꽉 차면 드롭·계수)
-    pub fn feed(&self, channel_id: &str, seq: u64, ts_ms: u64, fs: u32, samples: Vec<f32>) {
-        if !self.enabled() || samples.is_empty() || fs == 0 {
+    /// ingest 에서: 프레임 하나의 패킷들을 샤드별로 묶어 큐에 넣는다 (꽉 차면 묶음 단위로 드롭·계수)
+    pub fn feed_batch(&self, pkts: Vec<Pkt>) {
+        if pkts.is_empty() || !self.enabled() {
             return;
         }
-        let i = self.shard_of(channel_id);
-        if self.shards[i].try_send(Job::Packet { channel_id: channel_id.to_string(), seq, ts_ms, fs, samples }).is_err() {
-            self.dropped.fetch_add(1, Ordering::Relaxed);
+        let n = self.shards.len();
+        let mut per: Vec<Vec<Pkt>> = (0..n).map(|_| Vec::new()).collect();
+        for p in pkts {
+            if p.samples.is_empty() || p.fs == 0 {
+                continue;
+            }
+            let i = self.shard_of(p.channel_id);
+            per[i].push(p);
+        }
+        for (i, v) in per.into_iter().enumerate() {
+            if v.is_empty() {
+                continue;
+            }
+            let k = v.len() as u64;
+            if self.shards[i].try_send(Job::Batch(v)).is_err() {
+                self.dropped.fetch_add(k, Ordering::Relaxed);
+            }
         }
     }
     pub fn remove(&self, channel_id: &str) {
-        let i = self.shard_of(channel_id);
-        let _ = self.shards[i].try_send(Job::Remove(channel_id.to_string()));
-        self.rows.remove(channel_id);
+        let Some(k) = Self::key(channel_id) else { return };
+        let i = self.shard_of(k);
+        let _ = self.shards[i].try_send(Job::Remove(k));
+        self.rows.remove(&k);
     }
 
     pub fn row(&self, channel_id: &str) -> Option<AnaRow> {
-        self.rows.get(channel_id).map(|r| r.clone())
+        self.rows.get(&Self::key(channel_id)?).map(|r| r.clone())
     }
     /// 스트림 헤더용 축약본 — 미전송 박동 마크를 비우며 가져간다
     pub fn brief(&self, channel_id: &str) -> Option<AnaBrief> {
-        let mut r = self.rows.get_mut(channel_id)?;
+        let mut r = self.rows.get_mut(&Self::key(channel_id)?)?;
         let beats = std::mem::take(&mut r.marks);
         Some(AnaBrief { hr: r.hr, rhythm: r.rhythm.clone(), q: r.q, af: r.af, vf: r.vf, pvc: r.pvc_min, beats })
+    }
+    /// 검증용: 모든 채널의 흔적 스냅샷 (patch_id, 현재 라벨, since, 전환 목록, V/S 박동 시각)
+    pub fn traces(&self) -> Vec<(u32, String, u64, Vec<(u64, String)>, Vec<u64>, Vec<u64>)> {
+        self.rows.iter().map(|r| (*r.key(), r.rhythm.clone(), r.rhythm_since_ms, r.trace.iter().cloned().collect(), r.vbeats.iter().copied().collect(), r.sbeats.iter().copied().collect())).collect()
     }
     pub fn rows_len(&self) -> usize {
         self.rows.len()
@@ -508,7 +545,7 @@ impl AnalysisHub {
     }
 
     fn shard_loop(self: Arc<Self>, rx: mpsc::Receiver<Job>) {
-        let mut slots: HashMap<String, Slot> = HashMap::new();
+        let mut slots: HashMap<u32, Slot> = HashMap::new();
         let mut ev: Vec<EcgEvent> = Vec::with_capacity(128);
         let mut last_prune = Instant::now();
         loop {
@@ -520,10 +557,12 @@ impl AnalysisHub {
                 Job::Remove(id) => {
                     slots.remove(&id);
                 }
-                Job::Packet { channel_id, seq, ts_ms, fs, samples } => {
+                Job::Batch(pkts) => {
                     let t_start = Instant::now();
-                    self.packets.fetch_add(1, Ordering::Relaxed);
-                    self.packet(&mut slots, &mut ev, channel_id, seq, ts_ms, fs, samples);
+                    self.packets.fetch_add(pkts.len() as u64, Ordering::Relaxed);
+                    for p in pkts {
+                        self.packet(&mut slots, &mut ev, p.channel_id, p.seq, p.ts_ms, p.fs, p.samples);
+                    }
                     self.busy_ns.fetch_add(t_start.elapsed().as_nanos() as u64, Ordering::Relaxed);
                 }
             }
@@ -544,7 +583,7 @@ impl AnalysisHub {
         }
     }
 
-    fn packet(&self, slots: &mut HashMap<String, Slot>, ev: &mut Vec<EcgEvent>, id: String, seq: u64, ts_ms: u64, fs: u32, samples: Vec<f32>) {
+    fn packet(&self, slots: &mut HashMap<u32, Slot>, ev: &mut Vec<EcgEvent>, id: u32, seq: u64, ts_ms: u64, fs: u32, samples: Vec<f32>) {
         let gen = self.gen.load(Ordering::Relaxed);
         let step = 1000.0 / fs as f64;
         let n = samples.len() as u64;
@@ -562,7 +601,7 @@ impl AnalysisHub {
                         self.channels_live.fetch_add(1, Ordering::Relaxed);
                     }
                     slots.insert(
-                        id.clone(),
+                        id,
                         Slot {
                             chan,
                             gen,
@@ -588,6 +627,9 @@ impl AnalysisHub {
                             lag_ms: 600.0,
                             row_seq: 0,
                             dirty: true,
+                            pend_trace: Vec::new(),
+                            pend_v: Vec::new(),
+                            pend_s: Vec::new(),
                         },
                     );
                 }
@@ -634,6 +676,9 @@ impl AnalysisHub {
                     }
                     if e.code == eng::BEAT_V {
                         s.pvc.push_back(t);
+                        s.pend_v.push(t as u64);
+                    } else if e.code == eng::BEAT_S {
+                        s.pend_s.push(t as u64);
                     }
                     // 검출 지연: 이 패킷의 마지막 샘플 시각 − R 시각 (음수면 0)
                     let lag = (ts_ms as f64 - t).max(0.0).min(5000.0);
@@ -664,18 +709,24 @@ impl AnalysisHub {
         while s.pvc.front().map(|t| *t < horizon).unwrap_or(false) {
             s.pvc.pop_front();
         }
-        s.status = s.chan.status();
-        // HR: 최근 10초 안 박동의 RR (최대 8개 간격) 평균
-        let recent: Vec<f64> = s.beats.iter().rev().take(9).filter(|(t, _)| *t >= ts_ms as f64 - 10_000.0).map(|(t, _)| *t).collect();
-        let hr = if recent.len() >= 3 {
-            let mut rr = 0.0;
-            for w in recent.windows(2) {
-                rr += w[0] - w[1];
+        // 상태(FFI)는 이벤트가 있었거나 1초(5패킷)마다만 읽는다 — 패킷마다 읽을 필요가 없다
+        if !ev.is_empty() || seq % 5 == 0 || s.status.samples == 0 {
+            s.status = s.chan.status();
+        }
+        // HR: 최근 10초 안 박동의 RR (최대 8개 간격) 평균 — 할당 없이
+        let hr = {
+            let lo = ts_ms as f64 - 10_000.0;
+            let (mut n, mut first, mut last) = (0usize, 0.0f64, 0.0f64);
+            for (t, _) in s.beats.iter().rev().take(9) {
+                if *t < lo { break; }
+                if n == 0 { last = *t; }
+                first = *t;
+                n += 1;
             }
-            let mean = rr / (recent.len() - 1) as f64;
-            if mean > 200.0 { Some((60_000.0 / mean) as f32) } else { None }
-        } else {
-            None
+            if n >= 3 {
+                let mean = (last - first) / (n - 1) as f64;
+                if mean > 200.0 { Some((60_000.0 / mean) as f32) } else { None }
+            } else { None }
         };
         let st = s.status.state;
         let lead_off = st & eng::STATE_LEAD_OFF != 0;
@@ -720,6 +771,7 @@ impl AnalysisHub {
             s.rhythm = label.to_string();
             s.rhythm_since = ts_ms;
             s.dirty = true;
+            s.pend_trace.push((ts_ms, label.to_string()));
         }
         // 요약 행 쓰기는 이벤트가 있었거나 1초(5패킷)마다 — 10k 패킷/s 마다 문자열·벡터를 복제하지 않는다
         if !s.dirty && seq.saturating_sub(s.row_seq) < 5 {
@@ -756,5 +808,11 @@ impl AnalysisHub {
             let cut = row.marks.len() - 200;
             row.marks.drain(..cut);
         }
+        for x in s.pend_trace.drain(..) { row.trace.push_back(x); }
+        for x in s.pend_v.drain(..) { row.vbeats.push_back(x); }
+        for x in s.pend_s.drain(..) { row.sbeats.push_back(x); }
+        while row.trace.len() > 160 { row.trace.pop_front(); }
+        while row.vbeats.len() > 300 { row.vbeats.pop_front(); }
+        while row.sbeats.len() > 300 { row.sbeats.pop_front(); }
     }
 }

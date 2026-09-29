@@ -193,6 +193,13 @@
 
 - [2026-09-17 22:50 MAC] 라우터 P1 구현·검증 (48a3480).
 - [2026-09-17 23:20 MAC] RP5#2 이어 개발 준비: Linux sysmon(/proc), `rust-toolchain.toml`, `scripts/pi-dev-setup.sh`, `docs/RP5-DEV.md`, `CLAUDE.md`, 이 문서.
+### 프로파일링 · 최적화 · 안정성 점검 (ECG 엔진 통합 이후) + 알고리즘 검증 기능 (fitlet3)
+
+- **계측(최적화 전)**: RSS 662 MB(엔진 전 274 MB), 스레드별 CPU — ecg-shard 2개 합 ≈50%, tokio 워커 ≈30%, patch-store ≈20%; 분석 허브 busy ≈ 0.6–0.7 코어 @ 2,083채널, 드롭 0. 엔진 채널 메모리 실측(`tests/ecg_engine_mem.rs`): patch 프리셋 ≈103 KB/채널(→ 2,083채널 ≈ 210 MB), clinical ≈20 KB. 정상 상태 누수 검사(`tests/ecg_engine_leak.rs`, 400채널×300초 합성): +7–8 MB 뒤 평탄 → 누수 아님(워밍업). 라이브 RSS 도 재시작 뒤 ~13분간 643→700 MB 로 오르다 685–700 MB 에서 평탄(패치 교대·할당기 워밍업).
+- **최적화**: ① ingest 가 패킷마다 분석 스레드를 깨우던 것을 프레임 단위 묶음(`feed_batch`, thread_local 배치 → `flush_analysis`)으로 → 10k 웨이크업/s → 프레임 수/s; ② 채널 키를 String 에서 u32 패치 번호로(패킷마다 문자열 할당 제거); ③ 샘플 Vec 을 복제 대신 이동(`mem::take`, 스트림은 i16 블롭만 씀); ④ 엔진 `status()` FFI 를 이벤트가 있거나 1초마다만; ⑤ HR 계산 할당 제거. 벤치(`POST /api/ecg/bench`): 이 기기 382 ns/샘플 ≈ 10,460 채널/코어 → 순수 엔진 비용은 ≈0.19 코어이고 나머지는 허브 오버헤드였음(위 조치로 줄임; 배포 후 수치는 아래).
+- **안정성**: 엔진 교체는 Arc 로 옛 라이브러리를 옛 채널이 모두 사라진 뒤 닫음; 채널 poison(ECG_ERR_INTERNAL) 시 다음 패킷에서 재생성; 분석 큐 포화는 묶음 단위 드롭·계수(`dropped`); 미러링은 30초 백오프; 알람 규칙·엔진 설정·이력은 파일에 남음. 패치 교대 시 옛 슬롯은 10분 뒤 정리(채널 수 = live + 30 안팎).
+- **알고리즘 검증** `ecg_eval.rs`: 에뮬레이터 `/api/v1/labels?kind=rhythm_episode,lead_off&since_ms&until_ms&include_open` 를 받아 채널별 엔진 흔적(`AnaRow.trace` 라벨 전환 160개, `vbeats/sbeats` 300개)과 대조 → 클래스별 정답 수·검출(TP)·놓침(FN)·오검출(FP)·민감도·정밀도·검출 지연(중앙값·p90). 매핑표 `map_truth` (afib/afib_rvr→afib, vfib→vf, vt→vtach|vrun, nsvt→vrun, sinus_pause→pause|asystole, pvc→pvc|V박동, pvc_bigeminy→bigeminy, sinus_tachy→tachy, sinus_brady→brady, pac→S박동|svrun, svt→svrun|tachy, lead_off→leadoff; 방실차단·페이싱·형태 이상은 "미지원"). `POST /api/ecg/eval {hours}` / `GET /api/ecg/eval`, 결과는 `versions/<key>/eval.json`(최근 30회). 페이지 "알고리즘 검증" 카드. **박동 단위 정답(R파 시각·N/S/V/F)은 에뮬레이터에 없음 → 요청 필요.**
+
 ### ECG 분석 엔진 관리 페이지 · 버전 보관함 · 벤치 / 백업 미러링 · NAS 이관 마법사 (fitlet3)
 
 - **관리 › ECG 분석 엔진** (`pages/EcgEngine.jsx`, 자원 `page.ecg_engine`, RESOURCES 29): 현재 엔진(id·ABI·파일·읽은 시각·채널·처리·드롭·부하), **선택 동작**(프리셋 patch/clinical + 단계별 드롭다운 → `PUT /api/ecg/config`, `data/engine/config.json` 에 저장, 세대를 올려 모든 채널 재생성), **엔진 보관함**(`data/engine/versions/<src해시>/{libecg.so,meta.json,perf.md,notes.md}` — 활성화/삭제/문서 보기, `GET /api/ecg/versions`, `POST …/{key}/activate`, `DELETE …/{key}`, `GET …/{key}/doc/{perf.md|notes.md|meta.json}`), **이력**(`data/engine/history.json`: load/activate/config, `GET /api/ecg/history`), **판정 분포·오늘 ECG 알람 통계**(`GET /api/ecg/summary` + 알람 이력), **성능**(레포 보고서 요약표 + 이 기기 시뮬레이션 벤치 `POST /api/ecg/bench {seconds,channels}` → ns/샘플·코어당 채널; fitlet3 실측 382 ns/샘플 ≈ 10,460 채널/코어). 서비스 제어 페이지엔 "엔진 다시 읽기" 버튼과 한 줄 상태만 남김.

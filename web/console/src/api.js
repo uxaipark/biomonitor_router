@@ -157,6 +157,8 @@ export const api = {
     history: () => get('/api/ecg/history'),
     summary: () => get('/api/ecg/summary'),
     bench: (seconds = 20, channels = 8) => send('POST', '/api/ecg/bench', { seconds, channels }),
+    evalLast: () => get('/api/ecg/eval'),
+    evalRun: (hours = 1) => send('POST', '/api/ecg/eval', { hours }),
   },
   emu: {
     status: () => get('/api/emu/status'),

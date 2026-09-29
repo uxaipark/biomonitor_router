@@ -417,6 +417,7 @@ fn finish_records(state: &Arc<AppState>, conn: &Conn, frame: &wire::Frame<'_>, m
         }
         process_ecg(state, pkt);
     }
+    flush_analysis(state); // 이 프레임의 분석 패킷을 샤드별로 한 번에
     state.gateways.add_records(hdr.gw_id, frame.records.len());
     if !batch.is_empty() {
         if crate::control::STORE_ON.load(Ordering::Relaxed) {
@@ -495,12 +496,27 @@ fn apply_meta_patches(state: &Arc<AppState>, gw_id: u32, meta: &serde_json::Valu
     }
 }
 
-/// ECG 패킷 1건: 분석 서버가 살아 있으면 forward 후 응답(seq)과 병합, 아니면 즉시 패스스루 출력.
+// ECG 패킷 1건: 분석 서버가 살아 있으면 forward 후 응답(seq)과 병합, 아니면 즉시 패스스루 출력.
+thread_local! {
+    /// 한 프레임(게이트웨이 수신 단위)의 분석 패킷 묶음 — finish_records 끝에서 샤드별로 한 번에 보낸다
+    static ANA_BATCH: std::cell::RefCell<Vec<crate::ecg_analysis::Pkt>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+/// 프레임 처리가 끝났을 때: 모아 둔 분석 패킷을 보낸다
+fn flush_analysis(state: &Arc<AppState>) {
+    let v = ANA_BATCH.with(|b| std::mem::take(&mut *b.borrow_mut()));
+    if !v.is_empty() {
+        state.analysis.feed_batch(v);
+    }
+}
+
 fn process_ecg(state: &Arc<AppState>, pkt: EcgPacket) {
     // 내장 엔진: 샘플을 분석 큐에 넣고(비동기) 파형은 즉시 통과 — 분석 요약은 다음 패킷의 스트림 헤더 `ana` 로 따라온다
     if !state.cfg.analysis_tcp {
+        // 내장 엔진: 샘플은 복제 대신 옮긴다(스트림은 i16 블롭을 쓴다). 프레임 단위 묶음은 finish_records 가 만든다.
+        let mut pkt = pkt;
         if !pkt.samples.is_empty() {
-            state.analysis.feed(&pkt.channel_id, pkt.seq, pkt.ts_ms, pkt.sample_rate, pkt.samples.clone());
+            let samples = std::mem::take(&mut pkt.samples);
+            if let Ok(pid) = pkt.channel_id.parse::<u32>() { ANA_BATCH.with(|b| b.borrow_mut().push(crate::ecg_analysis::Pkt { channel_id: pid, seq: pkt.seq, ts_ms: pkt.ts_ms, fs: pkt.sample_rate, samples })) }
         }
         state.registry.push_packet(&pkt, false);
         state.emit_stream(pkt, None, Vec::new());

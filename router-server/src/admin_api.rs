@@ -40,6 +40,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/ecg/history", get(ecg_history))
         .route("/api/ecg/summary", get(ecg_summary))
         .route("/api/ecg/bench", post(ecg_bench))
+        .route("/api/ecg/eval", get(ecg_eval_get).post(ecg_eval_run))
         .route("/api/ecg/{channel_id}", get(ecg_row))
         .route("/api/wave/{channel_id}/info", get(wave_info))
         .route("/api/wave/{channel_id}", get(wave_read))
@@ -1028,6 +1029,24 @@ async fn ecg_bench(State(state): State<Arc<AppState>>, Extension(p): Extension<P
     match tokio::task::spawn_blocking(move || st.analysis.bench(sec, ch)).await.unwrap_or(Err("failed".into())) {
         Ok(v) => {
             state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "ecg_bench", &format!("{} ns/sample", v["ns_per_sample"]));
+            Json(v).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+#[derive(serde::Deserialize)]
+struct EvalIn {
+    #[serde(default)]
+    hours: f64,
+}
+async fn ecg_eval_get(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    Json(crate::ecg_eval::last(&state))
+}
+async fn ecg_eval_run(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(b): Json<EvalIn>) -> impl IntoResponse {
+    let hours = if b.hours <= 0.0 { 1.0 } else { b.hours };
+    match crate::ecg_eval::run(&state, hours).await {
+        Ok(v) => {
+            state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "ecg_eval", &format!("{hours}h labels={}", v["labels"]));
             Json(v).into_response()
         }
         Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
