@@ -114,6 +114,9 @@ struct Slot {
     /// 요약 행을 마지막으로 쓴 패킷 번호 (이벤트 없으면 5패킷=1초마다만 쓴다)
     row_seq: u64,
     dirty: bool,
+    /// 라벨 후보와 후보가 된 시각 (3초 유지 규칙)
+    cand: String,
+    cand_since: u64,
     /// 행에 아직 옮기지 않은 검증 흔적
     pend_trace: Vec<(u64, String)>,
     pend_v: Vec<u64>,
@@ -212,10 +215,19 @@ impl AnalysisHub {
             let h = hub.clone();
             std::thread::Builder::new()
                 .name("ecg-watch".into())
-                .spawn(move || loop {
-                    std::thread::sleep(Duration::from_secs(10));
-                    h.check_file();
-                    h.flush_db();
+                .spawn(move || {
+                    let mut n = 0u32;
+                    loop {
+                        std::thread::sleep(Duration::from_secs(10));
+                        h.check_file();
+                        h.flush_db();
+                        n += 1;
+                        // 엔진(dlopen, 시스템 malloc)과 SQLite 가 쓰는 glibc 힙의 빈 페이지를 60초마다 OS 에 돌려준다 — 채널 교대·벤치로 조각난 힙이 RSS 로 남지 않게
+                        #[cfg(target_os = "linux")]
+                        if n % 6 == 0 {
+                            unsafe { libc::malloc_trim(0); }
+                        }
+                    }
                 })
                 .expect("ecg watch thread");
         }
@@ -510,6 +522,9 @@ impl AnalysisHub {
             let cut = (now - 14 * 86_400_000) as i64;
             let _ = db.execute("DELETE FROM ecg_trace WHERE ms < ?1", rusqlite::params![cut]);
             let _ = db.execute("DELETE FROM ecg_beatmin WHERE minute_ms < ?1", rusqlite::params![cut]);
+            // 행 수 상한(전환 2천만·분 2천만): 라벨이 자주 바뀌는 환경에서도 DB 가 무한정 크지 않게
+            let _ = db.execute("DELETE FROM ecg_trace WHERE ms < (SELECT ms FROM ecg_trace ORDER BY ms DESC LIMIT 1 OFFSET 20000000)", []);
+            let _ = db.execute("DELETE FROM ecg_beatmin WHERE minute_ms < (SELECT minute_ms FROM ecg_beatmin ORDER BY minute_ms DESC LIMIT 1 OFFSET 20000000)", []);
         }
     }
     /// DB 에서 구간 [from, to] 의 판정 이력 (검증용, 긴 구간): 패치별 (전환 목록, V 박동 분 시각, S 박동 분 시각). 구간 시작 시점의 상태는
@@ -718,6 +733,8 @@ impl AnalysisHub {
                             last_gap_ms: 0,
                             row_seq: 0,
                             dirty: true,
+                            cand: String::new(),
+                            cand_since: 0,
                             pend_trace: Vec::new(),
                             pend_v: Vec::new(),
                             pend_s: Vec::new(),
@@ -852,20 +869,31 @@ impl AnalysisHub {
             "trigeminy"
         } else if recent_ep("svrun", 30_000) {
             "svrun"
-        } else if s.pvc.len() >= 6 {
-            "pvc"
+        } else if s.pvc.len() >= if s.rhythm == "pvc" { 3 } else { 6 } {
+            "pvc" // 히스테리시스: 켜질 땐 6/분, 꺼질 땐 3/분 아래
         } else if unusable {
             "noise"
         } else if let Some(h) = hr {
-            if h < 50.0 { "brady" } else if h > 100.0 { "tachy" } else { "nsr" }
+            // 심박수 라벨 히스테리시스: 빈맥 on >100 / off <95, 서맥 on <50 / off >55 — 경계에서 깜빡이지 않게
+            let (lo_on, lo_off, hi_on, hi_off) = (50.0, 55.0, 100.0, 95.0);
+            if s.rhythm == "brady" { if h > lo_off { if h > hi_on { "tachy" } else { "nsr" } } else { "brady" } }
+            else if s.rhythm == "tachy" { if h < hi_off { if h < lo_on { "brady" } else { "nsr" } } else { "tachy" } }
+            else if h < lo_on { "brady" } else if h > hi_on { "tachy" } else { "nsr" }
         } else {
             "unknown"
         };
+        // 치명적 라벨(vf·asystole·leadoff·pause)은 즉시, 그 밖은 3초 이상 유지돼야 바꾼다 — 판정 이력 폭증(초당 130회 전환)과 깜빡임을 막는다
+        let critical = matches!(label, "vf" | "asystole" | "leadoff" | "pause") || matches!(s.rhythm.as_str(), "vf" | "asystole" | "leadoff");
         if label != s.rhythm {
-            s.rhythm = label.to_string();
-            s.rhythm_since = ts_ms;
-            s.dirty = true;
-            s.pend_trace.push((ts_ms, label.to_string()));
+            if label != s.cand { s.cand = label.to_string(); s.cand_since = ts_ms; }
+            if critical || ts_ms.saturating_sub(s.cand_since) >= 3000 {
+                s.rhythm = label.to_string();
+                s.rhythm_since = ts_ms;
+                s.dirty = true;
+                s.pend_trace.push((ts_ms, label.to_string()));
+            }
+        } else if s.cand != label {
+            s.cand = label.to_string();
         }
         // 요약 행 쓰기는 이벤트가 있었거나 1초(5패킷)마다 — 10k 패킷/s 마다 문자열·벡터를 복제하지 않는다
         if !s.dirty && seq.saturating_sub(s.row_seq) < 5 {
