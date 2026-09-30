@@ -45,6 +45,13 @@ pub struct Patient {
     pub home_region: String,
     #[serde(default)]
     pub home_address: String,
+    /// 집주소 국가(KR/US/JP)·좌표 — 에뮬레이터 신원 세트의 home{country,lat,lon}. MCOT 지도가 그대로 쓴다
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub home_country: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_lat: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_lon: Option<f64>,
     #[serde(default)]
     pub nurse: String,
     /// 프로필 번호 — 얼굴 이미지(faces/<n>.png) 지정 (에뮬레이터가 전달)

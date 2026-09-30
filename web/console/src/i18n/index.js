@@ -5,7 +5,7 @@
 const HAN = /[가-힣]/
 const NF = { SHOW_ELEMENT: 1, SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2 } // NodeFilter (SSR·lint 안전)
 const ATTRS = ['title', 'placeholder', 'aria-label', 'alt']
-const SKIP = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'CANVAS', 'SVG', 'CODE', 'PRE'])
+const SKIP = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'CANVAS', 'CODE', 'PRE']) // SVG 는 번역(지도·도면의 <text> 방·건물 이름)
 export const LANGS = [['ko', '한국어'], ['en', 'English'], ['ja', '日本語']]
 export const COUNTRY_LANG = { KR: 'ko', US: 'en', JP: 'ja' }
 
@@ -37,21 +37,44 @@ function compile(obj) {
 /** 테스트용: 사전을 직접 넣고 언어 지정 (DOM 없이 tr() 확인) */
 export function _testLoad(obj, l) { compile(obj); lang = l }
 
+/** 사전·패턴으로만 찾기 (조각 나누기·낱말 대체 없이) */
+function lookup(core) {
+  const d = dict.get(core)
+  if (d != null) return d
+  for (const p of pats) {
+    const mm = p.re.exec(core)
+    if (!mm) continue
+    // 자리표시자에 한국어가 들어가면 그 조각도 완전히 번역돼야 이 패턴을 쓴다 — "{0}초" 같은 짧은 패턴이 문장 전체를 삼키지 않게
+    const vals = {}
+    let ok = true
+    p.order.forEach((n, i) => {
+      const v = mm[i + 1]
+      if (!HAN.test(v)) { vals[n] = v; return }
+      const t = p.len >= 4 ? tr(v) : lookup(v)
+      if (t == null || HAN.test(t)) ok = false
+      vals[n] = t ?? v
+    })
+    if (!ok) continue
+    return p.out.replace(/\{(\d+)\}/g, (_, n) => vals[n] ?? '')
+  }
+  return null
+}
+
 /** 문자열 하나 번역 (앞뒤 공백 보존). 못 찾으면 null */
 export function tr(s) {
   if (lang === 'ko' || !dict || !s || !HAN.test(s)) return null
   if (cache.has(s)) return cache.get(s)
   const m = /^(\s*)([\s\S]*?)(\s*)$/.exec(s)
   const core = m[2]
-  let out = dict.get(core)
+  let out = lookup(core)
   if (out == null) {
-    for (const p of pats) {
-      const mm = p.re.exec(core)
-      if (!mm) continue
-      const vals = {}
-      p.order.forEach((n, i) => { const v = mm[i + 1]; vals[n] = HAN.test(v) ? (tr(v) ?? v) : v })
-      out = p.out.replace(/\{(\d+)\}/g, (_, n) => vals[n] ?? '')
-      break
+    // 앞머리(심각도·이름 등) 뒤의 문장: "[High] Jane Doe ECG 분석: 휴지 2.1초" → 앞 낱말을 하나씩 떼며 나머지를 찾는다
+    const toks = core.split(' ')
+    for (let i = 1; i < Math.min(toks.length, 7) && out == null; i++) {
+      const rest = toks.slice(i).join(' ')
+      if (!HAN.test(rest)) break
+      const r = lookup(rest)
+      if (r != null) out = toks.slice(0, i).join(' ') + ' ' + r
     }
   }
   if (out == null) {
@@ -62,6 +85,18 @@ export function tr(s) {
       const t = parts.map((p) => { if (!HAN.test(p)) return p; const x = tr(p); if (x != null) { any = true; return x } return p }).join('')
       if (any) out = t
     }
+  }
+  if (out == null) {
+    // 마지막 수단: 한국어 낱말 단위로 용어 사전(병동·방·건물·진료과 등 데이터 용어)에서 바꾼다 — "B1-01-심초음파실" → "B1-01-Echo Lab"
+    let any = false
+    const t = core.replace(/[가-힣]+(?:\s[가-힣]+)*/g, (w) => {
+      const x = dict.get(w)
+      if (x != null) { any = true; return x }
+      // 여러 낱말이면 낱말별로
+      if (w.includes(' ')) return w.split(' ').map((p) => { const y = dict.get(p); if (y != null) { any = true; return y } return p }).join(' ')
+      return w
+    })
+    if (any) out = t
   }
   const res = out == null ? null : m[1] + out + m[3]
   if (cache.size > 20000) cache.clear()

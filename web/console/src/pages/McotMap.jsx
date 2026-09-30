@@ -20,6 +20,7 @@ const jitter = (id, k) => { let h = 2166136261; for (const c of String(id) + k) 
 /** 환자 위치: EMR 이 좌표를 주면 그대로(lat/lng · location · geo · home_geo), 아니면 집주소(시군구) 중심 + 흔들림 */
 function geoOf(r) {
   const p = r.patient || {}
+  if (Number.isFinite(p.home_lat) && Number.isFinite(p.home_lon)) return { ll: [p.home_lat, p.home_lon], kind: 'gps', label: '집주소 좌표', key: p.home_region || p.home_address || '', sido: p.home_country || '' }
   for (const o of [p, p.location, p.geo, p.home_geo, r.location]) {
     if (!o) continue
     const lat = Number(o.lat ?? o.latitude), lng = Number(o.lng ?? o.lon ?? o.longitude)
@@ -46,9 +47,25 @@ export default function McotMap({ alarms }) {
   // 주요 국가 탭: 전체 · 한국 · 미국 · 일본 · 기타(그 밖의 나라 + 주소 없음)
   const [nation, setNation] = useState('all')
   // 탭 선택은 계정별로 라우터 DB 에 저장(브라우저 저장소 아님) → 새로고침·다른 기기에서도 마지막 탭으로
-  useEffect(() => { let ok = true; api.auth.prefs().then((p) => { const v = p?.['mcot.nation']; if (ok && typeof v === 'string' && ['all', 'KR', 'US', 'JP', 'other'].includes(v)) setNation(v) }).catch(() => {}); return () => { ok = false } }, [])
-  const pickNation = (k) => { setNation(k); api.auth.setPrefs({ 'mcot.nation': k }).catch(() => {}) }
-  const countryOf = (r) => (r.geo ? (SIDO[r.geo.sido] ? '한국' : r.geo.sido) : '')
+  // 처음 탭: 사이트 국가(에뮬레이터 송출 국가)에 맞춰. 사용자가 고른 탭은 그 국가일 때만 이어 쓴다(국가가 바뀌면 새 국가 탭으로)
+  const [siteCountry, setSiteCountry] = useState('')
+  useEffect(() => {
+    let ok = true
+    Promise.all([fetch('/api/site/locale').then((r) => (r.ok ? r.json() : null)).catch(() => null), api.auth.prefs().catch(() => null)]).then(([site, p]) => {
+      if (!ok) return
+      const sc = site?.country || ''
+      setSiteCountry(sc)
+      const v = p?.['mcot.nation']
+      const savedFor = p?.['mcot.nation_site']
+      if (typeof v === 'string' && ['all', 'KR', 'US', 'JP', 'other'].includes(v) && (!sc || savedFor === sc)) setNation(v)
+      else if (['KR', 'US', 'JP'].includes(sc)) setNation(sc)
+    })
+    return () => { ok = false }
+  }, [])
+  const pickNation = (k) => { setNation(k); api.auth.setPrefs({ 'mcot.nation': k, 'mcot.nation_site': siteCountry }).catch(() => {}) }
+  // 국가: 신원 세트의 home_country(KR/US/JP)가 있으면 그것, 없으면 주소 해석 결과
+  const CC = { KR: '한국', US: '미국', JP: '일본' }
+  const countryOf = (r) => (r.patient?.home_country ? (CC[r.patient.home_country] || r.patient.home_country) : r.geo ? (SIDO[r.geo.sido] ? '한국' : r.geo.sido) : '')
   const NATION = [['all', '전체', () => true], ['KR', '한국', (c) => c === '한국'], ['US', '미국', (c) => c === '미국'], ['JP', '일본', (c) => c === '일본'], ['other', '기타', (c) => c !== '한국' && c !== '미국' && c !== '일본']]
   const nationCounts = useMemo(() => Object.fromEntries(NATION.map(([k, , f]) => [k, all.filter((r) => f(countryOf(r))).length])), [all]) // eslint-disable-line react-hooks/exhaustive-deps
   const byNation = useMemo(() => { const f = NATION.find(([k]) => k === nation)?.[2] || (() => true); return all.filter((r) => f(countryOf(r))) }, [all, nation]) // eslint-disable-line react-hooks/exhaustive-deps

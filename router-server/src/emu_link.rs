@@ -75,7 +75,7 @@ pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
     let mut tick = tokio::time::interval(Duration::from_secs(every.max(5)));
     // home address lives only in the per-patient detail (`/emr/patients/{profile}` → address{sido,sigungu,dong,label});
     // fetched for outside (MCOT) patients only and remembered per profile id, refreshed hourly
-    let mut home_cache: std::collections::HashMap<u64, (std::time::Instant, String, String)> = std::collections::HashMap::new();
+    let mut home_cache: std::collections::HashMap<u64, (std::time::Instant, crate::protocol::Patient)> = std::collections::HashMap::new();
     let mut boards_at: Option<std::time::Instant> = None;
     loop {
         tick.tick().await;
@@ -335,7 +335,16 @@ pub fn apply_patients(state: &Arc<AppState>, v: &serde_json::Value) -> usize {
 /// `region`/`city`/`district`/`full`). Only overwrites when a value is present.
 fn apply_home(p: &mut crate::protocol::Patient, a: &serde_json::Value) {
     let region = ["home_region", "region", "area"].iter().map(|k| s(a, k)).find(|v| !v.is_empty());
-    let addr = a.get("home_address").or_else(|| a.get("address"));
+    let addr = a.get("home").or_else(|| a.get("home_address")).or_else(|| a.get("address"));
+    // 국가·좌표 (신원 세트): home/address 객체의 country·lat·lon, 없으면 최상위 country
+    if let Some(o) = addr.filter(|x| x.is_object()) {
+        if let Some(c) = o.get("country").and_then(|x| x.as_str()) { p.home_country = c.to_uppercase(); }
+        let num = |k: &str| o.get(k).and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok())));
+        if let (Some(la), Some(lo)) = (num("lat"), num("lon").or_else(|| num("lng"))) { p.home_lat = Some(la); p.home_lon = Some(lo); }
+    }
+    if p.home_country.is_empty() {
+        if let Some(c) = a.get("country").and_then(|x| x.as_str()) { p.home_country = c.to_uppercase(); }
+    }
     let (obj_region, full) = match addr {
         Some(serde_json::Value::String(x)) => (None, x.clone()),
         Some(o @ serde_json::Value::Object(_)) => {
@@ -364,7 +373,7 @@ fn apply_home(p: &mut crate::protocol::Patient, a: &serde_json::Value) {
 
 /// Outside (MCOT) patients: rows on a mobile gateway or with mode != inpatient. Fetch each one's EMR detail once
 /// (per profile id, hourly refresh) and apply the home address; the list/admissions feeds do not carry it.
-async fn sync_home_addresses(state: &Arc<AppState>, addr: &str, cache: &mut std::collections::HashMap<u64, (std::time::Instant, String, String)>) {
+async fn sync_home_addresses(state: &Arc<AppState>, addr: &str, cache: &mut std::collections::HashMap<u64, (std::time::Instant, crate::protocol::Patient)>) {
     let mobile: std::collections::HashSet<String> = {
         let mut set = std::collections::HashSet::new();
         state.gateways.for_each(|g| {
@@ -383,7 +392,7 @@ async fn sync_home_addresses(state: &Arc<AppState>, addr: &str, cache: &mut std:
     });
     let mut fetched = 0usize;
     for (channel, profile) in targets {
-        let fresh = cache.get(&profile).map(|(t, _, _)| t.elapsed() < Duration::from_secs(3600)).unwrap_or(false);
+        let fresh = cache.get(&profile).map(|(t, _)| t.elapsed() < Duration::from_secs(3600)).unwrap_or(false);
         if !fresh {
             if fetched >= 60 {
                 break; // spread a large first batch over several sync rounds
@@ -394,7 +403,7 @@ async fn sync_home_addresses(state: &Arc<AppState>, addr: &str, cache: &mut std:
                     let v: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
                     let mut tmp = crate::protocol::Patient::default();
                     apply_home(&mut tmp, &v);
-                    cache.insert(profile, (std::time::Instant::now(), tmp.home_region, tmp.home_address));
+                    cache.insert(profile, (std::time::Instant::now(), tmp));
                     fetched += 1;
                 }
                 Ok((code, _)) => debug!("emr home {}: HTTP {}", profile, code),
@@ -404,16 +413,16 @@ async fn sync_home_addresses(state: &Arc<AppState>, addr: &str, cache: &mut std:
                 }
             }
         }
-        if let Some((_, region, full)) = cache.get(&profile) {
+        if let Some((_, h)) = cache.get(&profile) {
             if let Some(prev) = state.registry.patient_of(&channel) {
-                if (!region.is_empty() && prev.home_region != *region) || (!full.is_empty() && prev.home_address != *full) {
+                let changed = (!h.home_region.is_empty() && prev.home_region != h.home_region) || (!h.home_address.is_empty() && prev.home_address != h.home_address)
+                    || (!h.home_country.is_empty() && prev.home_country != h.home_country) || (h.home_lat.is_some() && prev.home_lat != h.home_lat);
+                if changed {
                     let mut p = prev.clone();
-                    if !region.is_empty() {
-                        p.home_region = region.clone();
-                    }
-                    if !full.is_empty() {
-                        p.home_address = full.clone();
-                    }
+                    if !h.home_region.is_empty() { p.home_region = h.home_region.clone(); }
+                    if !h.home_address.is_empty() { p.home_address = h.home_address.clone(); }
+                    if !h.home_country.is_empty() { p.home_country = h.home_country.clone(); }
+                    if h.home_lat.is_some() { p.home_lat = h.home_lat; p.home_lon = h.home_lon; }
                     state.registry.upsert_patient(&channel, p);
                     state.recompute_channel_groups(&channel);
                 }
