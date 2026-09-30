@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 // 콘솔 다국어(ko/en/ja) — DOM 번역기.
 // 원문은 코드에 한국어로 그대로 두고, 화면에 그려진 텍스트 노드·속성(title/placeholder/aria-label)을 사전(en.json/ja.json)으로 바꾼다.
 // 사전 키는 scripts/i18n-extract.py 가 코드(JS·JSX·Rust)에서 뽑는다: 고정 문자열 + 자리표시자 {0},{1}… 패턴(템플릿·format!).
@@ -19,7 +20,15 @@ let observer = null
 const listeners = new Set()
 
 export const getLang = () => lang
+/** 번역된 문자열(없으면 원문) — 글자 폭을 미리 재야 하는 곳(도면 이름표)에서 */
+export const T = (s) => (lang === 'ko' || s == null ? s : tr(s) ?? s)
 export const onLang = (f) => { listeners.add(f); return () => listeners.delete(f) }
+/** 언어가 바뀌면 다시 그리게 하는 훅 — 현재 언어를 돌려준다 */
+export function useLang() {
+  const [l, setL] = useState(lang)
+  useEffect(() => onLang(setL), [])
+  return l
+}
 
 function compile(obj) {
   dict = new Map(); pats = []; cache = new Map()
@@ -71,6 +80,7 @@ export function tr(s) {
     // 앞머리(심각도·이름 등) 뒤의 문장: "[High] Jane Doe ECG 분석: 휴지 2.1초" → 앞 낱말을 하나씩 떼며 나머지를 찾는다
     const toks = core.split(' ')
     for (let i = 1; i < Math.min(toks.length, 7) && out == null; i++) {
+      if (HAN.test(toks[i - 1])) break // 떼어 낼 앞머리는 한국어가 아닌 것(심각도·영문 이름·번호)만 — 한국어면 통째 번역·낱말 대체에 맡긴다
       const rest = toks.slice(i).join(' ')
       if (!HAN.test(rest)) break
       const r = lookup(rest)

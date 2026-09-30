@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { T, useLang } from '../i18n/index.js'
 
 /**
  * 층 평면도 렌더러 — 공공 건물 안내도(wayfinding) 스타일.
@@ -216,11 +217,14 @@ function Vertical({ r }) {
 
 /** 글자 배치: 폭에 맞춰 크기를 정하고, 너무 작아지면 '/'·공백·'·' 근처에서 두 줄로 나눈다. 그래도 넘치면 자른다. */
 function layoutText(text, width, max, allowWrap) {
-  const one = Math.min(max, (width * 0.86) / Math.max(text.length, 2))
+  // 글자 폭은 문자 종류별 근사(textW)로 — 번역된 영문(좁은 글자·긴 문자열)도 칸 안에 들어가게
+  const u = (t) => Math.max(textW(t, 1), 1.9)
+  const one = Math.min(max, (width * 0.86) / u(text))
   const cut = (t, size) => {
-    // +1e-6: 폭에 딱 맞는 글자 수가 부동소수점으로 6.9999… 가 되어 한 글자를 잘라내던 것을 막는다
-    const n = Math.max(2, Math.floor((width * 0.86) / size + 1e-6))
-    return t.length > n ? t.slice(0, n - 1) + '…' : t
+    if (textW(t, size) <= width * 0.86 + 1e-6) return t
+    let x = t
+    while (x.length > 2 && textW(x + '…', size) > width * 0.86) x = x.slice(0, -1)
+    return x + '…'
   }
   if (!allowWrap || one >= 0.72 || text.length < 4) {
     const size = Math.max(0.55, one)
@@ -232,7 +236,7 @@ function layoutText(text, width, max, allowWrap) {
   for (let i = 1; i < text.length - 1; i++) if ('/ ·'.includes(text[i]) && (at < 0 || Math.abs(i - mid) < Math.abs(at - mid))) at = i
   if (at < 0) at = Math.round(mid)
   const l1 = text.slice(0, text[at] === '/' ? at + 1 : at).trim(), l2 = text.slice(at).replace(/^[\s·/]+/, '').trim()
-  const two = Math.min(max, (width * 0.86) / Math.max(l1.length, l2.length, 2))
+  const two = Math.min(max, (width * 0.86) / Math.max(u(l1), u(l2)))
   if (two < one * 1.2) return { lines: [cut(text, Math.max(0.55, one))], size: Math.max(0.55, one) }
   const size = Math.max(0.55, two)
   return { lines: [cut(l1, size), cut(l2, size)], size }
@@ -240,7 +244,7 @@ function layoutText(text, width, max, allowWrap) {
 
 /** 글자 크기는 고정한 채 폭을 넘으면 공백에서 두 줄로 나눈다 (병실 구역 줄을 층 전체 같은 크기로) */
 function wrapFixed(text, width, size) {
-  if (text.length * size <= width * 0.9 || !text.includes(' ')) return { lines: [text], size }
+  if (textW(text, size) <= width * 0.9 || !text.includes(' ')) return { lines: [text], size }
   const at = text.indexOf(' ')
   return { lines: [text.slice(0, at), text.slice(at + 1)], size }
 }
@@ -258,7 +262,7 @@ export function wardLabelText(r) {
   if (!wid || !(r.kind === 'room' || r.kind === 'isolation')) return null
   const fl = parseInt(wid[1], 10)
   const extra = /^\d+[A-Za-z]?\s+(.+)$/.exec(r.name || '')
-  return { head: `${fl}${wid[3]}호`, tail: `${fl}${wid[2]}병동` + (extra ? ` ${extra[1]}` : '') }
+  return { head: T(`${fl}${wid[3]}호`), tail: T(`${fl}${wid[2]}병동`) + (extra ? ` ${T(extra[1])}` : '') }
 }
 
 /** 문 여닫이 범위: 문 구간 × 방 안쪽으로 문폭+0.15 */
@@ -330,6 +334,7 @@ function RoomLabel({ r, count, k, obstacles, wardSize, ward }) {
     head = `${fl}${wid[3]}호`
     tail = `${fl}${wid[2]}병동` + (m ? ` ${m[2]}` : '')
   }
+  head = T(head); tail = T(tail) // 번역한 문구로 폭을 잰다 (영문이 칸 밖으로 넘치지 않게)
   const hasBeds = (r.beds?.length || 0) > 0
   const badge = count > 0 && !hasBeds && b.h >= 2.2
   const top = b.y + 0.3, bottom = b.y + b.h - 0.3 - (badge ? 0.95 : 0)
@@ -354,17 +359,17 @@ function RoomLabel({ r, count, k, obstacles, wardSize, ward }) {
   // 병실 호실은 층 전체가 같은 글자 크기(wardSize) — 크기 단계를 바꾸지 않고, 그 크기가 안 들어가는 칸은 후보에서 뺀다
   const uniform = wid && wardSize
   cols.forEach(([cx, width], ci) => {
-    if (uniform && head.length * wardSize * 0.95 > width * 0.92) return
+    if (uniform && textW(head, wardSize) > width * 0.92) return
     ;(uniform ? [1] : [1, 0.8, 0.64]).forEach((shrink, si) => {
       const t = uniform ? { lines: [head], size: wardSize } : layoutText(head, width, maxSize * shrink, !isWard)
       const showSub = tail && (wid ? b.h >= 2.0 : b.h >= 2.6 && (k >= LOD.sub || !isWard))
       const st = !showSub ? null : uniform ? wrapFixed(tail, width, wardSize * 0.58) : layoutText(tail, width, Math.min(0.78, t.size * 0.68), false)
       const blockH = t.lines.length * t.size * 1.08 + (st ? st.lines.length * st.size * 1.1 + 0.2 : 0)
-      const textW = Math.min(width * 0.86, Math.max(...t.lines.map((l) => l.length * t.size * 0.95), ...(st ? st.lines.map((l) => l.length * st.size) : [0])))
+      const textWd = Math.min(width * 0.86, Math.max(...t.lines.map((l) => textW(l, t.size)), ...(st ? st.lines.map((l) => textW(l, st.size)) : [0])))
       const cutName = t.lines.some((l) => l.endsWith('…'))
       rows.forEach((fy, ri) => {
         const cy = Math.min(Math.max(b.y + b.h * fy, top + blockH / 2), bottom - blockH / 2)
-        const box = { x: cx - textW / 2, y: cy - blockH / 2, w: textW, h: blockH }
+        const box = { x: cx - textWd / 2, y: cy - blockH / 2, w: textWd, h: blockH }
         const hit = obst.reduce((a, o) => a + overlap(box, o), 0)
         const near = door ? Math.hypot(cx - door.x, cy - door.y) * 0.9 : ci * 0.4 + ri * 0.15 // 문에서 멀수록 감점
         const score = hit * 100 + (cutName ? 25 : 0) - t.size * 3 + si * 0.3 + near
@@ -409,6 +414,7 @@ function ScaleBar({ k, height }) {
 }
 
 export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, patientsByRoom, overlay, onPickRoom, picked, focus, onZoomChange, showFixtures = true }) {
+  const lang = useLang() // 언어가 바뀌면 이름표를 다시 배치
   const wrap = useRef(null)
   const [box, setBox] = useState({ w: 900, h: 560 })
   const [view, setView] = useState(null) // {k, x, y} — k: px per meter
@@ -518,7 +524,7 @@ export default function FloorPlan({ floor, corridors, rooms, fixtures, markers, 
     const m = new Map()
     for (const [r, t] of wards) m.set(r.id, placeWardLabel(r, t, 0.45, []) )
     return m
-  }, [rooms, obstaclesByRoom])
+  }, [rooms, obstaclesByRoom, lang])
 
   const grid = useMemo(() => {
     const step = W > 80 ? 10 : 5
