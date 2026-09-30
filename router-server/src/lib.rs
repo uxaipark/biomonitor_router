@@ -34,3 +34,4 @@ pub mod latency;
 pub mod ecg_engine;
 pub mod ecg_analysis;
 pub mod ecg_eval;
+pub mod site_locale;

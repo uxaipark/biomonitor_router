@@ -193,6 +193,12 @@
 
 - [2026-09-17 22:50 MAC] 라우터 P1 구현·검증 (48a3480).
 - [2026-09-17 23:20 MAC] RP5#2 이어 개발 준비: Linux sysmon(/proc), `rust-toolchain.toml`, `scripts/pi-dev-setup.sh`, `docs/RP5-DEV.md`, `CLAUDE.md`, 이 문서.
+### 다국어(ko/en/ja) + 로그인 국가 선택 → 에뮬레이터 신원 세트 전환 (fitlet3, 2026-09-30)
+
+- **콘솔 번역**: 원문은 코드에 한국어로 두고 `src/i18n/index.js` 의 DOM 번역기(MutationObserver)가 화면 텍스트·title/placeholder/aria-label·confirm/alert/prompt 를 사전으로 바꾼다. 사전 키는 `scripts/i18n-extract.py` 가 JS·JSX·Rust(format!)에서 뽑은 2,691개(고정 문자열 + `{0}` 패턴) → `src/i18n/strings.json`; 번역은 `src/i18n/en.json`·`ja.json`(지연 로드, 각 170–190 KB). 새 문자열: 추출 → 번역 묶음 작성 → `scripts/i18n-merge.py <dir>`. 날짜·숫자의 'ko-KR' 서식은 현재 언어 로케일로. 번역에서 뺄 영역은 `data-no-i18n`. 언어는 계정 선호 `ui.lang`(라우터 DB) → 브라우저 기억 → 사이트 국가(KR→ko, US→en, JP→ja) 순. 사용자 메뉴에 언어 선택.
+- **국가**: `site_locale.rs` — 에뮬레이터 `GET /api/v1/identities`(→ /emr/hospital.country → /config identity_country) 를 60초마다 읽어 `GET /api/site/locale`(로그인 전 공개)로 낸다. 국가·세트 버전이 바뀌면 EMR 캐시·집주소 캐시를 비워 이름·주소·MRN 을 새 세트로 다시 읽는다(식별은 patch_id 그대로). 로그인 화면 우상단 국가 선택(대한민국/United States/日本 — 화면 언어도 같이) → 로그인 요청의 `country` → 성공 뒤 `select()` 가 에뮬레이터 `POST /api/v1/identities/select {country,by,reason}` (없으면 `PATCH /api/v1/config {transport.identity_country}`) + 채팅 한 줄 + 감사 기록.
+- 에뮬레이터 협의(채팅 seq 2306–2314): 임상 코어 하나 + 신원 세 벌(KR/US/JP), META 최상위 identity_country·identity_version 과 patches[].home{country,sido,sigungu,dong,postal,lat,lon,label} 를 요청, EMR 목록·상세에 name·name_kana·country·mrn·home. select 엔드포인트 준비되면 채팅으로 알리기로 함.
+
 ### PIN 일괄 변경 (fitlet3, 2026-09-30)
 
 - 기본 PIN 과 계정 22개 개별 PIN 을 모두 `19740612` 로 (관리 API `PUT /api/admin/users/test-pins`, 라우터 DB 에 즉시 반영). 코드 초기값 `auth.rs::DEFAULT_TEST_PIN` 과 README 의 `ROUTER_TEST_PIN` 기본값도 `19740612` 로. 옛 값 95305449 는 더 이상 쓰이지 않는다.

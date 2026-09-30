@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { LANGS, getLang, setLang, onLang } from './i18n/index.js'
 import { api, displayToken, setDisplayToken, usePoll } from './api.js'
 import { onWs, setWsAllowed, subscribeGroup, wsStatus } from './ws.js'
 import { MeContext, can, canBio, canPhi } from './auth.js'
@@ -308,6 +309,10 @@ function UserMenu({ me, setMe }) {
     return () => document.removeEventListener('mousedown', f)
   }, [open])
   const logout = async () => { try { await api.auth.logout() } catch { /* ignore */ } setMe(null) }
+  const [curLang, setCurLang] = useState(getLang())
+  useEffect(() => onLang(setCurLang), [])
+  // 계정에 저장된 언어가 있으면 로그인 때 그것으로 (다른 PC 에서도 같은 언어)
+  useEffect(() => { api.auth.prefs().then((p) => { const l = p?.['ui.lang']; if (l && l !== getLang()) setLang(l) }).catch(() => {}) }, [])
   const u = me.user
   return (
     <span className="user-menu" ref={ref}>
@@ -326,6 +331,7 @@ function UserMenu({ me, setMe }) {
           <div className="um-row"><small>이 라우터</small>{me.site.tenant_id} · {me.site.name}</div>
           <div className="um-row"><small>개인정보 · 생체신호</small>{canPhi(me) ? '원문' : '마스킹'} · {canBio(me) ? '보기' : '없음'}</div>
           {me.dev_mode && <div className="um-row dev"><small>개발 모드</small>켜짐</div>}
+          <div className="um-row um-lang"><small>언어 · Language</small><span className="seg" data-no-i18n>{LANGS.map(([k, l]) => <button key={k} className={curLang === k ? 'active' : ''} onClick={() => { setLang(k); api.auth.setPrefs({ 'ui.lang': k }).catch(() => {}) }}>{l}</button>)}</span></div>
           <div className="um-acts"><button onClick={() => { setPw(true); setOpen(false) }}>비밀번호 변경</button><button onClick={logout}>로그아웃</button></div>
         </div>
       )}

@@ -1676,7 +1676,7 @@ fn deny(code: StatusCode, msg: &str) -> Response {
 pub async fn guard(State(state): State<Arc<AppState>>, mut req: Request, next: Next) -> Response {
     let path = req.uri().path().to_string();
     let api = path.starts_with("/api/") || path == "/ws" || path.starts_with("/fhir");
-    if !api || path == "/api/health" || path == "/api/auth/login" || path == "/api/auth/test-accounts" || path == "/api/auth/logout" {
+    if !api || path == "/api/health" || path == "/api/auth/login" || path == "/api/auth/test-accounts" || path == "/api/auth/logout" || path == "/api/site/locale" {
         return next.run(req).await;
     }
     if path.starts_with("/fhir") {

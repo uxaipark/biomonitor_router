@@ -18,6 +18,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/auth/me", get(me))
         .route("/api/auth/password", post(change_password))
         .route("/api/auth/prefs", get(prefs_get).put(prefs_set))
+        .route("/api/site/locale", get(site_locale))
         .route("/api/auth/display-token", post(display_token))
         .route("/api/auth/test-accounts", get(test_accounts))
         .route("/api/admin/users", get(users).post(user_create))
@@ -51,19 +52,35 @@ struct LoginIn {
     /// 시험용 계정용 고정 PIN(8자리). 일반 계정은 비워도 된다.
     #[serde(default)]
     pin: String,
+    /// 로그인 화면에서 고른 국가(KR/US/JP) — 에뮬레이터 송출 국가를 이것으로 바꾼다(비우면 그대로)
+    #[serde(default)]
+    country: String,
 }
 
 async fn login(State(state): State<Arc<AppState>>, axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>, Json(b): Json<LoginIn>) -> Response {
     // PBKDF2 는 수십 ms 걸리므로 워커 스레드를 막지 않게
     let st = state.clone();
     let (tenant, username) = (b.tenant.trim().to_uppercase(), b.username.trim().to_lowercase());
+    let want_country = b.country.trim().to_uppercase();
     let r = tokio::task::spawn_blocking(move || st.auth.login(&b.tenant, &b.username, &b.password, &b.pin)).await;
     let ip = addr.ip();
     match r {
         Ok(Ok((token, p, _must))) => {
             // 성공 한 번이면 이 IP 의 실패 목록은 모두 지운다 (보안 운영)
             crate::security::SEC.login_ok(ip);
-            let body = state.auth.me(&p);
+            let mut body = state.auth.me(&p);
+            // 로그인 화면에서 고른 국가로 에뮬레이터 신원 세트 전환 (응답을 막지 않게 백그라운드로)
+            if !want_country.is_empty() && want_country != crate::site_locale::get().country {
+                let (st2, who, why) = (state.clone(), p.username.clone(), format!("login {} {}", if tenant.is_empty() { "platform" } else { tenant.as_str() }, p.username));
+                let c = want_country.clone();
+                tokio::spawn(async move {
+                    match crate::site_locale::select(&st2, &c, &who, &why).await {
+                        Ok(m) => st2.push_event("site_country", None, format!("로그인 국가 선택으로 전환 요청: {m}")),
+                        Err(e) => st2.push_event("site_country", None, format!("국가 전환 실패: {e}")),
+                    }
+                });
+                if let Some(o) = body.as_object_mut() { o.insert("country_switch".into(), serde_json::json!(want_country)); }
+            }
             ([(header::SET_COOKIE, auth::session_cookie(&token, false))], Json(body)).into_response()
         }
         Ok(Err(e)) => {
@@ -105,6 +122,11 @@ async fn display_token(State(state): State<Arc<AppState>>, Extension(p): Extensi
         }
         Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
     }
+}
+
+/// 사이트 국가·로케일 (로그인 전에도 열림: 로그인 화면의 기본 언어)
+async fn site_locale() -> Response {
+    Json(serde_json::to_value(crate::site_locale::get()).unwrap_or_default()).into_response()
 }
 
 /// 계정별 UI 선호 (GET 전체 / PUT 병합) — 서비스 토큰에는 없다

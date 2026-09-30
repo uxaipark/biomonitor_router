@@ -1,3 +1,4 @@
+import { setLang, COUNTRY_LANG } from '../i18n/index.js'
 import React, { useEffect, useMemo, useState } from 'react'
 import { api } from '../api.js'
 
@@ -29,13 +30,18 @@ export default function Login({ onLogin }) {
   }, [info])
 
   const pinLen = info?.pin_len || 8
+  // 국가(KR/US/JP): 로그인하면 라우터가 에뮬레이터 송출 국가(환자 이름·주소·MRN 세트)를 이것으로 바꾼다. 화면 언어도 같이.
+  const [country, setCountry] = useState(() => { try { return localStorage.getItem('login.country') || '' } catch { return '' } })
+  const [site, setSite] = useState(null)
+  useEffect(() => { fetch('/api/site/locale').then((r) => (r.ok ? r.json() : null)).then((d) => { setSite(d); if (d?.country) setCountry((c) => c || d.country) }).catch(() => {}) }, [])
+  const pickCountry = (c) => { setCountry(c); try { localStorage.setItem('login.country', c) } catch { /* ignore */ } setLang(COUNTRY_LANG[c] || 'ko') }
   const submit = async (t = tenant, u = username, pw = password) => {
     if (!u || !pw) { setErr('아이디와 비밀번호를 입력하세요'); return }
     // 시험용 계정(목록에 있는 아이디)은 PIN 8자리가 있어야 한다 — 서버도 같은 검사를 한다
     if ((info?.accounts || []).some((a) => a.username === u) && pin.length !== pinLen) { setErr(`시험용 계정은 PIN ${pinLen}자리를 먼저 입력하세요`); return }
     setBusy(true); setErr('')
     try {
-      const me = await api.auth.login(t.trim().toUpperCase(), u, pw, pin)
+      const me = await api.auth.login(t.trim().toUpperCase(), u, pw, pin, country)
       try { localStorage.setItem(LAST, t.trim().toUpperCase()) } catch { /* ignore */ }
       onLogin(me)
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
@@ -62,6 +68,7 @@ export default function Login({ onLogin }) {
   )
   return (
     <div className="login-wrap">
+      <CountryPick value={country} onPick={pickCountry} site={site?.country} />
       <div className="login-card">
         <div className="login-brand">
           <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)" /><path d="M4 13h4l2-5 3 9 2-6 1.5 2H20" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -106,6 +113,17 @@ export default function Login({ onLogin }) {
         )}
         {info && !dev && <p className="muted login-note">운영 모드입니다. 병원 ID 와 계정은 병원 IT 매니저나 관리자에게 받으세요.</p>}
       </div>
+    </div>
+  )
+}
+
+const COUNTRIES = [['KR', '대한민국', '한국어'], ['US', 'United States', 'English'], ['JP', '日本', '日本語']]
+function CountryPick({ value, onPick, site }) {
+  return (
+    <div className="login-country" data-no-i18n>
+      <span className="lc-label">{value === 'US' ? 'Country' : value === 'JP' ? '国' : '국가'}</span>
+      <span className="seg">{COUNTRIES.map(([k, name, lang]) => <button key={k} type="button" className={value === k ? 'active' : ''} onClick={() => onPick(k)} title={`${name} · ${lang}`}>{name}</button>)}</span>
+      {site && value && site !== value && <small className="lc-note">{value === 'US' ? `Signing in switches the patient roster to ${value}` : value === 'JP' ? `ログインすると患者名簿を${value}に切り替えます` : `로그인하면 환자 명단을 ${value} 로 전환합니다`}</small>}
     </div>
   )
 }

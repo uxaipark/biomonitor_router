@@ -230,3 +230,9 @@ scripts/update-ecg-engine.sh /path/to/live_ecg data/engine/libecg.so
 API: `GET /api/ecg/engine`(상태·단계·부하) · `POST /api/ecg/engine/reload` · `GET|PUT /api/ecg/config`(프리셋·단계) · `GET /api/ecg/versions`, `POST /api/ecg/versions/{key}/activate`, `DELETE …/{key}`, `GET …/{key}/doc/{perf.md}` (보관함 `data/engine/versions/`) · `GET /api/ecg/history` · `GET /api/ecg/summary` · `POST /api/ecg/bench` · `GET /api/ecg/{patch}`. 스트림 헤더 `ana`, `/api/channels` 행 `ana`. 관리 › ECG 분석 엔진 페이지에서 버전 활성화·되돌리기·단계 선택·성능·알고리즘 검증(에뮬레이터 정답지 `/api/v1/labels` 대비 민감도·정밀도·지연, `POST /api/ecg/eval`)을 다룬다.
 
 백업 대상에는 **미러링** 옵션(받는 쪽에만 켬)이 있어 다른 대상의 기존 파일도 저속(`mirror_kbps`)으로 끌어와 대상끼리 완전히 같게 유지한다. 데이터 관리의 **NAS 이관** 마법사는 로컬 비우기 → 설정 시간(버틸 시간 계산) → 새 NAS 연결 → 이관(미러링 전속) → 마무리를 안내한다.
+
+## 다국어 (한국어 · English · 日本語)
+
+콘솔은 한국어 원문을 화면에서 영어·일본어로 바꿔 보여 준다(`web/console/src/i18n/`). 언어는 사용자 메뉴에서 고르며 계정에 저장된다. 로그인 화면의 국가 선택(대한민국 / United States / 日本)은 화면 언어를 바꾸고, 로그인하면 에뮬레이터의 송출 국가(환자 이름·주소·MRN 세트)를 그 나라로 전환한다. 현재 국가는 `GET /api/site/locale`.
+
+새 한국어 문자열을 넣었으면: `python3 web/console/scripts/i18n-extract.py` → 새 키를 번역해 `chunk*.en.json/ja.json` 로 → `python3 web/console/scripts/i18n-merge.py <그 폴더>`.

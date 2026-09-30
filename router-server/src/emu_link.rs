@@ -176,6 +176,9 @@ pub async fn run_emr_sync(state: Arc<AppState>, every: u64) {
         if n > 0 {
             info!("emr sync: {} patch issue times updated", n);
         }
+        if crate::site_locale::RESET_HOME.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            home_cache.clear(); // 송출 국가가 바뀜 — 집주소를 새 세트로 다시 읽는다
+        }
         sync_home_addresses(&state, &addr, &mut home_cache).await;
         // 전광판(고정 디스플레이) 그룹: 도면에서 자동 생성 — 한 시간에 한 번
         if boards_at.map(|t| t.elapsed() >= Duration::from_secs(3600)).unwrap_or(true) {
