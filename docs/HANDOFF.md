@@ -193,6 +193,10 @@
 
 - [2026-09-17 22:50 MAC] 라우터 P1 구현·검증 (48a3480).
 - [2026-09-17 23:20 MAC] RP5#2 이어 개발 준비: Linux sysmon(/proc), `rust-toolchain.toml`, `scripts/pi-dev-setup.sh`, `docs/RP5-DEV.md`, `CLAUDE.md`, 이 문서.
+### PIN 일괄 변경 (fitlet3, 2026-09-30)
+
+- 기본 PIN 과 계정 22개 개별 PIN 을 모두 `19740612` 로 (관리 API `PUT /api/admin/users/test-pins`, 라우터 DB 에 즉시 반영). 코드 초기값 `auth.rs::DEFAULT_TEST_PIN` 과 README 의 `ROUTER_TEST_PIN` 기본값도 `19740612` 로. 옛 값 95305449 는 더 이상 쓰이지 않는다.
+
 ### 프로파일링 · 최적화 · 안정성 점검 (ECG 엔진 통합 이후) + 알고리즘 검증 기능 (fitlet3)
 
 - **계측(최적화 전)**: RSS 662 MB(엔진 전 274 MB), 스레드별 CPU — ecg-shard 2개 합 ≈50%, tokio 워커 ≈30%, patch-store ≈20%; 분석 허브 busy ≈ 0.6–0.7 코어 @ 2,083채널, 드롭 0. 엔진 채널 메모리 실측(`tests/ecg_engine_mem.rs`): patch 프리셋 ≈103 KB/채널(→ 2,083채널 ≈ 210 MB), clinical ≈20 KB. 정상 상태 누수 검사(`tests/ecg_engine_leak.rs`, 400채널×300초 합성): +7–8 MB 뒤 평탄 → 누수 아님(워밍업). 라이브 RSS 도 재시작 뒤 ~13분간 643→700 MB 로 오르다 685–700 MB 에서 평탄(패치 교대·할당기 워밍업).

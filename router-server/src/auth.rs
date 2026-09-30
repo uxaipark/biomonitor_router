@@ -201,7 +201,7 @@ const DISPLAY_MS: u64 = 365 * 24 * 3600 * 1000;
 const DISPLAY_TOKEN_MS: u64 = 3650 * 24 * 3600 * 1000;
 /// 시험용 계정 PIN 자릿수 / 기본값 (`ROUTER_TEST_PIN` 으로 변경)
 pub const TEST_PIN_LEN: usize = 8;
-pub const DEFAULT_TEST_PIN: &str = "95305449";
+pub const DEFAULT_TEST_PIN: &str = "19740612";
 const K_TEST_PIN: &str = "test_pin_default";
 
 fn valid_pin(v: &str) -> bool {
@@ -603,7 +603,7 @@ impl Auth {
 
     /// 병원 ID + 아이디 + 비밀번호. 병원 계정은 자기 병원 ID 로만, 플랫폼 계정은 병원 ID 를 비우거나(플랫폼)
     /// 담당 병원 ID 로 들어온다(그 세션은 그 병원만). 어느 쪽이 틀렸는지는 알려 주지 않는다(계정 탐색 방지).
-    /// 기본 PIN(8자리 숫자): 수퍼 어드민이 저장한 값(settings) → `ROUTER_TEST_PIN` → 95305449.
+    /// 기본 PIN(8자리 숫자): 수퍼 어드민이 저장한 값(settings) → `ROUTER_TEST_PIN` → 19740612.
     pub fn test_pin(&self) -> String {
         if let Ok(db) = self.db.lock() {
             if let Ok(v) = db.query_row("SELECT value FROM settings WHERE key = ?1", params![K_TEST_PIN], |r| r.get::<_, String>(0)) {
