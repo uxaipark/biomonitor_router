@@ -4,14 +4,17 @@
 import CentralStation from './CentralStation.jsx'
 import GridTemplate from './GridTemplate.jsx'
 
+/** 뷰어 한 화면의 최대 환자 수 — 160 (16×10 n-up). 요청이 이보다 많아도 뷰어가 160 에서 자른다 */
+export const MAX_VIEW = 160
+
 export const TEMPLATES = [
   {
     id: 'central',
     name: '중앙 모니터 (Central Station)',
     audience: '의료진 · 간호사실',
-    desc: '에뮬레이터 모니터링 화면과 같은 n-up 격자. 침상 타일(ECG·Pleth·Resp + HR/SpO₂/RR/NIBP/Temp/GLU), 적/황 알람 헤더, 12-up 이상 2열 수치, 48 초과 숫자 보드, 타일 클릭 → 단일 침상 뷰어.',
+    desc: '에뮬레이터 모니터링 화면과 같은 n-up 격자. 침상 타일(ECG·Pleth·Resp + HR/SpO₂/RR/NIBP/Temp/GLU), 적/황 알람 헤더, 12-up 이상 2열 수치, 48 초과 숫자 보드 (최대 160명), 타일 클릭 → 단일 침상 뷰어.',
     component: CentralStation,
-    maxRows: 200,
+    maxRows: 160,
   },
   {
     id: 'grid',

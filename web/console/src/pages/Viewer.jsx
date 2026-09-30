@@ -2,7 +2,7 @@ import { gwLabel } from '../model.js'
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
 import { claimLive, releaseLive } from '../ws.js'
-import { templateById } from '../viewer/templates.js'
+import { templateById, MAX_VIEW } from '../viewer/templates.js'
 import { isMobileGw } from './Viewers.jsx'
 import '../viewer/ds.css'
 
@@ -63,7 +63,7 @@ export default function Viewer({ alarms, hash }) {
     if (group) v = v.filter((r) => (r.groups || []).includes(group))
     if (b != null && f != null) v = v.filter((r) => String(r.patient?.building_idx ?? '') === b && String(r.patient?.floor) === f)
     v = v.map((r) => ({ ...r, emr: emr.byPatient.get(String(r.patient_id)), bed: emr.bedByPatch.get(r.channel_id) }))
-    return v.slice(0, tpl.maxRows || 200)
+    return v.slice(0, Math.min(tpl.maxRows || MAX_VIEW, MAX_VIEW)) // 최대 160 (요청이 더 많아도 강제)
   }, [rows, q, emr, tpl, gws])
   const ids = scoped.map((r) => r.channel_id).join(',')
   useEffect(() => { claimLive('viewer', ids ? ids.split(',') : []); return () => releaseLive('viewer') }, [ids])
