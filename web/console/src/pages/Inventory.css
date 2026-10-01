@@ -111,3 +111,8 @@ button.link { background: none; border: none; color: var(--accent); padding: 0; 
 .inv-stmt .tbl th { width: 40%; }
 @media (max-width: 1250px) { .inv-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } .adj-kinds { grid-template-columns: 1fr 1fr; } .inv-row3 { grid-template-columns: 1fr 1fr; } }
 .inv-form label.ck span { display: flex; flex-direction: column; gap: 2px; color: var(--text); } .inv-form label small { display: block; }
+.inv-approve { border: 1.5px solid var(--warn); background: color-mix(in srgb, var(--warn) 9%, var(--panel)); border-radius: 12px; padding: 10px 14px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
+.ia-h { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; } .ia-h b { font-size: 15px; }
+.ia-row { display: grid; grid-template-columns: 70px minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.ia-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 900px) { .ia-row { grid-template-columns: 1fr auto; } .ia-row > span:nth-child(1), .ia-row > span:nth-child(4) { display: none; } }

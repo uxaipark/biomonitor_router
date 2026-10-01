@@ -33,8 +33,9 @@ function nextStep(r, sup, hos) {
   const o = r.po_open || {}
   const req = (o.submitted || 0) + (o.draft || 0)
   if (!r.started) return { tone: 'idle', title: '재고 관리 시작 전', text: '처음 납품한 수량을 입고로 등록하면 남은 양과 품절 시점을 계산합니다.', action: 'receive', label: '첫 입고 등록', who: true }
-  if (r.unrecorded_use > 0) return { tone: 'warn', title: '기록보다 많이 사용', text: `재고 기록이 없을 때 ${r.unrecorded_use.toLocaleString()}개가 부착됐습니다. 현장에서 세어 맞춰 주세요.`, action: 'visit', label: '방문 점검', who: true }
   if (o.shipped) return { tone: 'info', title: '배송 중', text: `출고된 발주 ${o.shipped}건 — 도착하면 받은 수량을 확인하세요.`, action: 'tab-po', label: '수령 확인', who: true }
+  if (hos && req) return { tone: 'warn', title: '병원 승인 대기', text: `공급사 발주 요청 ${req}건 — 병원 발주번호를 넣고 승인하세요.`, action: 'tab-po', label: '승인하기', who: true }
+  if (r.unrecorded_use > 0) return { tone: 'warn', title: '기록보다 많이 사용', text: `재고 기록이 없을 때 ${r.unrecorded_use.toLocaleString()}개가 부착됐습니다. 현장에서 세어 맞춰 주세요.`, action: 'visit', label: '방문 점검', who: true }
   if (o.confirmed) return { tone: 'info', title: '승인됨 · 출고 대기', text: sup ? '병원이 승인했습니다. 로트를 지정해 출고하세요.' : '공급사 출고를 기다리는 중입니다.', action: 'tab-po', label: sup ? '출고하기' : '보기', who: true }
   if (req) return { tone: hos ? 'warn' : 'info', title: '병원 승인 대기', text: hos ? `공급사 발주 요청 ${req}건 — 병원 발주번호를 넣고 승인하세요.` : `발주 요청 ${req}건이 병원 승인을 기다립니다.`, action: 'tab-po', label: hos ? '승인하기' : '보기', who: true }
   if (r.suggest_boxes > 0 && (r.on_hand <= 0 || r.on_hand + r.on_order <= r.reorder_point)) {
@@ -95,6 +96,7 @@ export default function Inventory() {
         <div className={'inv-kpi' + (k.visit ? ' info' : '')}><small>점검할 곳</small><b>{k.visit}</b><span>점검 주기 지남</span></div>
         <Kpi id="exp" label="유효기간 주의" val={k.exp.toLocaleString()} sub="60일 안 만료 · 만료 (개)" tone="warn" />
       </div>
+      {hos && <ApprovalBar rows={rowsAll} onOpen={(r, p) => { setSel(`${r.tenant}|${r.sku}`); setTab('po'); setModal({ kind: 'approve', po: p, row: r }) }} />}
       <div className="inv-body">
         <div className="inv-left">
           <div className="toolbar">
@@ -129,6 +131,34 @@ export default function Inventory() {
         )}
       </div>
       {modal && <InvModal m={modal} rows={rowsAll} skus={sum?.skus || []} det={det} onClose={() => setModal(null)} run={run} />}
+    </div>
+  )
+}
+
+/** 병원 계정: 승인할 발주 요청을 맨 위에 모아 바로 승인 */
+function ApprovalBar({ rows, onOpen }) {
+  const want = rows.filter((r) => (r.po_open?.submitted || 0) + (r.po_open?.draft || 0) > 0)
+  const [list, setList] = useState([])
+  const key = want.map((r) => r.tenant + (r.po_open?.submitted || 0) + (r.po_open?.draft || 0)).join(',')
+  useEffect(() => {
+    let ok = true
+    Promise.all(want.map((r) => api.inventory.detail(r.tenant).then((d) => (d?.pos || []).filter((p) => p.sku === r.sku && (p.status === 'submitted' || p.status === 'draft')).map((p) => ({ r, p }))).catch(() => [])))
+      .then((a) => ok && setList(a.flat().sort((x, y) => x.p.created_ms - y.p.created_ms)))
+    return () => { ok = false }
+  }, [key])
+  if (!list.length) return null
+  return (
+    <div className="inv-approve">
+      <div className="ia-h"><b>승인할 발주 {list.length}건</b><span className="muted small">공급사가 요청한 발주입니다. 수량을 확인하고 병원 발주번호를 넣어 승인하세요.</span></div>
+      {list.slice(0, 8).map(({ r, p }) => (
+        <div key={p.id} className="ia-row">
+          <span className="mono">PO-{p.id}</span>
+          <span><b>{r.tenant_name || r.tenant}</b> · {r.sku_name}</span>
+          <span><b>{p.boxes.toLocaleString()}상자</b> = {(p.boxes * r.per_box).toLocaleString()}개</span>
+          <span className="muted small">{fmtD(p.created_ms)} · {p.by === 'auto' ? '자동 요청' : p.by}{p.note ? ` · ${p.note}` : ''}</span>
+          <button className="primary" onClick={() => onOpen(r, p)}>승인</button>
+        </div>))}
+      {list.length > 8 && <div className="muted small">외 {list.length - 8}건 — 카드의 발주 탭에서 확인</div>}
     </div>
   )
 }

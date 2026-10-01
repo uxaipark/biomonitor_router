@@ -5147,6 +5147,12 @@
 "src/pages/Integration.jsx"
 ]
 },
+"건 — 카드의 발주 탭에서 확인": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "건 더 보기": {
 "kind": "jsx",
 "src": [
@@ -5787,6 +5793,12 @@
 ]
 },
 "공급사 확인: ______________": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"공급사가 요청한 발주입니다. 수량을 확인하고 병원 발주번호를 넣어 승인하세요.": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -12024,6 +12036,12 @@
 "src/pages/Inventory.jsx"
 ]
 },
+"승인할 발주": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "승인할 수 없는 상태입니다 ({0})": {
 "kind": "rs-tpl",
 "src": [
@@ -13861,7 +13879,8 @@
 "외": {
 "kind": "jsx",
 "src": [
-"src/pages/AdminSecurity.jsx"
+"src/pages/AdminSecurity.jsx",
+"src/pages/Inventory.jsx"
 ]
 },
 "외 {0}": {
