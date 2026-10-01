@@ -367,7 +367,8 @@ function BackupCatalog({ targets, canEdit = true }) {
   const purge = async () => {
     setMsg('')
     const v = window.prompt(`'${t?.name}' 의 백업 파일을 전부 지웁니다 (${where(t)} 안의 patches/ 폴더).\n` +
-      '로컬에서 이미 지워진 시간의 파형은 되살릴 수 없습니다. 삭제하는 동안 백업은 중단되고, 끝난 뒤 "백업 재개"를 누르면 로컬에 남은 파일부터 다시 올립니다.\n\n' +
+      '폴더 이름을 바꿔 바로 비운 뒤, 실제 파일은 백그라운드에서 연결 6개로 지웁니다(그동안 백업은 새 폴더로 계속 가능).\n' +
+      '로컬에서 이미 지워진 시간의 파형은 되살릴 수 없습니다. 끝난 뒤 "백업 재개"를 누르면 로컬에 남은 파일부터 다시 올립니다.\n\n' +
       `계속하려면 대상 이름을 그대로 입력하세요: ${t?.name}`)
     if (v == null) return
     try { await api.backup.catalogPurge(id, v); setOpen(null); setTimeout(() => refresh?.(), 800) } catch (e) { setMsg(e.message) }
@@ -383,7 +384,12 @@ function BackupCatalog({ targets, canEdit = true }) {
         {canPurge && <button className="danger" onClick={purge} disabled={sync?.running}>{sync?.running && sync.op === 'purge' ? `삭제 중… 폴더 ${sync.dirs || 0}/${sync.dirs_total ?? '?'} · 파일 ${(sync.deleted || 0).toLocaleString()}` : '백업 파일 전체 삭제'}</button>}
       </div>
       {sync && !sync.running && sync.done_ms && sync.op === 'purge' && (
-        <p className={sync.error ? 'err' : 'muted'}>백업 파일 전체 삭제 {fmtDateTime(sync.done_ms)}: {sync.error ? sync.error : `파일 ${(sync.deleted ?? 0).toLocaleString()}개 삭제 · 백업은 중단 상태입니다 ("백업 재개"로 다시 시작)`}</p>
+        <p className={sync.error ? 'err' : 'muted'}>백업 파일 전체 삭제 {fmtDateTime(sync.done_ms)}: {sync.error ? sync.error : sync.renamed ? `백업 폴더를 ${sync.renamed} 로 옮기고 목록을 비웠습니다 · 백업은 중단 상태입니다 ("백업 재개"로 다시 시작)` : `파일 ${(sync.deleted ?? 0).toLocaleString()}개 삭제 · 백업은 중단 상태입니다 ("백업 재개"로 다시 시작)`}</p>
+      )}
+      {sync?.trash && (
+        <p className={sync.trash.error ? 'err' : 'muted'}>{sync.trash.running
+          ? `NAS 에서 옛 파일 지우는 중 (백그라운드 · 연결 6개) — ${sync.trash.folders > 1 ? `휴지통 ${sync.trash.folder}/${sync.trash.folders} · ` : ''}폴더 ${(sync.trash.dirs || 0).toLocaleString()}/${(sync.trash.dirs_total ?? 0).toLocaleString()} · 파일 ${(sync.trash.deleted || 0).toLocaleString()}개. 백업은 그대로 쓸 수 있습니다.`
+          : sync.trash.error ? `백그라운드 삭제 멈춤: ${sync.trash.error} — 다시 "전체 삭제"를 누르면 남은 휴지통 폴더부터 이어서 지웁니다.` : `백그라운드 삭제 완료 ${fmtDateTime(sync.trash.done_ms)} · 파일 ${(sync.trash.deleted || 0).toLocaleString()}개`}</p>
       )}
       {sync && !sync.running && sync.done_ms && sync.op !== 'purge' && (
         <p className={sync.error ? 'err' : 'muted'}>

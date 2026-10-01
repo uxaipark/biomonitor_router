@@ -425,6 +425,15 @@ fn enc(s: &str) -> String {
     o
 }
 
+/// 백그라운드 삭제에 쓰는 동시 연결 수 (NAS 의 IP 당 FTP 연결 제한 — 보통 8~10 — 안쪽, 백업 전송용 여유를 남김)
+const TRASH_WORKERS: usize = 6;
+
+/// SFTP 명령(-Q)용 경로: 대상 경로가 '/..' 면 절대, 아니면 홈 기준
+fn sftp_q(t: &Target, rel: &str) -> String {
+    let full = join_remote(&t.path, rel);
+    if t.path.trim().starts_with('/') { format!("/{}", full.trim_start_matches('/')) } else { full.trim_start_matches("~/").to_string() }
+}
+
 fn join_remote(base: &str, rel: &str) -> String {
     let b = base.trim().trim_end_matches('/');
     if b.is_empty() {
@@ -1038,78 +1047,31 @@ impl Backup {
         Ok(())
     }
 
-    fn purge_run(&self, t: &Target) -> Result<(), String> {
+    /// 전체 삭제: ① `patches/` 이름을 `patches.trash-<시각>` 으로 바꿔 즉시 끝내고(목록·사본 기록도 바로 비움, 새 백업은 새 patches/ 로)
+    /// ② 실제 파일 삭제는 백그라운드에서 연결 여러 개로 동시에 — 남아 있던 다른 trash 폴더도 같이 지운다.
+    /// 이름 바꾸기가 안 되는 서버면 예전처럼 바로 지운다(이때도 연결 여러 개로).
+    fn purge_run(self: &Arc<Self>, t: &Target) -> Result<(), String> {
         let p = self.policy.read().unwrap().clone();
-        let set = |k: &str, v: serde_json::Value| {
-            if let Some(e) = SYNC.lock().unwrap().get_mut(&t.id) {
+        let tid = t.id.clone();
+        let set = move |k: &str, v: serde_json::Value| {
+            if let Some(e) = SYNC.lock().unwrap().get_mut(&tid) {
                 e[k] = v;
             }
         };
+        let trash = format!("patches.trash-{}", now_ms());
+        let root = self.list_remote(t, &p, "");
+        let has_patches = root.as_ref().map(|v| v.iter().any(|x| x.0 == "patches" && x.2)).unwrap_or(true);
+        let mut leftovers: Vec<String> = root.as_ref().map(|v| v.iter().filter(|x| x.2 && x.0.starts_with("patches.trash-")).map(|x| x.0.clone()).collect()).unwrap_or_default();
         let mut deleted = 0u64;
-        match t.kind.as_str() {
-            "nas" => {
-                let dir = Path::new(t.path.trim()).join("patches");
-                if dir.is_dir() {
-                    deleted = fs::read_dir(&dir).map(|rd| rd.flatten().filter_map(|d| fs::read_dir(d.path()).ok()).map(|f| f.count() as u64).sum()).unwrap_or(0);
-                    fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+        if has_patches {
+            match self.rename_remote(t, &p, "patches", &trash) {
+                Ok(()) => { leftovers.push(trash.clone()); set("renamed", serde_json::json!(trash)); }
+                Err(e) => {
+                    warn!("backup: purge rename failed on {} ({e}) — deleting in place", t.name);
+                    set("rename_error", serde_json::json!(e));
+                    let s2 = set.clone();
+                    deleted = self.delete_tree(t, &p, "patches", &move |d, tot, n| { s2("dirs", serde_json::json!(d)); s2("dirs_total", serde_json::json!(tot)); s2("deleted", serde_json::json!(n)); })?;
                 }
-            }
-            "smb" => {
-                let auth = t.smb_auth(&self.work)?;
-                let full = join_remote(&t.path, "patches").trim_start_matches('/').to_string();
-                let o = t.smbclient(&auth, &p, &format!("deltree \"{full}\""));
-                let _ = fs::remove_file(&auth);
-                let o = o?;
-                if !o.status.success() && !String::from_utf8_lossy(&o.stderr).contains("NT_STATUS_OBJECT_NAME_NOT_FOUND") {
-                    return Err(stderr_msg(&o));
-                }
-            }
-            kind => {
-                let dirs: Vec<String> = match self.list_remote(t, &p, "patches") {
-                    Ok(v) => v.into_iter().filter(|x| x.2).map(|x| x.0).collect(),
-                    Err(e) if e.contains("(9)") || e.contains("(78)") => Vec::new(), // patches/ 가 없다 = 지울 것 없음
-                    Err(e) => return Err(e),
-                };
-                set("dirs_total", serde_json::json!(dirs.len()));
-                // SFTP 명령 경로: '/..' 절대, 아니면 홈 기준
-                let sftp_path = |rel: &str| {
-                    let full = join_remote(&t.path, rel);
-                    if t.path.trim().starts_with('/') { format!("/{}", full.trim_start_matches('/')) } else { full.trim_start_matches("~/").to_string() }
-                };
-                let mut done = 0usize;
-                for chunk in dirs.chunks(50) {
-                    let subs: Vec<String> = chunk.iter().map(|d| format!("patches/{d}")).collect();
-                    let lists = self.list_remote_many(t, &p, &subs);
-                    let mut q: Vec<String> = Vec::new();
-                    for (d, r) in chunk.iter().zip(lists) {
-                        for (name, _, is_dir) in r.unwrap_or_default() {
-                            if is_dir {
-                                continue;
-                            }
-                            deleted += 1;
-                            q.push(if kind == "sftp" { format!("-*rm \"{}\"", sftp_path(&format!("patches/{d}/{name}"))) } else { format!("-*DELE {d}/{name}") });
-                        }
-                        q.push(if kind == "sftp" { format!("-*rmdir \"{}\"", sftp_path(&format!("patches/{d}"))) } else { format!("-*RMD {d}") });
-                    }
-                    // patches/ 목록을 받은 뒤(-) 그 안에서 명령 실행, 실패한 명령(*)은 건너뛰고 계속
-                    let mut cmd = t.curl(&p);
-                    cmd.args(["-o", "/dev/null"]);
-                    for c in &q {
-                        cmd.arg("-Q").arg(c);
-                    }
-                    cmd.arg(format!("{}/", t.url("patches").trim_end_matches('/')));
-                    let o = run_with_stdin(cmd, &t.curl_cfg())?;
-                    if !o.status.success() {
-                        return Err(format!("삭제 실패: {}", stderr_msg(&o)));
-                    }
-                    done += chunk.len();
-                    set("dirs", serde_json::json!(done));
-                    set("deleted", serde_json::json!(deleted));
-                }
-                let mut cmd = t.curl(&p);
-                let rm = if kind == "sftp" { format!("-*rmdir \"{}\"", sftp_path("patches")) } else { "-*RMD patches".to_string() };
-                cmd.args(["-o", "/dev/null", "-Q", &rm]).arg(format!("{}/", t.url("").trim_end_matches('/')));
-                let _ = run_with_stdin(cmd, &t.curl_cfg());
             }
         }
         // 이 대상의 기록 비우기 → 로컬에 남은 파일은 백업 안 된 것으로 돌아가 재개 뒤 다시 올라간다
@@ -1126,8 +1088,146 @@ impl Backup {
         }
         self.rebuild_safe();
         set("deleted", serde_json::json!(deleted));
-        info!("backup: purged target {} — {} files deleted", t.name, deleted);
+        info!("backup: purged target {} — renamed to {}, background delete of {} folder(s)", t.name, if has_patches { trash.as_str() } else { "-" }, leftovers.len());
+        // ② 백그라운드 실제 삭제
+        if !leftovers.is_empty() {
+            let b = self.clone();
+            let t2 = t.clone();
+            let tid = t.id.clone();
+            let _ = std::thread::Builder::new().name("backup-trash".into()).spawn(move || {
+                let st = |v: serde_json::Value| { if let Some(e) = SYNC.lock().unwrap().get_mut(&tid) { e["trash"] = v; } };
+                let total_folders = leftovers.len();
+                let mut sum = 0u64;
+                for (i, name) in leftovers.iter().enumerate() {
+                    let p = b.policy.read().unwrap().clone();
+                    let nm = name.clone();
+                    let base = sum;
+                    let r = b.delete_tree(&t2, &p, name, &|d, tot, n| st(serde_json::json!({ "running": true, "name": nm, "folder": i + 1, "folders": total_folders, "dirs": d, "dirs_total": tot, "deleted": base + n })));
+                    match r { Ok(n) => sum += n, Err(e) => { warn!("backup: trash delete {name} failed: {e}"); st(serde_json::json!({ "running": false, "error": e, "deleted": sum })); return; } }
+                }
+                info!("backup: background delete done on {} — {} files", t2.name, sum);
+                st(serde_json::json!({ "running": false, "deleted": sum, "done_ms": now_ms() }));
+            });
+        }
         Ok(())
+    }
+
+    /// 원격 폴더 이름 바꾸기 (같은 상위 폴더 안). FTP RNFR/RNTO, SFTP rename, SMB rename, NAS(마운트) rename.
+    fn rename_remote(&self, t: &Target, p: &Policy, from: &str, to: &str) -> Result<(), String> {
+        match t.kind.as_str() {
+            "nas" => fs::rename(Path::new(t.path.trim()).join(from), Path::new(t.path.trim()).join(to)).map_err(|e| e.to_string()),
+            "smb" => {
+                let auth = t.smb_auth(&self.work)?;
+                let f = join_remote(&t.path, from).trim_start_matches('/').to_string();
+                let g = join_remote(&t.path, to).trim_start_matches('/').to_string();
+                let o = t.smbclient(&auth, p, &format!("rename \"{f}\" \"{g}\""));
+                let _ = fs::remove_file(&auth);
+                let o = o?;
+                if o.status.success() && !String::from_utf8_lossy(&o.stdout).contains("NT_STATUS") { Ok(()) } else { Err(stderr_msg(&o)) }
+            }
+            kind => {
+                let mut cmd = t.curl(p);
+                cmd.args(["-o", "/dev/null"]);
+                if kind == "sftp" {
+                    cmd.arg("-Q").arg(format!("rename \"{}\" \"{}\"", sftp_q(t, from), sftp_q(t, to)));
+                } else {
+                    cmd.arg("-Q").arg(format!("RNFR {from}")).arg("-Q").arg(format!("RNTO {to}"));
+                }
+                cmd.arg(format!("{}/", t.url("").trim_end_matches('/')));
+                let o = run_with_stdin(cmd, &t.curl_cfg())?;
+                if o.status.success() { Ok(()) } else { Err(stderr_msg(&o)) }
+            }
+        }
+    }
+
+    /// `rel` 폴더(패치별 하위 폴더 + 파일)를 통째로 지운다. FTP/SFTP 는 하위 폴더 50개씩 묶어 연결 TRASH_WORKERS 개로 동시에.
+    /// 반환: 지운 파일 수. progress(지운 폴더, 전체 폴더, 지운 파일)
+    fn delete_tree(&self, t: &Target, p: &Policy, rel: &str, progress: &(dyn Fn(usize, usize, u64) + Sync)) -> Result<u64, String> {
+        use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering as AO};
+        match t.kind.as_str() {
+            "nas" => {
+                let dir = Path::new(t.path.trim()).join(rel);
+                if !dir.is_dir() { return Ok(0); }
+                let subs: Vec<PathBuf> = fs::read_dir(&dir).map(|rd| rd.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+                let total = subs.len();
+                let q = Mutex::new(subs);
+                let (dn, fl) = (AtomicUsize::new(0), AtomicU64::new(0));
+                std::thread::scope(|sc| {
+                    for _ in 0..TRASH_WORKERS {
+                        sc.spawn(|| loop {
+                            let Some(sd) = q.lock().unwrap().pop() else { break };
+                            let n = fs::read_dir(&sd).map(|r| r.count() as u64).unwrap_or(1);
+                            let _ = if sd.is_dir() { fs::remove_dir_all(&sd) } else { fs::remove_file(&sd) };
+                            fl.fetch_add(n, AO::Relaxed);
+                            progress(dn.fetch_add(1, AO::Relaxed) + 1, total, fl.load(AO::Relaxed));
+                        });
+                    }
+                });
+                fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+                Ok(fl.load(AO::Relaxed))
+            }
+            "smb" => {
+                let auth = t.smb_auth(&self.work)?;
+                let full = join_remote(&t.path, rel).trim_start_matches('/').to_string();
+                let o = t.smbclient(&auth, p, &format!("deltree \"{full}\""));
+                let _ = fs::remove_file(&auth);
+                let o = o?;
+                if !o.status.success() && !String::from_utf8_lossy(&o.stderr).contains("NT_STATUS_OBJECT_NAME_NOT_FOUND") {
+                    return Err(stderr_msg(&o));
+                }
+                Ok(0)
+            }
+            kind => {
+                let dirs: Vec<String> = match self.list_remote(t, p, rel) {
+                    Ok(v) => v.into_iter().filter(|x| x.2).map(|x| x.0).collect(),
+                    Err(e) if e.contains("(9)") || e.contains("(78)") || e.contains("550") => return Ok(0), // 폴더 없음 = 지울 것 없음
+                    Err(e) => return Err(e),
+                };
+                let total = dirs.len();
+                let chunks: Vec<Vec<String>> = dirs.chunks(50).map(|c| c.to_vec()).collect();
+                let q = Mutex::new(chunks);
+                let (dn, fl) = (AtomicUsize::new(0), AtomicU64::new(0));
+                let err: Mutex<Option<String>> = Mutex::new(None);
+                std::thread::scope(|sc| {
+                    for _ in 0..TRASH_WORKERS {
+                        sc.spawn(|| loop {
+                            if err.lock().unwrap().is_some() { break; }
+                            let Some(chunk) = q.lock().unwrap().pop() else { break };
+                            let subs: Vec<String> = chunk.iter().map(|d| format!("{rel}/{d}")).collect();
+                            let lists = self.list_remote_many(t, p, &subs);
+                            let mut cmds: Vec<String> = Vec::new();
+                            let mut nfile = 0u64;
+                            for (d, r) in chunk.iter().zip(lists) {
+                                for (name, _, is_dir) in r.unwrap_or_default() {
+                                    if is_dir { continue; }
+                                    nfile += 1;
+                                    cmds.push(if kind == "sftp" { format!("-*rm \"{}\"", sftp_q(t, &format!("{rel}/{d}/{name}"))) } else { format!("-*DELE {d}/{name}") });
+                                }
+                                cmds.push(if kind == "sftp" { format!("-*rmdir \"{}\"", sftp_q(t, &format!("{rel}/{d}"))) } else { format!("-*RMD {d}") });
+                            }
+                            // 폴더 목록을 받은 뒤(-) 그 안에서 명령 실행, 실패한 명령(*)은 건너뛰고 계속 — 연결 하나에 명령 여럿
+                            let mut cmd = t.curl(p);
+                            cmd.args(["-o", "/dev/null"]);
+                            for c in &cmds { cmd.arg("-Q").arg(c); }
+                            cmd.arg(format!("{}/", t.url(rel).trim_end_matches('/')));
+                            match run_with_stdin(cmd, &t.curl_cfg()) {
+                                Ok(o) if o.status.success() => {}
+                                Ok(o) => { *err.lock().unwrap() = Some(format!("삭제 실패: {}", stderr_msg(&o))); break; }
+                                Err(e) => { *err.lock().unwrap() = Some(e); break; }
+                            }
+                            fl.fetch_add(nfile, AO::Relaxed);
+                            progress(dn.fetch_add(chunk.len(), AO::Relaxed) + chunk.len(), total, fl.load(AO::Relaxed));
+                        });
+                    }
+                });
+                if let Some(e) = err.into_inner().unwrap() { return Err(e); }
+                let mut cmd = t.curl(p);
+                let rm = if kind == "sftp" { format!("-*rmdir \"{}\"", sftp_q(t, rel)) } else { format!("-*RMD {rel}") };
+                cmd.args(["-o", "/dev/null", "-Q", &rm]).arg(format!("{}/", t.url("").trim_end_matches('/')));
+                let _ = run_with_stdin(cmd, &t.curl_cfg());
+                Ok(fl.load(AO::Relaxed))
+            }
+        }
     }
 
     // ---------------------------------------------------------------- 백업에서 다시 읽기 (히스토리)
