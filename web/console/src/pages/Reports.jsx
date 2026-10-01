@@ -56,17 +56,33 @@ export default function Reports() {
   const [signAt, setSignAt] = useState('')
   useEffect(() => { api.channels().then((d) => setChs(Array.isArray(d) ? d : [])).catch(() => {}) }, [])
   useEffect(() => { api.auth.prefs().then((p) => p?.['reports.billing'] && setBill({ ...BILL_DEFAULT, ...p['reports.billing'] })).catch(() => {}) }, [])
-  useEffect(() => { if (!patch) return; setDays([]); api.reports.days(patch).then((d) => { setDays(d || []); if (d?.length && !d.includes(date)) setDate(d.find((x) => x < ymd(new Date())) || d[0]) }).catch(() => setDays([])) }, [patch])
+  const [daysFor, setDaysFor] = useState('') // 날짜 목록을 받은 패치 — 받기 전에는 리포트를 요청하지 않는다
+  useEffect(() => {
+    if (!patch) return
+    let ok = true
+    setDays([]); setDaysFor(''); setRep(null); setErr('')
+    api.reports.days(patch).then((d) => {
+      if (!ok) return
+      const list = d || []
+      setDays(list)
+      // 어제 기록이 있으면 어제, 없으면 기록이 있는 가장 최근 날
+      const y = ymd(new Date(Date.now() - 86400000))
+      if (list.length) setDate((cur) => (list.includes(cur) ? cur : list.includes(y) ? y : list[0]))
+      else setErr('이 패치에는 저장된 기록이 없습니다')
+      setDaysFor(patch)
+    }).catch((e) => { if (ok) { setDays([]); setErr(e.message); setDaysFor(patch) } })
+    return () => { ok = false }
+  }, [patch])
   const row = chs.find((c) => c.channel_id === patch)
   const pid = row?.profile_id || row?.patient?.profile_no || rep?.patient?.profile_no
   useEffect(() => { setEmr(null); if (pid) api.emu.patient(pid).then(setEmr).catch(() => {}) }, [pid])
   useEffect(() => {
-    if (!patch || !date) return
+    if (!patch || !date || daysFor !== patch || !days.includes(date)) return
     let ok = true
     setBusy(true); setErr(''); setRep(null); setSeries(null); setInterp(''); setSignAt('')
     api.reports.daily(patch, date).then((r) => { if (!ok) return; setRep(r); if (!country) setCountry(r.site_country || 'KR') }).catch((e) => ok && setErr(e.message)).finally(() => ok && setBusy(false))
     return () => { ok = false }
-  }, [patch, date])
+  }, [patch, date, daysFor])
   useEffect(() => {
     if (!rep || doc === 'daily' || series) return
     let ok = true
@@ -137,8 +153,8 @@ export default function Reports() {
           </div>
 
           <div className="rp-desk">
-            {err && <div className="rp-empty"><b>이 날짜의 리포트를 만들 수 없습니다</b><span>{err}</span></div>}
-            {busy && !rep && <PaperSkeleton />}
+            {err && <div className="rp-empty"><b>이 날짜의 리포트를 만들 수 없습니다</b><span>{err}</span>{days.length > 0 && days[0] !== date && <button className="primary" onClick={() => setDate(days[0])}>가장 최근 기록({days[0]})으로 이동</button>}</div>}
+            {(busy || (patch && daysFor !== patch)) && !rep && !err && <PaperSkeleton />}
             {rep && <Fit>
               {doc === 'daily' && <Paper><DailyDoc {...ctx} /></Paper>}
               {doc === 'interim' && <Paper>{series ? <InterimDoc {...ctx} /> : <Collecting />}</Paper>}

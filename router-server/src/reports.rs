@@ -258,15 +258,29 @@ pub fn daily(state: &Arc<AppState>, patch: u32, date: &str, truth: Option<&Truth
     }))
 }
 
-/// 패치의 기록이 있는 날짜 목록 (최근 30일)
+/// 패치의 기록이 있는 날짜 목록 (최근 30일). 파일 이름의 시간 범위는 넓게 잡혀 있어서 그날 실제 레코드가 있는지 확인한다.
 pub fn days(state: &Arc<AppState>, patch: u32) -> Vec<String> {
     let root = std::path::PathBuf::from(&state.cfg.store_dir);
     let mut set = std::collections::BTreeSet::new();
-    for (key, _, _) in crate::patch_store::list_files(&root, patch) {
-        if let Some((a, b)) = crate::patch_store::key_range(&key) {
+    let files = crate::patch_store::list_files(&root, patch);
+    for (key, _, _) in &files {
+        if let Some((a, b)) = crate::patch_store::key_range(key) {
             let mut t = a;
             while t < b { set.insert(Local.timestamp_millis_opt(t as i64).single().map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default()); t += 3_600_000; }
+            set.insert(Local.timestamp_millis_opt(b.saturating_sub(1) as i64).single().map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default());
         }
     }
-    set.into_iter().rev().filter(|s| !s.is_empty()).take(30).collect()
+    let mut out = Vec::new();
+    for d in set.into_iter().rev().filter(|s| !s.is_empty()).take(31) {
+        let Some((from, to)) = day_window(&d) else { continue };
+        let mut any = false;
+        for (key, path, _) in &files {
+            if any { break; }
+            if !crate::patch_store::key_range(key).map(|(a, b)| a < to && b > from).unwrap_or(false) { continue; }
+            let _ = crate::patch_store::stream_entries_in(path, from, to, |_| { any = true; });
+        }
+        if any { out.push(d); }
+        if out.len() >= 30 { break; }
+    }
+    out
 }
