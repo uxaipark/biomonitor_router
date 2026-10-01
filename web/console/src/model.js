@@ -51,16 +51,16 @@ export const ALARM_KIND = {
   lead_off: '전극 탈락', battery_low: '배터리 부족', patch_silent: '패치 무응답', patch_expiring: '패치 교체 예정', patch_expired: '패치 교체 필요', gateway_down: 'GW 끊김',
   gateway_status_down: 'GW 다운 보고', gateway_silent: 'GW 무응답', gateway_degraded: 'GW 저하', store_backpressure: '저장 지연',
   // 내장 ECG 분석(live-ecg) 결과에서 나온 알람
-  ecg_vf: 'ECG 심실세동', ecg_asystole: 'ECG 심정지', ecg_pause: 'ECG 휴지', ecg_vtach: 'ECG 심실빈맥', ecg_vrun: 'ECG 심실 런', ecg_af: 'ECG 심방세동',
+  ecg_vf: 'ECG 심실세동', ecg_asystole: 'ECG 무수축 의심', ecg_pause: 'ECG 휴지 의심', ecg_vtach: 'ECG 심실빈맥', ecg_vrun: 'ECG 심실 런', ecg_af: 'ECG 심방세동',
   ecg_pvc: 'ECG PVC 빈발', ecg_bigeminy: 'ECG 이단맥·삼단맥', ecg_ivr: 'ECG 심실 고유 리듬', ecg_svrun: 'ECG 상심실 런', ecg_lead_off: 'ECG 전극 불량(분석)',
 }
 
 /** 내장 ECG 분석 리듬 라벨(라우터 ecg_analysis.rs 의 rhythm) → 표시 이름 · 짧은 코드 · 톤 */
 export const RHYTHM_LABEL = {
   nsr: '정상 동율동', afib: '심방세동', vf: '심실세동', vtach: '심실빈맥', vrun: '심실 런', bigeminy: '심실 이단맥', trigeminy: '심실 삼단맥', ivr: '심실 고유 리듬',
-  svrun: '상심실 런', brady: '서맥', tachy: '빈맥', pause: '휴지', asystole: '심정지', pvc: 'PVC 빈발', leadoff: '전극 불량', noise: '잡음 · 판정 보류', unknown: '판정 대기',
+  svrun: '상심실 런', brady: '서맥', tachy: '빈맥', pause: '휴지 의심', asystole: '무수축 의심', pvc: 'PVC 빈발', leadoff: '전극 불량', noise: '잡음 · 판정 보류', unknown: '판정 대기',
 }
-export const RHYTHM_SHORT = { nsr: 'NSR', afib: 'AFIB', vf: 'VF', vtach: 'VT', vrun: 'V-RUN', bigeminy: 'BIGEM', trigeminy: 'TRIGEM', ivr: 'IVR', svrun: 'SV-RUN', brady: 'BRADY', tachy: 'TACHY', pause: 'PAUSE', asystole: 'ASYS', pvc: 'PVC', leadoff: 'LEAD', noise: 'NOISE', unknown: '--' }
+export const RHYTHM_SHORT = { nsr: 'NSR', afib: 'AFIB', vf: 'VF', vtach: 'VT', vrun: 'V-RUN', bigeminy: 'BIGEM', trigeminy: 'TRIGEM', ivr: 'IVR', svrun: 'SV-RUN', brady: 'BRADY', tachy: 'TACHY', pause: 'PAUSE?', asystole: 'ASYS?', pvc: 'PVC', leadoff: 'LEAD', noise: 'NOISE', unknown: '--' }
 export const RHYTHM_SEV = { vf: 'critical', asystole: 'critical', vtach: 'critical', vrun: 'high', pause: 'high', afib: 'medium', ivr: 'medium', pvc: 'medium', bigeminy: 'low', trigeminy: 'low', svrun: 'low', brady: 'medium', tachy: 'medium', leadoff: 'low' }
 
 export const EVENT_KIND = {

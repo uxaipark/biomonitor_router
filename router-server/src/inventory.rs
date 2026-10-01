@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS inv_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, ms 
 CREATE INDEX IF NOT EXISTS inv_ledger_t ON inv_ledger(tenant, sku, ms);
 CREATE TABLE IF NOT EXISTS inv_po (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant TEXT NOT NULL, sku TEXT NOT NULL, boxes INTEGER NOT NULL, status TEXT NOT NULL, created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL, by_user TEXT NOT NULL DEFAULT '', tracking TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', eta TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS inv_seen (patch TEXT PRIMARY KEY, ms INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS patch_patient (patch TEXT PRIMARY KEY, patient TEXT NOT NULL, wear_ms INTEGER NOT NULL DEFAULT 0, ms INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS inv_demand (patch TEXT PRIMARY KEY, tenant TEXT NOT NULL, ms INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS inv_demand_t ON inv_demand(tenant, ms);
 ";
@@ -116,6 +117,23 @@ impl Inventory {
         if !fresh { return; }
         let sku: String = db.query_row("SELECT id FROM inv_sku WHERE active=1 ORDER BY id LIMIT 1", [], |r| r.get(0)).unwrap_or_else(|_| "ECG-PATCH-14D".into());
         Self::consume_fefo(&db, tenant, &sku, 1, "use", "patch_attach", patch, "auto");
+    }
+
+    /// 패치별 마지막 환자 정보 (퇴원·패치 교체 뒤에도 전날 리포트에 환자를 표시하려고)
+    pub fn save_patients(&self, rows: &[(String, String, u64)]) {
+        let mut db = self.db.lock().unwrap();
+        let tx = match db.transaction() { Ok(t) => t, Err(_) => return };
+        {
+            for (patch, pj, wear) in rows {
+                let _ = tx.execute("INSERT INTO patch_patient (patch, patient, wear_ms, ms) VALUES (?1,?2,?3,?4) ON CONFLICT(patch) DO UPDATE SET patient=excluded.patient, wear_ms=excluded.wear_ms, ms=excluded.ms WHERE patch_patient.patient<>excluded.patient OR patch_patient.wear_ms<>excluded.wear_ms", params![patch, pj, *wear as i64, now()]);
+            }
+        }
+        let _ = tx.commit();
+    }
+    pub fn patient_snapshot(&self, patch: &str) -> Option<(serde_json::Value, u64)> {
+        let db = self.db.lock().unwrap();
+        db.query_row("SELECT patient, wear_ms FROM patch_patient WHERE patch=?1", params![patch], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))).ok()
+            .and_then(|(p, w)| serde_json::from_str(&p).ok().map(|v| (v, w as u64)))
     }
 
     pub fn set_census(&self, tenant: &str, n: usize) { self.census.lock().unwrap().insert(tenant.to_string(), n); }
@@ -490,11 +508,13 @@ pub async fn run(state: Arc<AppState>) {
         let site = state.auth.site_tenant();
         let mut issued: Vec<(String, u64)> = Vec::new();
         let mut census = 0usize;
+        let mut snaps: Vec<(String, String, u64)> = Vec::new();
         state.registry.for_each(|id, ch| {
-            if ch.patient.is_some() { census += 1; }
+            if let Some(p) = &ch.patient { census += 1; if let Ok(j) = serde_json::to_string(p) { snaps.push((id.to_string(), j, ch.wear_start_ms())); } }
             if ch.patch_issued_ms > 0 { issued.push((id.to_string(), ch.patch_issued_ms)) }
         });
         state.inventory.set_census(&site, census);
+        { let inv = state.inventory.clone(); let _ = tokio::task::spawn_blocking(move || inv.save_patients(&snaps)).await; }
         let inv = state.inventory.clone();
         let _ = tokio::task::spawn_blocking(move || for (p, ms) in issued { inv.auto_consume(&site, &p, ms) }).await;
         tick += 1;

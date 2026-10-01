@@ -11,8 +11,8 @@ export const RHYTHM = {
   trigeminy: ['심실 삼단맥', 'Ventricular trigeminy', '心室三段脈'],
   tachy: ['빈맥', 'Tachycardia', '頻脈'],
   brady: ['서맥', 'Bradycardia', '徐脈'],
-  pause: ['휴지(Pause)', 'Pause', 'ポーズ'],
-  asystole: ['무수축', 'Asystole', '心停止'],
+  pause: ['휴지 의심', 'Suspected pause', 'ポーズ疑い'],
+  asystole: ['무수축 의심', 'Suspected asystole', '心停止疑い'],
   vf: ['심실세동', 'Ventricular fibrillation', '心室細動'],
   vtach: ['심실빈맥', 'Ventricular tachycardia', '心室頻拍'],
   vrun: ['비지속성 심실빈맥', 'NSVT (V-run)', '非持続性心室頻拍'],
@@ -61,7 +61,8 @@ export function suggestDx(diagnosis, counts) {
   const out = []
   const add = (row, from) => { if (!out.some((x) => x.cm === row[0])) out.push({ cm: row[0], kcd: row[1], en: row[2], ko: row[3], ja: row[4], from }) }
   for (const m of DX_MAP) if (diagnosis && m[0].test(diagnosis)) add(m.slice(1), 'emr')
-  for (const k of ['vf', 'vtach', 'vrun', 'afib', 'svrun', 'asystole', 'pause', 'bigeminy', 'pvc', 'brady', 'tachy']) if (counts?.[k]) add(FINDING_ICD[k], 'ecg')
+  // 휴지·무수축은 원인(신호 문제 포함)을 알 수 없어 상병 후보로 자동 제안하지 않는다 — 의사가 파형을 보고 직접 넣는다
+  for (const k of ['vf', 'vtach', 'vrun', 'afib', 'svrun', 'bigeminy', 'pvc', 'brady', 'tachy']) if (counts?.[k]) add(FINDING_ICD[k], 'ecg')
   if (!out.length) add(['R00.2', 'R00.2', 'Palpitations', '두근거림', '動悸'], 'default')
   return out.slice(0, 12)
 }

@@ -17,12 +17,6 @@
 "src/pages/OpsStats.jsx"
 ]
 },
-"% · 최장 휴지": {
-"kind": "jsx",
-"src": [
-"src/pages/Reports.jsx"
-]
-},
 "% · 클럭": {
 "kind": "jsx",
 "src": [
@@ -35,13 +29,13 @@
 "src/pages/BiosignalAdmin.jsx"
 ]
 },
-"%, 상심실성 $": {
+"% 박동": {
 "kind": "jsx",
 "src": [
 "src/pages/Reports.jsx"
 ]
 },
-"%. 최장 휴지: $": {
+"%, 상심실성 $": {
 "kind": "jsx",
 "src": [
 "src/pages/Reports.jsx"
@@ -304,12 +298,6 @@
 "kind": "tpl",
 "src": [
 "src/pages/Viewers.jsx"
-]
-},
-"(환산": {
-"kind": "jsx",
-"src": [
-"src/pages/Reports.jsx"
 ]
 },
 ") · 남음": {
@@ -599,6 +587,12 @@
 "kind": "str",
 "src": [
 "src/pages/AdminSecurity.jsx"
+]
+},
+"0, `대표 파형 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "1 (장애 조치)": {
@@ -908,6 +902,12 @@
 "src/App.jsx"
 ]
 },
+"8자리": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "90일 넘게": {
 "kind": "jsx",
 "src": [
@@ -962,6 +962,12 @@
 "src/pages/BiosignalAdmin.jsx"
 ]
 },
+"= 20, `기록 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "= 48 ? `약 $": {
 "kind": "jsx",
 "src": [
@@ -990,6 +996,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/AdminPermissions.jsx"
+]
+},
+"A4 한 장 단위로 출력됩니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "AFDB · 30초 이상 에피소드 33/34": {
@@ -1123,10 +1135,22 @@
 "src/pages/Reports.jsx"
 ]
 },
+"ECG 리포트 · 보험 청구": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "ECG 리포트 · 청구": {
 "kind": "rs",
 "src": [
 "router-server/src/auth.rs"
+]
+},
+"ECG 무수축 의심": {
+"kind": "str",
+"src": [
+"src/model.js"
 ]
 },
 "ECG 분석": {
@@ -1163,6 +1187,12 @@
 "kind": "rs-tpl",
 "src": [
 "router-server/src/admin_api.rs"
+]
+},
+"ECG 분석: 무수축 의심 — 박동 미검출 {0}초 (전극·신호 확인 필요)": {
+"kind": "rs-tpl",
+"src": [
+"router-server/src/alarms.rs"
 ]
 },
 "ECG 분석: 상심실 연속 박동": {
@@ -1219,19 +1249,13 @@
 "router-server/src/alarms.rs"
 ]
 },
-"ECG 분석: 심정지 — 박동 없음 {0}초": {
-"kind": "rs-tpl",
-"src": [
-"router-server/src/alarms.rs"
-]
-},
 "ECG 분석: 전극 접촉 불량": {
 "kind": "rs",
 "src": [
 "router-server/src/alarms.rs"
 ]
 },
-"ECG 분석: 휴지 {0}초": {
+"ECG 분석: 휴지 의심 — 박동 미검출 {0}초 (파형 확인 필요)": {
 "kind": "rs-tpl",
 "src": [
 "router-server/src/alarms.rs"
@@ -1304,12 +1328,6 @@
 "src/model.js"
 ]
 },
-"ECG 심정지": {
-"kind": "str",
-"src": [
-"src/model.js"
-]
-},
 "ECG 엔진 활성화: {0}": {
 "kind": "rs-tpl",
 "src": [
@@ -1334,7 +1352,7 @@
 "router-server/src/alarms.rs"
 ]
 },
-"ECG 휴지": {
+"ECG 휴지 의심": {
 "kind": "str",
 "src": [
 "src/model.js"
@@ -2726,6 +2744,12 @@
 "kind": "tpl",
 "src": [
 "src/pages/Inventory.jsx"
+]
+},
+"{0} · {1}일째": {
+"kind": "tpl",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "{0} · 세션 {1} · 구독 {2} · 저장 큐 최대 {3}": {
@@ -4124,6 +4148,12 @@
 "src/pages/Viewers.jsx"
 ]
 },
+"· 환산": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "· 환자": {
 "kind": "jsx",
 "src": [
@@ -4262,6 +4292,12 @@
 "src/pages/AdminUsers.jsx"
 ]
 },
+"— 빠진 항목이 있어도 인쇄는 됩니다": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "— 사용이 예측보다 많을 때를 대비한 양. 품절 방지 수준": {
 "kind": "jsx",
 "src": [
@@ -4332,6 +4368,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/McotMap.jsx"
+]
+},
+"— 준비 완료": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "— 채울 때 맞추는 양. 배송 기간 + 다음 점검까지(": {
@@ -5659,7 +5701,7 @@
 "src/App.jsx"
 ]
 },
-"계정에 저장 · 매번 다시 입력하지 않음": {
+"계정에 저장": {
 "kind": "jsx",
 "src": [
 "src/pages/Reports.jsx"
@@ -5928,8 +5970,7 @@
 "국가": {
 "kind": "str",
 "src": [
-"src/pages/Login.jsx",
-"src/pages/Reports.jsx"
+"src/pages/Login.jsx"
 ]
 },
 "국가 전환 실패: {0}": {
@@ -6022,6 +6063,12 @@
 "kind": "str",
 "src": [
 "src/pages/Alarms.jsx"
+]
+},
+"그날 요약": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "그날 저장된 기록이 없습니다": {
@@ -6145,6 +6192,12 @@
 "src/pages/Reports.jsx"
 ]
 },
+"금": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "금액 = 상대가치점수 × 환산지수 × (1 + 종별가산율), 10원 미만 절사 · 2026 환산지수(의원 95.6원 · 병원급 83.8원). 홀터 48시간 초과(E6556·E6557)는 선별급여(본인부담 80%, 항 B · 목 03). 원격심박감시(EX871)는 재료대 포함. 1회용 전극·패치 재료대는 별도 코드 확인.": {
 "kind": "jsx",
 "src": [
@@ -6175,12 +6228,6 @@
 "src/pages/AdminSecurity.jsx",
 "src/pages/Events.jsx",
 "src/pages/Inventory.jsx"
-]
-},
-"기간 데이터를 모으는 중…": {
-"kind": "jsx",
-"src": [
-"src/pages/Reports.jsx"
 ]
 },
 "기관": {
@@ -6217,13 +6264,20 @@
 "kind": "jsx",
 "src": [
 "src/pages/BiosignalAdmin.jsx",
-"src/pages/Inventory.jsx"
+"src/pages/Inventory.jsx",
+"src/pages/Reports.jsx"
 ]
 },
 "기록 {0}": {
 "kind": "tpl",
 "src": [
 "src/pages/Integration.jsx"
+]
+},
+"기록 {0}시간 (20시간 이상 권장)": {
+"kind": "tpl",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "기록 → 봉인 → 백업 → 정리": {
@@ -6278,6 +6332,12 @@
 "kind": "str",
 "src": [
 "src/pages/EcgEngine.jsx"
+]
+},
+"기록된 날을 찾는 중…": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "기록된 로트가 없습니다.": {
@@ -6375,7 +6435,7 @@
 "src/pages/Inventory.jsx"
 ]
 },
-"기본 리듬: {0}. 평균 심박수 {1} bpm (최저 {2} {3}, 최고 {4} {5}). {6}: {7}. 심실조기수축 {8}%, 상심실성 {9}%. 최장 휴지: {10}.": {
+"기본 리듬: {0}. 평균 심박수 {1} bpm (최저 {2} {3}, 최고 {4} {5}). {6}: {7}. 심실조기수축 {8}%, 상심실성 {9}%.": {
 "kind": "tpl",
 "src": [
 "src/pages/Reports.jsx"
@@ -6556,7 +6616,7 @@
 "src/App.jsx"
 ]
 },
-"날짜": {
+"날짜 · 문서 고르기": {
 "kind": "jsx",
 "src": [
 "src/pages/Reports.jsx"
@@ -6894,6 +6954,12 @@
 "src/pages/Integration.jsx"
 ]
 },
+"다음 날": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "다음 단계에서 지원": {
 "kind": "jsx",
 "src": [
@@ -7154,6 +7220,12 @@
 },
 "대표 파형": {
 "kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
+"대표 파형 {0}개": {
+"kind": "tpl",
 "src": [
 "src/pages/Reports.jsx"
 ]
@@ -8309,8 +8381,8 @@
 "src/pages/EcgEngine.jsx"
 ]
 },
-"면허번호 · NPI / 免許番号": {
-"kind": "jsx",
+"면허번호 · NPI": {
+"kind": "str",
 "src": [
 "src/pages/Reports.jsx"
 ]
@@ -8544,7 +8616,7 @@
 ]
 },
 "목": {
-"kind": "jsx",
+"kind": "str",
 "src": [
 "src/pages/Reports.jsx"
 ]
@@ -8650,7 +8722,14 @@
 "무수축": {
 "kind": "str",
 "src": [
-"src/pages/LiveModal.jsx",
+"src/pages/LiveModal.jsx"
+]
+},
+"무수축 의심": {
+"kind": "str",
+"src": [
+"src/model.js",
+"src/pages/Alarms.jsx",
 "src/reports/billing.js"
 ]
 },
@@ -8690,7 +8769,8 @@
 "문서": {
 "kind": "jsx",
 "src": [
-"src/pages/EcgEngine.jsx"
+"src/pages/EcgEngine.jsx",
+"src/pages/Reports.jsx"
 ]
 },
 "문서 등록 ({0})": {
@@ -8872,6 +8952,12 @@
 "src/pages/AdminControl.jsx"
 ]
 },
+"바꾼 내용이 있습니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "바로 열기": {
 "kind": "jsx",
 "src": [
@@ -8909,22 +8995,22 @@
 "src/pages/EcgEngine.jsx"
 ]
 },
+"박동 미검출 2초 이상 · 신호 문제로도 생김 — 파형 확인 필요": {
+"kind": "str",
+"src": [
+"src/pages/Alarms.jsx"
+]
+},
+"박동 미검출 4초 이상 · 전극 탈락·품질 불량·수신 끊김 직후는 제외 — 원인 확인 필요": {
+"kind": "str",
+"src": [
+"src/pages/Alarms.jsx"
+]
+},
 "박동 분류": {
 "kind": "str",
 "src": [
 "src/pages/EcgEngine.jsx"
-]
-},
-"박동 없음 2초 이상": {
-"kind": "str",
-"src": [
-"src/pages/Alarms.jsx"
-]
-},
-"박동 없음 4초 이상": {
-"kind": "str",
-"src": [
-"src/pages/Alarms.jsx"
 ]
 },
 "박스태프 (원무)": {
@@ -9636,6 +9722,12 @@
 "src/pages/Live.jsx"
 ]
 },
+"병상": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "병실": {
 "kind": "str",
 "src": [
@@ -9866,6 +9958,12 @@
 "src": [
 "src/pages/AdminAudit.jsx",
 "src/pages/AdminTenants.jsx"
+]
+},
+"병원 현지 자정 ~ 자정": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "병원 확인: ______________": {
@@ -10524,6 +10622,12 @@
 "kind": "str",
 "src": [
 "src/pages/AdminSecurity.jsx"
+]
+},
+"비워 두면 자동 분석 문장이 들어갑니다. 의사가 확인·수정하세요.": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "비지속성 심실빈맥": {
@@ -11474,7 +11578,8 @@
 "세": {
 "kind": "jsx",
 "src": [
-"src/pages/MapPatientPanel.jsx"
+"src/pages/MapPatientPanel.jsx",
+"src/pages/Reports.jsx"
 ]
 },
 "세 ·": {
@@ -11643,6 +11748,12 @@
 "kind": "rs-tpl",
 "src": [
 "router-server/src/site_locale.rs"
+]
+},
+"수": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "수동": {
@@ -12071,7 +12182,8 @@
 "시간": {
 "kind": "jsx",
 "src": [
-"src/pages/AdminSecurity.jsx"
+"src/pages/AdminSecurity.jsx",
+"src/pages/Reports.jsx"
 ]
 },
 "시간 $": {
@@ -12658,6 +12770,12 @@
 "src/pages/LiveModal.jsx"
 ]
 },
+"심실 조기": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "심실고유리듬": {
 "kind": "str",
 "src": [
@@ -12749,11 +12867,9 @@
 ]
 },
 "심정지": {
-"kind": "str",
+"kind": "rs",
 "src": [
-"router-server/src/ecg_eval.rs",
-"src/model.js",
-"src/pages/Alarms.jsx"
+"router-server/src/ecg_eval.rs"
 ]
 },
 "심정지 / 휴지": {
@@ -13067,6 +13183,12 @@
 "kind": "str",
 "src": [
 "src/pages/LiveModal.jsx"
+]
+},
+"앞 500명만 표시 — 검색으로 좁혀 주세요.": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "앞으로": {
@@ -13716,6 +13838,12 @@
 "src/pages/AdminTenants.jsx"
 ]
 },
+"예: 김OO": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "예: 다음 주 화요일 오전 배송 희망": {
 "kind": "str",
 "src": [
@@ -13801,6 +13929,12 @@
 "src/pages/EcgEngine.jsx"
 ]
 },
+"오늘 · 진행 중": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "오늘 발생한 ECG 분석 알람 없음": {
 "kind": "jsx",
 "src": [
@@ -13830,6 +13964,12 @@
 "kind": "tpl",
 "src": [
 "src/pages/BiosignalAdmin.jsx"
+]
+},
+"오른쪽에서 작성": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "오사카": {
@@ -13905,7 +14045,7 @@
 "router-server/src/admin_api.rs"
 ]
 },
-"왼쪽에서 환자를 고르면 전날(자정 기준) 리포트를 만듭니다.": {
+"왼쪽에서 환자를 고르면 전날(자정 기준) 리포트를 바로 만듭니다.": {
 "kind": "jsx",
 "src": [
 "src/pages/Reports.jsx"
@@ -14308,7 +14448,14 @@
 "월": {
 "kind": "jsx",
 "src": [
-"src/pages/Inventory.jsx"
+"src/pages/Inventory.jsx",
+"src/pages/Reports.jsx"
+]
+},
+"월 ·": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "월 명세": {
@@ -14741,6 +14888,12 @@
 "src/pages/EcgEngine.jsx"
 ]
 },
+"이 날짜의 리포트를 만들 수 없습니다": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "이 달 사용·입고 기록이 없습니다.": {
 "kind": "jsx",
 "src": [
@@ -14902,6 +15055,12 @@
 "kind": "str",
 "src": [
 "src/viewer/History.jsx"
+]
+},
+"이 패치에 연결된 환자 기록이 없습니다 — 파형 기록만 표시합니다": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "이 화면에서는 바꿀 수 없음": {
@@ -15168,6 +15327,12 @@
 "src/pages/Integration.jsx"
 ]
 },
+"이전 날": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "이전 단계로 되돌릴 수 없습니다": {
 "kind": "rs",
 "src": [
@@ -15201,7 +15366,8 @@
 "인쇄 · PDF": {
 "kind": "jsx",
 "src": [
-"src/pages/Inventory.jsx"
+"src/pages/Inventory.jsx",
+"src/pages/Reports.jsx"
 ]
 },
 "인쇄 · PDF 저장": {
@@ -15422,6 +15588,12 @@
 "src/pages/Reports.jsx"
 ]
 },
+"일일 리포트, 착용 시작부터의 중간 분석 보고서, 보험 청구서 초안.": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "일일 심전도 리포트": {
 "kind": "str",
 "src": [
@@ -15430,12 +15602,6 @@
 },
 "일자": {
 "kind": "str",
-"src": [
-"src/pages/Reports.jsx"
-]
-},
-"일자별 데이터를 모으는 중…": {
-"kind": "jsx",
 "src": [
 "src/pages/Reports.jsx"
 ]
@@ -15607,6 +15773,12 @@
 "src/pages/Integration.jsx"
 ]
 },
+"입원·MCOT 필터와 검색으로 찾습니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "입위": {
 "kind": "str",
 "src": [
@@ -15676,6 +15848,12 @@
 "src/pages/OpsStats.jsx"
 ]
 },
+"자동 문장 넣기": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "자동 발주 요청": {
 "kind": "jsx",
 "src": [
@@ -15741,6 +15919,12 @@
 "kind": "str",
 "src": [
 "src/pages/AdminSecurity.jsx"
+]
+},
+"자정 기준 하루 요약 · 대표 파형": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "자카르타": {
@@ -16565,7 +16749,8 @@
 "점검": {
 "kind": "str",
 "src": [
-"src/pages/Inventory.jsx"
+"src/pages/Inventory.jsx",
+"src/pages/Reports.jsx"
 ]
 },
 "점검 {0}일 지남": {
@@ -16614,6 +16799,12 @@
 "kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
+]
+},
+"점검표": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "점검할 곳": {
@@ -17333,7 +17524,8 @@
 "kind": "str",
 "src": [
 "src/pages/AdminTenants.jsx",
-"src/pages/McotMap.jsx"
+"src/pages/McotMap.jsx",
+"src/pages/Reports.jsx"
 ]
 },
 "지역 목록": {
@@ -17680,6 +17872,18 @@
 "src/model.js"
 ]
 },
+"착용 기간 기록 모음": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
+"착용 기간의 일자별 기록을 모으는 중…": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "착용 시작": {
 "kind": "str",
 "src": [
@@ -17690,6 +17894,18 @@
 "kind": "tpl",
 "src": [
 "src/pages/LiveModal.jsx"
+]
+},
+"착용 시작 ~ {0}": {
+"kind": "tpl",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
+"착용 시작부터 누적 · 잠정 산정": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "착용 일수": {
@@ -17845,6 +18061,12 @@
 "src/main.jsx"
 ]
 },
+"청구 국가": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "청구 금액": {
 "kind": "jsx",
 "src": [
@@ -17861,6 +18083,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
+]
+},
+"청구서는 그 나라 언어로 고정됩니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "청구액 (추정)": {
@@ -18559,6 +18787,12 @@
 "src/App.jsx"
 ]
 },
+"토": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "토큰": {
 "kind": "str",
 "src": [
@@ -18601,6 +18835,12 @@
 "src": [
 "router-server/src/emr_link.rs",
 "src/pages/Integration.jsx"
+]
+},
+"퇴원·패치 교체 전 마지막 환자 정보": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "특이 소견 없음": {
@@ -18725,8 +18965,26 @@
 "src/pages/Reports.jsx"
 ]
 },
+"판독 소견 직접 확인·수정": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
+"판독 소견과 판독의를 넣고 점검표를 확인합니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "판독 의사:": {
 "kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
+"판독 일시": {
+"kind": "str",
 "src": [
 "src/pages/Reports.jsx"
 ]
@@ -18743,8 +19001,8 @@
 "src/pages/Reports.jsx"
 ]
 },
-"판독의 / Physician": {
-"kind": "jsx",
+"판독의 이름": {
+"kind": "str",
 "src": [
 "src/pages/Reports.jsx"
 ]
@@ -19380,7 +19638,13 @@
 "src/pages/McotMap.jsx"
 ]
 },
-"한국 · 요양급여 명세서": {
+"한국 · 미국 · 일본 청구 초안": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
+"한국 · 요양급여비용 명세서": {
 "kind": "jsx",
 "src": [
 "src/pages/Reports.jsx"
@@ -19675,6 +19939,12 @@
 "src/reports/billing.js"
 ]
 },
+"화": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "화면을 그리는 중 오류가 났습니다": {
 "kind": "jsx",
 "src": [
@@ -19876,6 +20146,12 @@
 "src/pages/Events.jsx"
 ]
 },
+"환자 선택": {
+"kind": "jsx",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "환자 신호": {
 "kind": "jsx",
 "src": [
@@ -19893,6 +20169,12 @@
 "src": [
 "src/pages/LiveModal.jsx",
 "src/pages/MapPatientPanel.jsx"
+]
+},
+"환자 정보 없음": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "환자(패치) 1명당 이 시간마다 파일 하나. 파일 1개 ≈": {
@@ -20037,17 +20319,18 @@
 "src/geo/world.js"
 ]
 },
-"휴지": {
+"휴지 의심": {
 "kind": "str",
 "src": [
 "src/model.js",
-"src/pages/Alarms.jsx"
+"src/pages/Alarms.jsx",
+"src/reports/billing.js"
 ]
 },
-"휴지(Pause)": {
+"휴지·무수축은 원인(전극 탈락·접촉 불량·움직임·수신 끊김 포함)을 확인할 수 없어 이 리포트에 넣지 않았습니다. 필요하면 원 파형을 직접 확인하세요.": {
 "kind": "str",
 "src": [
-"src/reports/billing.js"
+"src/pages/Reports.jsx"
 ]
 }
 }

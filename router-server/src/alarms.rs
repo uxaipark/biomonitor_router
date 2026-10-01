@@ -361,15 +361,17 @@ pub fn evaluate(state: &Arc<AppState>) -> (Vec<Alarm>, Vec<Alarm>) {
             let settled = a.gap_ms == 0 || a.pkt_ms.saturating_sub(a.gap_ms) >= 5000 || a.last_beat_ms > a.gap_ms; // 유실 직후 5초는 제외
             let since_beat = if a.last_beat_ms > 0 && settled { a.pkt_ms.saturating_sub(a.last_beat_ms).saturating_sub(a.lag_ms as u64) } else { 0 };
             ana_hr = a.hr.map(|h| h.round().clamp(0.0, 255.0) as u8);
+            // 전극이 막 다시 붙은 직후(10초)는 박동 검출이 자리 잡는 중 — 휴지·무수축으로 보지 않는다
+            let leadoff_recent = a.episodes.iter().any(|(k, _, end)| k == "leadoff" && now.saturating_sub(*end) < 10_000);
             if rules.ecg_alarm_lead_off && a.lead_off && !lead_off {
                 seen.push(base("ecg_lead_off", Severity::Medium, "LEAD_OFF".into(), "ECG 분석: 전극 접촉 불량".into(), rules.lead_off_s));
             }
             if rules.ecg_alarm_vf && a.vf {
                 seen.push(base("ecg_vf", Severity::Critical, "VF".into(), "ECG 분석: 심실세동 의심".into(), 0));
-            } else if rules.ecg_alarm_asystole && !unusable && !a.lead_off && a.last_beat_ms > 0 && since_beat >= 4000 {
-                seen.push(base("ecg_asystole", Severity::Critical, format!("{:.1}s", since_beat as f64 / 1000.0), format!("ECG 분석: 심정지 — 박동 없음 {:.1}초", since_beat as f64 / 1000.0), 0));
-            } else if rules.ecg_alarm_pause && !unusable && !a.lead_off && a.last_beat_ms > 0 && since_beat >= 2000 {
-                seen.push(base("ecg_pause", Severity::High, format!("{:.1}s", since_beat as f64 / 1000.0), format!("ECG 분석: 휴지 {:.1}초", since_beat as f64 / 1000.0), 0));
+            } else if rules.ecg_alarm_asystole && !unusable && !a.lead_off && !leadoff_recent && a.last_beat_ms > 0 && since_beat >= 4000 {
+                seen.push(base("ecg_asystole", Severity::Critical, format!("{:.1}s", since_beat as f64 / 1000.0), format!("ECG 분석: 무수축 의심 — 박동 미검출 {:.1}초 (전극·신호 확인 필요)", since_beat as f64 / 1000.0), 0));
+            } else if rules.ecg_alarm_pause && !unusable && !a.lead_off && !leadoff_recent && a.last_beat_ms > 0 && since_beat >= 2000 {
+                seen.push(base("ecg_pause", Severity::High, format!("{:.1}s", since_beat as f64 / 1000.0), format!("ECG 분석: 휴지 의심 — 박동 미검출 {:.1}초 (파형 확인 필요)", since_beat as f64 / 1000.0), 0));
             }
             if rules.ecg_alarm_vtach {
                 if let Some((s0, e0)) = recent("vtach") {

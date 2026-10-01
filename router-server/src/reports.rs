@@ -1,5 +1,5 @@
 //! 일일 ECG 리포트 — 환자(패치) 하루(병원 현지 자정~자정) 요약: 기록·분석 가능 시간, 심박수 평균·최저·최고(분 평균, 시각),
-//! 시간대별 심박수, 리듬 에피소드(내장 엔진 판정 이력)와 부담률(burden), 분당 V/S 박동 합계, 가장 긴 휴지, 대표 파형(심박 최고·최저·
+//! 시간대별 심박수, 리듬 에피소드(내장 엔진 판정 이력)와 부담률(burden), 분당 V/S 박동 합계, 대표 파형(심박 최고·최저·
 //! 중요 에피소드 시작점의 ECG 8초). 콘솔이 이 데이터로 리포트·보험 청구서를 그리고 인쇄(PDF)한다.
 use crate::state::AppState;
 use chrono::{Local, NaiveDate, TimeZone};
@@ -7,7 +7,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 const STRIP_MS: u64 = 8_000;
-const SEVERE: &[&str] = &["vf", "asystole", "vtach", "pause", "vrun", "afib", "ivr", "bigeminy", "trigeminy", "svrun", "brady", "tachy"];
+// 휴지·무수축은 리포트에 넣지 않는다 — 원인(전극 탈락·접촉 불량·움직임·수신 끊김 포함)을 알 수 없어 실제 휴지인지 판단할 수 없다
+const SEVERE: &[&str] = &["vf", "vtach", "vrun", "afib", "ivr", "bigeminy", "trigeminy", "svrun", "brady", "tachy"];
+const EXCLUDED: &[&str] = &["pause", "asystole"];
 
 pub fn day_window(date: &str) -> Option<(u64, u64)> {
     let d = NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()?;
@@ -59,15 +61,15 @@ pub fn daily(state: &Arc<AppState>, patch: u32, date: &str) -> Result<serde_json
     let mut episodes: Vec<serde_json::Value> = Vec::new();
     let mut burden: HashMap<String, u64> = HashMap::new();
     let mut counts: HashMap<String, u64> = HashMap::new();
-    let mut longest_pause: Option<(u64, u64)> = None;
     for (i, (t, l)) in tr.iter().enumerate() {
         let end = tr.get(i + 1).map(|n| n.0).unwrap_or(to.min(last.max(*t)));
         let dur = end.saturating_sub(*t);
+        if EXCLUDED.contains(&l.as_str()) { continue; }
         *burden.entry(l.clone()).or_default() += dur;
         if SEVERE.contains(&l.as_str()) {
             *counts.entry(l.clone()).or_default() += 1;
-            if l == "pause" || l == "asystole" { if longest_pause.map(|p| dur > p.1).unwrap_or(true) { longest_pause = Some((*t, dur)); } }
-            episodes.push(serde_json::json!({ "label": l, "start_ms": t, "end_ms": end, "dur_ms": dur }));
+            let e = serde_json::json!({ "label": l, "start_ms": t, "end_ms": end, "dur_ms": dur });
+            episodes.push(e);
         }
     }
     let rec_ms = sec_rec.len() as u64 * 1000;
@@ -102,7 +104,10 @@ pub fn daily(state: &Arc<AppState>, patch: u32, date: &str) -> Result<serde_json
         pts.truncate(1000);
         strips.push(serde_json::json!({ "what": what, "t0_ms": t0, "fs": 125, "mv": pts.iter().map(|v| (v * 1000.0).round() / 1000.0).collect::<Vec<_>>() }));
     }
-    let patient = state.registry.patient_of(&patch.to_string());
+    // 지금 연결된 환자가 없으면(퇴원·패치 교체) 마지막으로 저장한 환자 정보로
+    let snap = state.inventory.patient_snapshot(&patch.to_string());
+    let patient: Option<serde_json::Value> = state.registry.patient_of(&patch.to_string()).and_then(|p| serde_json::to_value(p).ok()).or_else(|| snap.as_ref().map(|s| s.0.clone()));
+    let wear_start = state.registry.wear_start_of(&patch.to_string()).or_else(|| snap.as_ref().map(|s| s.1).filter(|w| *w > 0));
     let site = state.auth.site_tenant();
     let hospital = state.auth.tenants().into_iter().find(|t| t.id == site).map(|t| serde_json::json!({"id": t.id, "name": t.name, "region": t.region, "contact": t.contact}));
     Ok(serde_json::json!({
@@ -113,10 +118,9 @@ pub fn daily(state: &Arc<AppState>, patch: u32, date: &str) -> Result<serde_json
         "hourly": hourly,
         "burden_pct": burden_pct, "episode_counts": counts, "episodes": episodes.into_iter().rev().take(200).collect::<Vec<_>>(),
         "ectopy": { "v_beats": v_beats, "s_beats": s_beats, "v_pct": if total_beats > 0.0 { Some((v_beats as f64 / total_beats * 1000.0).round() / 10.0) } else { None }, "s_pct": if total_beats > 0.0 { Some((s_beats as f64 / total_beats * 1000.0).round() / 10.0) } else { None } },
-        "longest_pause": longest_pause.map(|(t, d)| serde_json::json!({"at_ms": t, "dur_ms": d})),
         "strips": strips,
         "patient": patient,
-        "monitor_start_ms": state.registry.wear_start_of(&patch.to_string()),
+        "monitor_start_ms": wear_start, "patient_from_snapshot": state.registry.patient_of(&patch.to_string()).is_none() && snap.is_some(),
         "site": state.auth.site_tenant(),
         "hospital": hospital,
         "site_country": crate::site_locale::SITE.read().map(|s| s.country.clone()).unwrap_or_default(),

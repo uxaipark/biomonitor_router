@@ -20,8 +20,8 @@ const RULE_FIELDS = [
 ]
 // 내장 ECG 분석 알람 항목: [규칙 키, 이름, 심각도, 설명]
 const ECG_ITEMS = [
-  ['ecg_alarm_vf', '심실세동 (VF)', 'critical', '파형 스펙트럼 판정, 4초 이상 지속 시'], ['ecg_alarm_asystole', '심정지', 'critical', '박동 없음 4초 이상'], ['ecg_alarm_vtach', '심실빈맥 (VT)', 'critical', '심실 박동 연속 · 빠른 속도'],
-  ['ecg_alarm_vrun', '심실 런', 'high', '심실 박동 3개 이상 연속'], ['ecg_alarm_pause', '휴지', 'high', '박동 없음 2초 이상'], ['ecg_alarm_af', '심방세동 (AF)', 'medium', 'RR 불규칙 + 심방 활동, 확인된 구간만'],
+  ['ecg_alarm_vf', '심실세동 (VF)', 'critical', '파형 스펙트럼 판정, 4초 이상 지속 시'], ['ecg_alarm_asystole', '무수축 의심', 'critical', '박동 미검출 4초 이상 · 전극 탈락·품질 불량·수신 끊김 직후는 제외 — 원인 확인 필요'], ['ecg_alarm_vtach', '심실빈맥 (VT)', 'critical', '심실 박동 연속 · 빠른 속도'],
+  ['ecg_alarm_vrun', '심실 런', 'high', '심실 박동 3개 이상 연속'], ['ecg_alarm_pause', '휴지 의심', 'high', '박동 미검출 2초 이상 · 신호 문제로도 생김 — 파형 확인 필요'], ['ecg_alarm_af', '심방세동 (AF)', 'medium', 'RR 불규칙 + 심방 활동, 확인된 구간만'],
   ['ecg_alarm_pvc', 'PVC 빈발', 'medium', '분당 심실 조기 박동 수 기준'], ['ecg_alarm_bigeminy', '이단맥 · 삼단맥 · IVR', 'low', '끝난 에피소드를 유지 시간 동안 알람'], ['ecg_alarm_svrun', '상심실 런', 'low', '상심실 박동 연속'],
   ['ecg_alarm_lead_off', '전극 접촉 불량 (분석)', 'medium', '엔진의 전극 판정 (패치 플래그와 별개)'],
 ]

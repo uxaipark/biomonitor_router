@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { getLang } from '../i18n/index.js'
 import { rname, suggestDx, KR_CLASS, KR_COPAY, krLines, US_PAYERS, US_POS, usLines, jpLines } from '../reports/billing.js'
@@ -13,9 +13,9 @@ import './Reports.css'
  * 문서 안 글자는 문서 언어(한/영/일)로 직접 쓰고 화면 번역기에서 뺀다(data-no-i18n) — 청구서는 그 나라 언어 고정.
  */
 const D = {
-  ko: { title: '일일 심전도 리포트', interim: '심전도 중간 분석 보고서', hosp: '의료기관', patient: '환자', mrn: '등록번호', sexAge: '성별/나이', dept: '진료과', ward: '병동/병상', dx: '진단', period: '기록 구간', rec: '기록 시간', ana: '분석 가능', leadoff: '전극 탈락', hr: '심박수', avg: '평균', min: '최저', max: '최고', beats: '총 박동(추정)', rhythm: '리듬 부담률', episodes: '주요 에피소드', ectopy: '기외수축', vbeats: '심실성(V)', sbeats: '상심실성(S)', pause: '최장 휴지', none: '없음', strips: '대표 파형', hourly: '시간대별 심박수', interp: '판독 소견', concl: '결론', reader: '판독의', sign: '서명', date: '일자', gen: '생성', engine: '분석 엔진', start: '시작', end: '종료', dur: '지속', count: '횟수', day: '일자', cum: '누적', cumPeriod: '누적 구간', wearStart: '착용 시작', provisional: '잠정 청구 산정 (중간 — 최종 청구 아님)', note: '자동 분석 결과이며 의사의 판독·확인이 필요합니다.', scale: '25 mm/s · 10 mm/mV', maxhr: '최고 심박', minhr: '최저 심박', ep: '에피소드' },
-  en: { title: 'Daily ECG Report', interim: 'ECG Interim Analysis Report', hosp: 'Facility', patient: 'Patient', mrn: 'MRN', sexAge: 'Sex/Age', dept: 'Department', ward: 'Ward/Bed', dx: 'Diagnosis', period: 'Recording window', rec: 'Recorded', ana: 'Analyzable', leadoff: 'Lead off', hr: 'Heart rate', avg: 'Mean', min: 'Min', max: 'Max', beats: 'Total beats (est.)', rhythm: 'Rhythm burden', episodes: 'Significant episodes', ectopy: 'Ectopy', vbeats: 'Ventricular (V)', sbeats: 'Supraventricular (S)', pause: 'Longest pause', none: 'None', strips: 'Representative strips', hourly: 'Hourly heart rate', interp: 'Interpretation', concl: 'Conclusion', reader: 'Interpreting physician', sign: 'Signature', date: 'Date', gen: 'Generated', engine: 'Analysis engine', start: 'Start', end: 'End', dur: 'Duration', count: 'Count', day: 'Date', cum: 'Cumulative', cumPeriod: 'Cumulative window', wearStart: 'Monitoring start', provisional: 'Provisional billing determination (interim — not a final claim)', note: 'Automated analysis; requires physician review and confirmation.', scale: '25 mm/s · 10 mm/mV', maxhr: 'Max HR', minhr: 'Min HR', ep: 'Episode' },
-  ja: { title: '日次心電図レポート', interim: '心電図 中間解析報告書', hosp: '医療機関', patient: '患者', mrn: '患者ID', sexAge: '性別/年齢', dept: '診療科', ward: '病棟/病床', dx: '診断', period: '記録区間', rec: '記録時間', ana: '解析可能', leadoff: '電極外れ', hr: '心拍数', avg: '平均', min: '最小', max: '最大', beats: '総心拍数(推定)', rhythm: '調律の負荷率', episodes: '主なエピソード', ectopy: '期外収縮', vbeats: '心室性(V)', sbeats: '上室性(S)', pause: '最長ポーズ', none: 'なし', strips: '代表波形', hourly: '時間帯別心拍数', interp: '所見', concl: '結論', reader: '判読医', sign: '署名', date: '日付', gen: '作成', engine: '解析エンジン', start: '開始', end: '終了', dur: '持続', count: '回数', day: '日付', cum: '累積', cumPeriod: '累積区間', wearStart: '装着開始', provisional: '暫定算定（中間・確定請求ではありません）', note: '自動解析結果です。医師の判読・確認が必要です。', scale: '25 mm/s · 10 mm/mV', maxhr: '最大心拍', minhr: '最小心拍', ep: 'エピソード' },
+  ko: { title: '일일 심전도 리포트', interim: '심전도 중간 분석 보고서', hosp: '의료기관', patient: '환자', mrn: '등록번호', sexAge: '성별/나이', dept: '진료과', ward: '병동/병상', dx: '진단', period: '기록 구간', rec: '기록 시간', ana: '분석 가능', leadoff: '전극 탈락', hr: '심박수', avg: '평균', min: '최저', max: '최고', beats: '총 박동(추정)', rhythm: '리듬 부담률', episodes: '주요 에피소드', ectopy: '기외수축', vbeats: '심실성(V)', sbeats: '상심실성(S)', pause: '최장 휴지', none: '없음', strips: '대표 파형', hourly: '시간대별 심박수', interp: '판독 소견', concl: '결론', reader: '판독의', sign: '서명', date: '일자', gen: '생성', engine: '분석 엔진', start: '시작', end: '종료', dur: '지속', count: '횟수', day: '일자', cum: '누적', cumPeriod: '누적 구간', wearStart: '착용 시작', provisional: '잠정 청구 산정 (중간 — 최종 청구 아님)', note: '자동 분석 결과이며 의사의 판독·확인이 필요합니다.', scale: '25 mm/s · 10 mm/mV', maxhr: '최고 심박', minhr: '최저 심박', ep: '에피소드', exNote: '휴지·무수축은 원인(전극 탈락·접촉 불량·움직임·수신 끊김 포함)을 확인할 수 없어 이 리포트에 넣지 않았습니다. 필요하면 원 파형을 직접 확인하세요.' },
+  en: { title: 'Daily ECG Report', interim: 'ECG Interim Analysis Report', hosp: 'Facility', patient: 'Patient', mrn: 'MRN', sexAge: 'Sex/Age', dept: 'Department', ward: 'Ward/Bed', dx: 'Diagnosis', period: 'Recording window', rec: 'Recorded', ana: 'Analyzable', leadoff: 'Lead off', hr: 'Heart rate', avg: 'Mean', min: 'Min', max: 'Max', beats: 'Total beats (est.)', rhythm: 'Rhythm burden', episodes: 'Significant episodes', ectopy: 'Ectopy', vbeats: 'Ventricular (V)', sbeats: 'Supraventricular (S)', pause: 'Longest pause', none: 'None', strips: 'Representative strips', hourly: 'Hourly heart rate', interp: 'Interpretation', concl: 'Conclusion', reader: 'Interpreting physician', sign: 'Signature', date: 'Date', gen: 'Generated', engine: 'Analysis engine', start: 'Start', end: 'End', dur: 'Duration', count: 'Count', day: 'Date', cum: 'Cumulative', cumPeriod: 'Cumulative window', wearStart: 'Monitoring start', provisional: 'Provisional billing determination (interim — not a final claim)', note: 'Automated analysis; requires physician review and confirmation.', scale: '25 mm/s · 10 mm/mV', maxhr: 'Max HR', minhr: 'Min HR', ep: 'Episode', exNote: 'Pauses and asystole are not included in this report because their cause (including lead-off, poor contact, motion or data loss) cannot be determined. Review the raw waveform if needed.' },
+  ja: { title: '日次心電図レポート', interim: '心電図 中間解析報告書', hosp: '医療機関', patient: '患者', mrn: '患者ID', sexAge: '性別/年齢', dept: '診療科', ward: '病棟/病床', dx: '診断', period: '記録区間', rec: '記録時間', ana: '解析可能', leadoff: '電極外れ', hr: '心拍数', avg: '平均', min: '最小', max: '最大', beats: '総心拍数(推定)', rhythm: '調律の負荷率', episodes: '主なエピソード', ectopy: '期外収縮', vbeats: '心室性(V)', sbeats: '上室性(S)', pause: '最長ポーズ', none: 'なし', strips: '代表波形', hourly: '時間帯別心拍数', interp: '所見', concl: '結論', reader: '判読医', sign: '署名', date: '日付', gen: '作成', engine: '解析エンジン', start: '開始', end: '終了', dur: '持続', count: '回数', day: '日付', cum: '累積', cumPeriod: '累積区間', wearStart: '装着開始', provisional: '暫定算定（中間・確定請求ではありません）', note: '自動解析結果です。医師の判読・確認が必要です。', scale: '25 mm/s · 10 mm/mV', maxhr: '最大心拍', minhr: '最小心拍', ep: 'エピソード', exNote: 'ポーズ・心停止は原因（電極外れ・接触不良・体動・受信断を含む）を確認できないため、本レポートには含めていません。必要に応じて元波形を確認してください。' },
 }
 const LOC = { ko: 'ko-KR', en: 'en-US', ja: 'ja-JP' }
 const pad = (n) => String(n).padStart(2, '0')
@@ -28,9 +28,18 @@ const COUNTRY_DOC = { KR: 'ko', US: 'en', JP: 'ja' }
 const SEXL = { ko: { M: '남', F: '여' }, en: { M: 'M', F: 'F' }, ja: { M: '男', F: '女' } }
 const BILL_DEFAULT = { kr_code: '', kr_class: 'general', us_npi: '', us_tax: '', us_billing: '', us_facility: '', us_payer: 'MCR', jp_pref: '13', jp_code: '', jp_ratio: 3, physician: '', license: '', us_d212: false }
 
+const DOCS = [
+  ['daily', '일일 리포트', '자정 기준 하루 요약 · 대표 파형', '▤'],
+  ['interim', '중간 분석 보고서', '착용 시작부터 누적 · 잠정 산정', '▥'],
+  ['claim', '보험 청구서', '한국 · 미국 · 일본 청구 초안', '₩'],
+]
+const WD = { ko: ['일', '월', '화', '수', '목', '금', '토'] }
+const MODEL_LABEL = (p) => (p?.mode && p.mode !== 'inpatient' ? 'MCOT' : '입원')
+
 export default function Reports() {
   const [chs, setChs] = useState([])
   const [q, setQ] = useState('')
+  const [kind, setKind] = useState('all')
   const [patch, setPatch] = useState(() => new URLSearchParams(location.hash.split('?')[1] || '').get('patch') || '')
   const [days, setDays] = useState([])
   const [date, setDate] = useState(() => ymd(new Date(Date.now() - 86400000)))
@@ -38,27 +47,28 @@ export default function Reports() {
   const [lang, setLangDoc] = useState(() => getLang())
   const [country, setCountry] = useState('')
   const [rep, setRep] = useState(null)
-  const [series, setSeries] = useState(null) // 중간 보고서: 일자별
+  const [series, setSeries] = useState(null)
   const [emr, setEmr] = useState(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [bill, setBill] = useState(BILL_DEFAULT)
   const [interp, setInterp] = useState('')
+  const [signAt, setSignAt] = useState('')
   useEffect(() => { api.channels().then((d) => setChs(Array.isArray(d) ? d : [])).catch(() => {}) }, [])
   useEffect(() => { api.auth.prefs().then((p) => p?.['reports.billing'] && setBill({ ...BILL_DEFAULT, ...p['reports.billing'] })).catch(() => {}) }, [])
-  useEffect(() => { if (!patch) return; api.reports.days(patch).then((d) => { setDays(d || []); if (d?.length && !d.includes(date)) setDate(d.find((x) => x < ymd(new Date())) || d[0]) }).catch(() => setDays([])) }, [patch])
+  useEffect(() => { if (!patch) return; setDays([]); api.reports.days(patch).then((d) => { setDays(d || []); if (d?.length && !d.includes(date)) setDate(d.find((x) => x < ymd(new Date())) || d[0]) }).catch(() => setDays([])) }, [patch])
   const row = chs.find((c) => c.channel_id === patch)
-  useEffect(() => { setEmr(null); const pid = row?.profile_id || row?.patient?.profile_no; if (pid) api.emu.patient(pid).then(setEmr).catch(() => {}) }, [row?.channel_id])
+  const pid = row?.profile_id || row?.patient?.profile_no || rep?.patient?.profile_no
+  useEffect(() => { setEmr(null); if (pid) api.emu.patient(pid).then(setEmr).catch(() => {}) }, [pid])
   useEffect(() => {
     if (!patch || !date) return
     let ok = true
-    setBusy(true); setErr(''); setRep(null); setInterp('')
+    setBusy(true); setErr(''); setRep(null); setSeries(null); setInterp(''); setSignAt('')
     api.reports.daily(patch, date).then((r) => { if (!ok) return; setRep(r); if (!country) setCountry(r.site_country || 'KR') }).catch((e) => ok && setErr(e.message)).finally(() => ok && setBusy(false))
     return () => { ok = false }
   }, [patch, date])
-  // 중간 보고서·청구서: 착용 시작 ~ 선택일 일자별 (최대 30일, 순차)
   useEffect(() => {
-    if (!rep || doc === 'daily') return
+    if (!rep || doc === 'daily' || series) return
     let ok = true
     const upto = days.filter((d) => d <= date).slice(0, 30).reverse()
     const start = rep.monitor_start_ms ? ymd(new Date(rep.monitor_start_ms)) : upto[0]
@@ -71,46 +81,164 @@ export default function Reports() {
     return () => { ok = false }
   }, [rep, doc, days])
   const saveBill = (b) => { setBill(b); api.auth.setPrefs({ 'reports.billing': b }).catch(() => {}) }
-  const list = useMemo(() => chs.filter((c) => c.patient && (!q || `${c.channel_id} ${c.patient?.name} ${c.patient?.room} ${c.patient?.department} ${c.patient?.id}`.toLowerCase().includes(q.toLowerCase()))).slice(0, 300), [chs, q])
+  const list = useMemo(() => chs.filter((c) => c.patient && (kind === 'all' || (kind === 'mcot') === (MODEL_LABEL(c.patient) === 'MCOT')) && (!q || `${c.channel_id} ${c.patient?.name} ${c.patient?.room} ${c.patient?.department} ${c.patient?.id}`.toLowerCase().includes(q.toLowerCase())))
+    .sort((a, b) => (a.patient.name || '').localeCompare(b.patient.name || '', 'ko')), [chs, q, kind])
   const ctry = country || 'KR'
   const docLang = doc === 'claim' ? COUNTRY_DOC[ctry] || 'en' : lang
-  const ctx = { rep, emr, row, lang: docLang, bill, setBill: saveBill, series, interp, setInterp, country: ctry }
+  const sign = { name: bill.physician, license: bill.license, at: signAt }
+  const ctx = { rep, emr, row, lang: docLang, bill, setBill: saveBill, series, interp, setInterp, country: ctry, sign }
+  const p = rep?.patient || row?.patient
+  const di = days.indexOf(date)
+  const go = (d) => d && setDate(d)
 
   return (
     <div className="page rp">
       <aside className="rp-side no-print">
-        <h2 className="h">ECG 리포트</h2>
+        <div className="rp-side-h"><h2 className="h">ECG 리포트</h2><span className="muted small">{list.length.toLocaleString()}명</span></div>
         <input type="search" placeholder="환자 · 병실 · 패치 검색" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="rp-kind">{[['all', '전체'], ['in', '입원'], ['mcot', 'MCOT']].map(([k, l]) => <button key={k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>{l}</button>)}</div>
         <div className="rp-list">
-          {list.map((c) => (
+          {list.slice(0, 500).map((c) => (
             <button key={c.channel_id} className={'rp-pt' + (patch === c.channel_id ? ' on' : '')} onClick={() => setPatch(c.channel_id)}>
-              <b>{c.patient.name}</b><span>{c.patient.room || c.patient.home_region || ''} · {c.patient.department || ''}</span><small className="mono">{c.channel_id}{c.patient.mode && c.patient.mode !== 'inpatient' ? ' · MCOT' : ''}</small>
+              <b>{c.patient.name}</b><small className="mono">{c.channel_id}</small>
+              <span>{MODEL_LABEL(c.patient) === 'MCOT' ? <i className="rp-mc">MCOT</i> : null}{c.patient.room || c.patient.home_region || ''} · {c.patient.department || ''}</span>
             </button>))}
+          {list.length > 500 && <p className="muted small rp-more">앞 500명만 표시 — 검색으로 좁혀 주세요.</p>}
           {!list.length && <p className="muted small">환자가 없습니다.</p>}
         </div>
       </aside>
+
       <main className="rp-main">
-        <div className="rp-bar no-print">
-          <span className="seg">{[['daily', '일일 리포트'], ['interim', '중간 분석 보고서'], ['claim', '보험 청구서']].map(([k, l]) => <button key={k} className={doc === k ? 'active' : ''} onClick={() => setDoc(k)}>{l}</button>)}</span>
-          <label className="rp-ctl">날짜<select value={date} onChange={(e) => setDate(e.target.value)}>{(days.length ? days : [date]).map((d) => <option key={d} value={d}>{d}</option>)}</select></label>
-          {doc === 'claim'
-            ? <label className="rp-ctl">국가<select value={ctry} onChange={(e) => setCountry(e.target.value)}><option value="KR">한국 · 요양급여 명세서</option><option value="US">미국 · CMS-1500</option><option value="JP">일본 · 診療報酬明細書</option></select></label>
-            : <label className="rp-ctl">문서 언어<select value={lang} onChange={(e) => setLangDoc(e.target.value)}><option value="ko">한국어</option><option value="en">English</option><option value="ja">日本語</option></select></label>}
-          <span className="spacer" />
-          {busy && <span className="muted small">불러오는 중…</span>}
-          <button className="primary" disabled={!rep} onClick={() => window.print()}>인쇄 · PDF 저장</button>
-        </div>
-        {!patch && <div className="rp-empty">왼쪽에서 환자를 고르면 전날(자정 기준) 리포트를 만듭니다.</div>}
-        {err && <div className="rp-empty">{err}</div>}
-        {rep && doc === 'daily' && <Paper><DailyDoc {...ctx} /></Paper>}
-        {rep && doc === 'interim' && <Paper>{series ? <InterimDoc {...ctx} /> : <p className="muted">일자별 데이터를 모으는 중…</p>}</Paper>}
-        {rep && doc === 'claim' && <>
-          <BillSettings ctx={ctx} />
-          <Paper>{!series ? <p className="muted">기간 데이터를 모으는 중…</p> : ctry === 'US' ? <ClaimUS {...ctx} /> : ctry === 'JP' ? <ClaimJP {...ctx} /> : <ClaimKR {...ctx} />}</Paper>
+        {!patch ? <Welcome /> : <>
+          <header className="rp-head no-print">
+            <div className="rp-who">
+              <div className="rp-name"><b>{emr?.name || p?.name || '환자 정보 없음'}</b>{!p && <span>이 패치에 연결된 환자 기록이 없습니다 — 파형 기록만 표시합니다</span>}{p && rep?.patient_from_snapshot && <span className="rp-snap">퇴원·패치 교체 전 마지막 환자 정보</span>}{emr && <span>{emr.sex === 'F' ? '여' : '남'} · {emr.age}세</span>}{p && <i className={'rp-chip ' + (MODEL_LABEL(p) === 'MCOT' ? 'mc' : 'in')}>{MODEL_LABEL(p)}</i>}</div>
+              <div className="rp-meta">
+                <span><small>등록번호</small>{emr?.mrn || p?.emr?.mrn || '—'}</span>
+                <span><small>진료과</small>{p?.department || '—'}</span>
+                <span><small>{MODEL_LABEL(p) === 'MCOT' ? '지역' : '병상'}</small>{MODEL_LABEL(p) === 'MCOT' ? p?.home_region || '—' : `${p?.ward || ''} ${p?.bed || ''}`.trim() || '—'}</span>
+                <span><small>진단</small>{emr?.disease || p?.diagnosis || '—'}{emr?.icd10 ? ` (${emr.icd10})` : ''}</span>
+                <span><small>착용 시작</small>{rep?.monitor_start_ms ? `${dt(rep.monitor_start_ms, 'ko')} · ${Math.max(1, Math.ceil((Date.now() - rep.monitor_start_ms) / 86400000))}일째` : '—'}</span>
+                <span><small>패치</small><span className="mono">{patch}</span></span>
+              </div>
+            </div>
+          </header>
+
+          <div className="rp-tabs no-print">{DOCS.map(([k, l, d, ic]) => <button key={k} className={'rp-tab' + (doc === k ? ' on' : '')} onClick={() => setDoc(k)}><i>{ic}</i><span><b>{l}</b><small>{d}</small></span></button>)}</div>
+
+          <div className="rp-dates no-print">
+            <button className="icon" disabled={di < 0 || di >= days.length - 1} onClick={() => go(days[di + 1])} title="이전 날">◀</button>
+            <div className="rp-dstrip">{[...days].reverse().map((d) => { const w = new Date(d + 'T00:00').getDay(); return (
+              <button key={d} className={'rp-day' + (d === date ? ' on' : '') + (d === ymd(new Date()) ? ' today' : '') + (w === 0 ? ' sun' : w === 6 ? ' sat' : '')} onClick={() => setDate(d)}>
+                <small>{d.slice(5, 7)}월 · {WD.ko[w]}</small><b>{Number(d.slice(8))}</b>{d === ymd(new Date()) && <em>오늘 · 진행 중</em>}</button>) })}
+              {!days.length && <span className="muted small">기록된 날을 찾는 중…</span>}</div>
+            <button className="icon" disabled={di <= 0} onClick={() => go(days[di - 1])} title="다음 날">▶</button>
+            <span className="rp-dnote muted small">{doc === 'daily' ? '병원 현지 자정 ~ 자정' : `착용 시작 ~ ${date}`}</span>
+          </div>
+
+          <div className="rp-desk">
+            {err && <div className="rp-empty"><b>이 날짜의 리포트를 만들 수 없습니다</b><span>{err}</span></div>}
+            {busy && !rep && <PaperSkeleton />}
+            {rep && <Fit>
+              {doc === 'daily' && <Paper><DailyDoc {...ctx} /></Paper>}
+              {doc === 'interim' && <Paper>{series ? <InterimDoc {...ctx} /> : <Collecting />}</Paper>}
+              {doc === 'claim' && <Paper>{!series ? <Collecting /> : ctry === 'US' ? <ClaimUS {...ctx} /> : ctry === 'JP' ? <ClaimJP {...ctx} /> : <ClaimKR {...ctx} />}</Paper>}
+            </Fit>}
+          </div>
         </>}
       </main>
+
+      {patch && <aside className="rp-tool no-print">
+        <ToolPanel ctx={ctx} doc={doc} lang={lang} setLang={setLangDoc} ctry={ctry} setCountry={setCountry} interp={interp} setInterp={setInterp} signAt={signAt} setSignAt={setSignAt} busy={busy} />
+      </aside>}
     </div>
   )
+}
+
+function Welcome() {
+  return (<div className="rp-welcome">
+    <h3>ECG 리포트 · 보험 청구</h3>
+    <p className="muted">왼쪽에서 환자를 고르면 전날(자정 기준) 리포트를 바로 만듭니다.</p>
+    <ol>
+      <li><b>환자 선택</b><span>입원·MCOT 필터와 검색으로 찾습니다.</span></li>
+      <li><b>날짜 · 문서 고르기</b><span>일일 리포트, 착용 시작부터의 중간 분석 보고서, 보험 청구서 초안.</span></li>
+      <li><b>오른쪽에서 작성</b><span>판독 소견과 판독의를 넣고 점검표를 확인합니다.</span></li>
+      <li><b>인쇄 · PDF</b><span>A4 한 장 단위로 출력됩니다.</span></li>
+    </ol>
+  </div>)
+}
+const Collecting = () => <div className="rp-collect"><span className="spin" />착용 기간의 일자별 기록을 모으는 중…</div>
+function PaperSkeleton() { return <div className="rp-paper rp-skel">{[60, 30, 90, 90, 40, 100, 100, 70].map((w, i) => <i key={i} style={{ width: `${w}%` }} />)}</div> }
+
+/** 화면 너비에 맞춰 A4 미리보기를 줄인다 (인쇄는 원래 크기) */
+function Fit({ children }) {
+  const ref = useRef(null)
+  const [z, setZ] = useState(1)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => setZ(Math.min(1, (el.clientWidth - 32) / 794)))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  return <div ref={ref} className="rp-fit" style={{ '--z': z }}>{children}</div>
+}
+
+function ToolPanel({ ctx, doc, lang, setLang, ctry, setCountry, interp, setInterp, signAt, setSignAt, busy }) {
+  const { rep, series, bill, setBill } = ctx
+  const [b, setB] = useState(bill)
+  useEffect(() => setB(bill), [bill])
+  const f = (k) => (e) => setB({ ...b, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
+  const dirty = JSON.stringify(b) !== JSON.stringify(bill)
+  const auto = rep ? autoSummary(rep, doc === 'claim' ? 'ko' : lang) : ''
+  const hours = rep ? rep.recorded_ms / 3600000 : 0
+  const checks = doc === 'claim'
+    ? [[!!series, '착용 기간 기록 모음'], [ctry === 'KR' ? !!bill.kr_code : ctry === 'US' ? !!bill.us_npi : !!bill.jp_code, ctry === 'KR' ? '요양기관기호' : ctry === 'US' ? 'Billing NPI' : '医療機関コード'], [!!bill.physician, '판독의 이름'], [!!bill.license, '면허번호 · NPI']]
+    : [[hours >= 20, `기록 ${hours.toFixed(1)}시간 (20시간 이상 권장)`], [(rep?.strips || []).length > 0, `대표 파형 ${(rep?.strips || []).length}개`], [!!interp.trim(), '판독 소견 직접 확인·수정'], [!!bill.physician, '판독의 이름'], [!!signAt, '판독 일시']]
+  const ready = checks.filter((c) => c[0]).length
+  return (<div className="rp-tp">
+    <div className="rp-tp-print">
+      <button className="primary big" disabled={!rep || busy} onClick={() => window.print()}>인쇄 · PDF 저장</button>
+      <span className="muted small">점검 {ready}/{checks.length}{ready < checks.length ? ' — 빠진 항목이 있어도 인쇄는 됩니다' : ' — 준비 완료'}</span>
+    </div>
+
+    {rep && doc !== 'claim' && <section className="rp-sec"><h4>그날 요약</h4>
+      <div className="rp-mini">
+        <div><small>평균</small><b>{rep.hr.avg ?? '—'}</b><span>bpm</span></div>
+        <div><small>최저</small><b>{rep.hr.min?.bpm ?? '—'}</b><span>{hm(rep.hr.min?.at_ms)}</span></div>
+        <div><small>최고</small><b>{rep.hr.max?.bpm ?? '—'}</b><span>{hm(rep.hr.max?.at_ms)}</span></div>
+        <div><small>기록</small><b>{hours.toFixed(1)}</b><span>시간</span></div>
+        <div><small>에피소드</small><b>{Object.values(rep.episode_counts || {}).reduce((a, n) => a + n, 0)}</b><span>건</span></div>
+        <div><small>심실 조기</small><b>{rep.ectopy.v_pct ?? 0}</b><span>% 박동</span></div>
+      </div></section>}
+
+    <section className="rp-sec"><h4>문서</h4>
+      {doc === 'claim'
+        ? <label className="rp-f">청구 국가<select value={ctry} onChange={(e) => setCountry(e.target.value)}><option value="KR">한국 · 요양급여비용 명세서</option><option value="US">미국 · CMS-1500</option><option value="JP">일본 · 診療報酬明細書</option></select><small>청구서는 그 나라 언어로 고정됩니다.</small></label>
+        : <label className="rp-f">문서 언어<select value={lang} onChange={(e) => setLang(e.target.value)}><option value="ko">한국어</option><option value="en">English</option><option value="ja">日本語</option></select></label>}
+    </section>
+
+    {doc !== 'claim' && <section className="rp-sec"><h4>판독 소견 <button className="link" onClick={() => setInterp(auto)}>자동 문장 넣기</button></h4>
+      <textarea className="rp-ta" rows={7} value={interp} placeholder={auto} onChange={(e) => setInterp(e.target.value)} />
+      <small className="muted">비워 두면 자동 분석 문장이 들어갑니다. 의사가 확인·수정하세요.</small>
+    </section>}
+
+    <section className="rp-sec"><h4>판독의 <small className="muted">계정에 저장</small></h4>
+      <div className="rp-g2"><label className="rp-f">이름<input value={b.physician} onChange={f('physician')} placeholder="예: 김OO" /></label><label className="rp-f">면허번호 · NPI<input value={b.license} onChange={f('license')} /></label></div>
+      {doc !== 'claim' && <label className="rp-f">판독 일시<span className="rp-row"><input type="datetime-local" value={signAt} onChange={(e) => setSignAt(e.target.value)} /><button onClick={() => setSignAt(new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16))}>지금</button></span></label>}
+    </section>
+
+    {doc === 'claim' && <section className="rp-sec"><h4>기관 청구 정보 <small className="muted">계정에 저장</small></h4>
+      {ctry === 'KR' && <><label className="rp-f">요양기관기호<input value={b.kr_code} onChange={f('kr_code')} maxLength={8} placeholder="8자리" /></label><label className="rp-f">종별<select value={b.kr_class} onChange={f('kr_class')}>{KR_CLASS.map((c) => <option key={c[0]} value={c[0]}>{c[1]} · 환산 {c[2]}원 · 가산 {c[3] * 100}%</option>)}</select></label></>}
+      {ctry === 'US' && <><label className="rp-f">Payer<select value={b.us_payer} onChange={f('us_payer')}>{US_PAYERS.map((x) => <option key={x[0]} value={x[0]}>{x[1]}</option>)}</select></label><label className="rp-f">Billing provider (name, address)<input value={b.us_billing} onChange={f('us_billing')} /></label><div className="rp-g2"><label className="rp-f">Billing NPI (33a)<input value={b.us_npi} onChange={f('us_npi')} maxLength={10} /></label><label className="rp-f">Federal Tax ID (25)<input value={b.us_tax} onChange={f('us_tax')} /></label></div><label className="rp-f">Service facility (32)<input value={b.us_facility} onChange={f('us_facility')} /></label></>}
+      {ctry === 'JP' && <><div className="rp-g2"><label className="rp-f">都道府県番号<input value={b.jp_pref} onChange={f('jp_pref')} maxLength={2} /></label><label className="rp-f">医療機関コード<input value={b.jp_code} onChange={f('jp_code')} maxLength={7} /></label></div><label className="rp-f">負担割合<select value={b.jp_ratio} onChange={f('jp_ratio')}>{[1, 2, 3].map((r) => <option key={r} value={r}>{r}割</option>)}</select></label><label className="rp-ck"><input type="checkbox" checked={!!b.us_d212} onChange={f('us_d212')} />MCOT 外来は D212 リアルタイム解析型で算定</label></>}
+    </section>}
+    {dirty && <div className="rp-save"><span className="small">바꾼 내용이 있습니다.</span><button className="primary" onClick={() => setBill(b)}>저장</button></div>}
+
+    <section className="rp-sec"><h4>점검표</h4>
+      <ul className="rp-check">{checks.map(([ok, l], i) => <li key={i} className={ok ? 'ok' : ''}><i>{ok ? '✓' : '·'}</i>{l}</li>)}</ul>
+    </section>
+  </div>)
 }
 
 const Paper = ({ children }) => <div className="rp-paper" data-no-i18n="">{children}</div>
@@ -128,7 +256,7 @@ function Header({ rep, emr, row, lang, title, sub }) {
   </>)
 }
 
-export function DailyDoc({ rep, emr, row, lang, interp, setInterp }) {
+export function DailyDoc({ rep, emr, row, lang, interp, sign }) {
   const t = D[lang]
   const burden = Object.entries(rep.burden_pct || {}).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
   const counts = Object.entries(rep.episode_counts || {}).sort((a, b) => b[1] - a[1])
@@ -140,7 +268,7 @@ export function DailyDoc({ rep, emr, row, lang, interp, setInterp }) {
       <div><small>{t.hr} {t.min}</small><b>{rep.hr.min?.bpm ?? '—'}</b><span>{hm(rep.hr.min?.at_ms)}</span></div>
       <div><small>{t.hr} {t.max}</small><b>{rep.hr.max?.bpm ?? '—'}</b><span>{hm(rep.hr.max?.at_ms)}</span></div>
       <div><small>{t.rec}</small><b>{hrs(rep.recorded_ms)}</b><span>h · {t.ana} {hrs(rep.analyzable_ms)} h</span></div>
-      <div><small>{t.beats}</small><b>{Math.round(rep.hr.total_beats).toLocaleString()}</b><span>{t.pause} {rep.longest_pause ? dur(rep.longest_pause.dur_ms) : t.none}</span></div>
+      <div><small>{t.beats}</small><b>{Math.round(rep.hr.total_beats).toLocaleString()}</b><span>V {rep.ectopy.v_pct ?? 0}% · S {rep.ectopy.s_pct ?? 0}%</span></div>
     </div>
     <h3>{t.hourly}</h3>
     <HourChart hourly={rep.hourly} />
@@ -156,27 +284,30 @@ export function DailyDoc({ rep, emr, row, lang, interp, setInterp }) {
     <h3>{t.episodes} {counts.length > 0 && <small>{counts.map(([k, n]) => `${rname(k, lang)} ${n}`).join(' · ')}</small>}</h3>
     <table className="rp-t rp-ep"><thead><tr><th>{t.ep}</th><th>{t.start}</th><th>{t.end}</th><th className="num">{t.dur}</th></tr></thead>
       <tbody>{(rep.episodes || []).slice(0, 25).map((e, i) => <tr key={i}><td>{rname(e.label, lang)}</td><td>{hm(e.start_ms)}</td><td>{hm(e.end_ms)}</td><td className="num">{dur(e.dur_ms)}</td></tr>)}{!(rep.episodes || []).length && <tr><td colSpan="4">{t.none}</td></tr>}</tbody></table>
+    <p className="rp-note-ex">{t.exNote}</p>
     <h3 className="rp-pb">{t.strips} <small>{t.scale}</small></h3>
     {(rep.strips || []).map((s, i) => <Strip key={i} s={s} lang={lang} />)}
     <h3>{t.interp}</h3>
-    <textarea className="rf rp-interp" rows={4} value={interp || auto} onChange={(e) => setInterp(e.target.value)} />
-    <Sign lang={lang} />
+    <p className="rp-interp">{interp.trim() || auto}</p>
+    <Sign lang={lang} sign={sign} />
     <p className="rp-foot">{t.note} · {t.gen} {dt(rep.generated_ms, lang)}</p>
   </div>)
 }
 
+const isPause = (l) => l === 'pause' || l === 'asystole'
 function autoSummary(rep, lang) {
   const t = D[lang]
   const top = Object.entries(rep.burden_pct || {}).filter(([k]) => k !== 'leadoff').sort((a, b) => b[1] - a[1])[0]
-  const ep = Object.entries(rep.episode_counts || {}).map(([k, n]) => `${rname(k, lang)} ${n}`).join(', ')
-  if (lang === 'en') return `Predominant rhythm: ${top ? rname(top[0], lang) : '—'}. Mean HR ${rep.hr.avg ?? '—'} bpm (min ${rep.hr.min?.bpm ?? '—'} at ${hm(rep.hr.min?.at_ms)}, max ${rep.hr.max?.bpm ?? '—'} at ${hm(rep.hr.max?.at_ms)}). Episodes: ${ep || 'none'}. PVC ${rep.ectopy.v_pct ?? 0}%, PAC ${rep.ectopy.s_pct ?? 0}%. Longest pause: ${rep.longest_pause ? dur(rep.longest_pause.dur_ms) : 'none'}.`
-  if (lang === 'ja') return `基本調律: ${top ? rname(top[0], lang) : '—'}。平均心拍数 ${rep.hr.avg ?? '—'} bpm（最小 ${rep.hr.min?.bpm ?? '—'} ${hm(rep.hr.min?.at_ms)}、最大 ${rep.hr.max?.bpm ?? '—'} ${hm(rep.hr.max?.at_ms)}）。エピソード: ${ep || 'なし'}。VPC ${rep.ectopy.v_pct ?? 0}%、SVPC ${rep.ectopy.s_pct ?? 0}%。最長ポーズ: ${rep.longest_pause ? dur(rep.longest_pause.dur_ms) : 'なし'}。`
-  return `기본 리듬: ${top ? rname(top[0], lang) : '—'}. 평균 심박수 ${rep.hr.avg ?? '—'} bpm (최저 ${rep.hr.min?.bpm ?? '—'} ${hm(rep.hr.min?.at_ms)}, 최고 ${rep.hr.max?.bpm ?? '—'} ${hm(rep.hr.max?.at_ms)}). ${t.episodes}: ${ep || '없음'}. 심실조기수축 ${rep.ectopy.v_pct ?? 0}%, 상심실성 ${rep.ectopy.s_pct ?? 0}%. 최장 휴지: ${rep.longest_pause ? dur(rep.longest_pause.dur_ms) : '없음'}.`
+  const ep = Object.entries(rep.episode_counts || {}).filter(([k]) => !isPause(k)).map(([k, n]) => `${rname(k, lang)} ${n}`).join(', ')
+  if (lang === 'en') return `Predominant rhythm: ${top ? rname(top[0], lang) : '—'}. Mean HR ${rep.hr.avg ?? '—'} bpm (min ${rep.hr.min?.bpm ?? '—'} at ${hm(rep.hr.min?.at_ms)}, max ${rep.hr.max?.bpm ?? '—'} at ${hm(rep.hr.max?.at_ms)}). Episodes: ${ep || 'none'}. PVC ${rep.ectopy.v_pct ?? 0}%, PAC ${rep.ectopy.s_pct ?? 0}%.`
+  if (lang === 'ja') return `基本調律: ${top ? rname(top[0], lang) : '—'}。平均心拍数 ${rep.hr.avg ?? '—'} bpm（最小 ${rep.hr.min?.bpm ?? '—'} ${hm(rep.hr.min?.at_ms)}、最大 ${rep.hr.max?.bpm ?? '—'} ${hm(rep.hr.max?.at_ms)}）。エピソード: ${ep || 'なし'}。VPC ${rep.ectopy.v_pct ?? 0}%、SVPC ${rep.ectopy.s_pct ?? 0}%。`
+  return `기본 리듬: ${top ? rname(top[0], lang) : '—'}. 평균 심박수 ${rep.hr.avg ?? '—'} bpm (최저 ${rep.hr.min?.bpm ?? '—'} ${hm(rep.hr.min?.at_ms)}, 최고 ${rep.hr.max?.bpm ?? '—'} ${hm(rep.hr.max?.at_ms)}). ${t.episodes}: ${ep || '없음'}. 심실조기수축 ${rep.ectopy.v_pct ?? 0}%, 상심실성 ${rep.ectopy.s_pct ?? 0}%.`
 }
 
-function Sign({ lang }) {
+function Sign({ lang, sign }) {
   const t = D[lang]
-  return <div className="rp-sign"><span>{t.reader}: <In v="" on={() => {}} w="160px" /></span><span>{t.sign}: ____________________</span><span>{t.date}: ____________</span></div>
+  const at = sign?.at ? new Date(sign.at).toLocaleString(LOC[lang], { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
+  return <div className="rp-sign"><span>{t.reader}: <b>{sign?.name || '________________'}</b>{sign?.license ? <span className="mono"> ({sign.license})</span> : null}</span><span>{t.sign}: ____________________</span><span>{t.date}: {at || '________________'}</span></div>
 }
 
 function HourChart({ hourly }) {
@@ -210,12 +341,11 @@ function aggregate(series) {
   const mins = series.filter((r) => r.hr.min).map((r) => r.hr.min).sort((a, b) => a.bpm - b.bpm)
   const maxs = series.filter((r) => r.hr.max).map((r) => r.hr.max).sort((a, b) => b.bpm - a.bpm)
   const avg = rec ? series.reduce((a, r) => a + (r.hr.avg || 0) * r.recorded_ms, 0) / rec : null
-  const burden = {}; for (const r of series) for (const [k, v] of Object.entries(r.burden_pct || {})) burden[k] = (burden[k] || 0) + (v * r.analyzable_ms) / 100
-  const counts = {}; for (const r of series) for (const [k, n] of Object.entries(r.episode_counts || {})) counts[k] = (counts[k] || 0) + n
+  const burden = {}; for (const r of series) for (const [k, v] of Object.entries(r.burden_pct || {}).filter(([k]) => !isPause(k))) burden[k] = (burden[k] || 0) + (v * r.analyzable_ms) / 100
+  const counts = {}; for (const r of series) for (const [k, n] of Object.entries(r.episode_counts || {}).filter(([k]) => !isPause(k))) counts[k] = (counts[k] || 0) + n
   const v = series.reduce((a, r) => a + r.ectopy.v_beats, 0), s = series.reduce((a, r) => a + r.ectopy.s_beats, 0)
-  const pause = series.map((r) => r.longest_pause).filter(Boolean).sort((a, b) => b.dur_ms - a.dur_ms)[0]
   const first = Math.min(...series.map((r) => r.first_ms || Infinity)), last = Math.max(...series.map((r) => r.last_ms || 0))
-  return { rec, ana, beats, min: mins[0], max: maxs[0], avg, burden: Object.fromEntries(Object.entries(burden).map(([k, ms]) => [k, ana ? Math.round((ms / ana) * 1000) / 10 : 0])), counts, v, s, pause, first, last }
+  return { rec, ana, beats, min: mins[0], max: maxs[0], avg, burden: Object.fromEntries(Object.entries(burden).map(([k, ms]) => [k, ana ? Math.round((ms / ana) * 1000) / 10 : 0])), counts, v, s, first, last }
 }
 function spanOf(rep, series) {
   const a = aggregate(series)
@@ -224,7 +354,7 @@ function spanOf(rep, series) {
   return { a, start, hours, days: series.length }
 }
 
-export function InterimDoc({ rep, emr, row, lang, series, bill }) {
+export function InterimDoc({ rep, emr, row, lang, series, bill, sign }) {
   const t = D[lang]
   const { a, start, hours } = spanOf(rep, series)
   const mode = rep.patient?.mode === 'inpatient' ? 'inpatient' : 'mcot'
@@ -241,8 +371,9 @@ export function InterimDoc({ rep, emr, row, lang, series, bill }) {
     </div>
     <div className="rp-two">
       <section><h3>{t.rhythm} ({t.cum})</h3><table className="rp-t"><tbody>{burden.map(([k, v]) => <tr key={k}><td>{rname(k, lang)}</td><td className="num">{v}%</td><td className="bar"><i style={{ width: `${Math.min(100, v)}%` }} /></td></tr>)}</tbody></table></section>
-      <section><h3>{t.episodes} ({t.cum})</h3><table className="rp-t"><tbody>{Object.entries(a.counts).sort((x, y) => y[1] - x[1]).map(([k, n]) => <tr key={k}><td>{rname(k, lang)}</td><td className="num">{n}</td></tr>)}<tr><td>{t.pause}</td><td className="num">{a.pause ? `${dur(a.pause.dur_ms)} · ${dt(a.pause.at_ms, lang)}` : t.none}</td></tr></tbody></table></section>
+      <section><h3>{t.episodes} ({t.cum})</h3><table className="rp-t"><tbody>{Object.entries(a.counts).sort((x, y) => y[1] - x[1]).map(([k, n]) => <tr key={k}><td>{rname(k, lang)}</td><td className="num">{n}</td></tr>)}</tbody></table></section>
     </div>
+    <p className="rp-note-ex">{t.exNote}</p>
     <h3>{t.day}</h3>
     <table className="rp-t"><thead><tr><th>{t.day}</th><th className="num">{t.rec} h</th><th className="num">{t.avg}</th><th className="num">{t.min}</th><th className="num">{t.max}</th><th className="num">V%</th><th className="num">S%</th><th>{t.episodes}</th></tr></thead>
       <tbody>{series.map((r) => <tr key={r.date}><td>{r.date}</td><td className="num">{hrs(r.recorded_ms)}</td><td className="num">{r.hr.avg ?? '—'}</td><td className="num">{r.hr.min?.bpm ?? '—'}</td><td className="num">{r.hr.max?.bpm ?? '—'}</td><td className="num">{r.ectopy.v_pct ?? 0}</td><td className="num">{r.ectopy.s_pct ?? 0}</td><td className="small">{Object.entries(r.episode_counts || {}).map(([k, n]) => `${rname(k, lang)} ${n}`).join(', ') || '—'}</td></tr>)}</tbody></table>
@@ -255,27 +386,12 @@ export function InterimDoc({ rep, emr, row, lang, series, bill }) {
       <td>{jp.map((l) => <div key={l.code}><b className="mono">{l.code}</b> {l.pts}点 × {l.count}</div>)}</td>
     </tr></tbody></table>
     <p className="small">{lang === 'en' ? 'Code tier follows the continuous recording duration so far; the final code may change at end of monitoring. MCT (93228/93229) is billed once per ≤30-day episode, dated at hook-up.' : lang === 'ja' ? '区分は現時点までの連続記録時間で算定。終了時に確定区分が変わる場合があります。' : '구간은 지금까지의 연속 기록 시간으로 산정했습니다. 착용이 끝나면 최종 구간이 달라질 수 있습니다.'}</p>
-    <Sign lang={lang} />
+    <Sign lang={lang} sign={sign} />
     <p className="rp-foot">{t.note} · {t.gen} {dt(Date.now(), lang)}</p>
   </div>)
 }
 
 // ───────── 청구서 공통 ─────────
-function BillSettings({ ctx }) {
-  const { bill, setBill, country } = ctx
-  const [b, setB] = useState(bill)
-  useEffect(() => setB(bill), [bill])
-  const f = (k) => (e) => setB({ ...b, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
-  return (<details className="rp-set no-print"><summary>기관 청구 정보 <span className="muted small">계정에 저장 · 매번 다시 입력하지 않음</span></summary>
-    <div className="rp-setg">
-      {country === 'KR' && <><label>요양기관기호<input value={b.kr_code} onChange={f('kr_code')} maxLength={8} /></label><label>종별<select value={b.kr_class} onChange={f('kr_class')}>{KR_CLASS.map((c) => <option key={c[0]} value={c[0]}>{c[1]} (환산 {c[2]}원 · 가산 {c[3] * 100}%)</option>)}</select></label></>}
-      {country === 'US' && <><label>Billing provider (name, address)<input value={b.us_billing} onChange={f('us_billing')} /></label><label>Billing NPI (33a)<input value={b.us_npi} onChange={f('us_npi')} maxLength={10} /></label><label>Federal Tax ID (25)<input value={b.us_tax} onChange={f('us_tax')} /></label><label>Service facility (32)<input value={b.us_facility} onChange={f('us_facility')} /></label><label>Payer<select value={b.us_payer} onChange={f('us_payer')}>{US_PAYERS.map((p) => <option key={p[0]} value={p[0]}>{p[1]}</option>)}</select></label></>}
-      {country === 'JP' && <><label>都道府県番号<input value={b.jp_pref} onChange={f('jp_pref')} maxLength={2} /></label><label>医療機関コード<input value={b.jp_code} onChange={f('jp_code')} maxLength={7} /></label><label>負担割合(割)<select value={b.jp_ratio} onChange={f('jp_ratio')}>{[1, 2, 3].map((r) => <option key={r} value={r}>{r}割</option>)}</select></label><label className="ck"><input type="checkbox" checked={!!b.us_d212} onChange={f('us_d212')} />MCOT 外来は D212 リアルタイム解析型で算定</label></>}
-      <label>판독의 / Physician<input value={b.physician} onChange={f('physician')} /></label><label>면허번호 · NPI / 免許番号<input value={b.license} onChange={f('license')} /></label>
-    </div>
-    <div className="toolbar"><span className="spacer" /><button className="primary" onClick={() => setBill(b)}>저장</button></div>
-  </details>)
-}
 const Box = ({ n, l, children, w, cls }) => <div className={'bx ' + (cls || '')} style={w ? { gridColumn: `span ${w}` } : undefined}><span className="bn">{n}</span><span className="bl">{l}</span><div className="bv">{children}</div></div>
 
 // ───────── 한국: 요양급여비용 명세서 ─────────
@@ -315,7 +431,7 @@ export function ClaimKR({ rep, emr, series, bill }) {
     <table className="rp-t"><tbody>
       <tr><th>기록 시작</th><td>{dt(start, 'ko')}</td><th>기록 종료</th><td>{dt(a.last, 'ko')}</td></tr>
       <tr><th>총 기록</th><td>{hours.toFixed(1)} 시간 (분석 가능 {a.rec ? Math.round((a.ana / a.rec) * 100) : 0}%)</td><th>심박수</th><td>평균 {a.avg?.toFixed(0) ?? '—'} · 최저 {a.min?.bpm ?? '—'} · 최고 {a.max?.bpm ?? '—'} bpm</td></tr>
-      <tr><th>주요 소견</th><td colSpan="3">{Object.entries(a.counts).map(([k, n]) => `${rname(k, 'ko')} ${n}회`).join(', ') || '특이 소견 없음'} · 심실조기수축 {a.beats ? ((a.v / a.beats) * 100).toFixed(1) : 0}% · 최장 휴지 {a.pause ? dur(a.pause.dur_ms) : '없음'}</td></tr>
+      <tr><th>주요 소견</th><td colSpan="3">{Object.entries(a.counts).filter(([k]) => !isPause(k)).map(([k, n]) => `${rname(k, 'ko')} ${n}회`).join(', ') || '특이 소견 없음'} · 심실조기수축 {a.beats ? ((a.v / a.beats) * 100).toFixed(1) : 0}%</td></tr>
     </tbody></table>
     <div className="rp-sign"><span>판독 의사: <b>{bill.physician || '________'}</b></span><span>면허번호: <b className="mono">{bill.license || '________'}</b></span><span>판독일시: ____________</span><span>(서명)</span></div>
   </div>)
