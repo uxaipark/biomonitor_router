@@ -557,6 +557,25 @@ impl AnalysisHub {
         per.into_iter().map(|(p, (tr, v, s))| { let (cur, since) = tr.last().cloned().map(|(t, l)| (l, t)).unwrap_or(("unknown".into(), from_ms)); (p, cur, since, tr, v, s) }).collect()
     }
 
+    /// 리포트용: 패치 하나의 구간 [from, to] 판정 전환(앞선 상태 포함)과 분당 V/S 박동 수
+    pub fn patch_history(&self, patch: u32, from_ms: u64, to_ms: u64) -> (Vec<(u64, String)>, Vec<(u64, u32, u32)>) {
+        self.flush_db();
+        let g = self.db.lock().unwrap();
+        let Some(db) = g.as_ref() else { return (Vec::new(), Vec::new()) };
+        let mut tr: Vec<(u64, String)> = Vec::new();
+        if let Ok(l) = db.query_row("SELECT label FROM ecg_trace WHERE patch=?1 AND ms<?2 ORDER BY ms DESC LIMIT 1", rusqlite::params![patch as i64, from_ms as i64], |r| r.get::<_, String>(0)) {
+            tr.push((from_ms, l));
+        }
+        if let Ok(mut st) = db.prepare("SELECT ms, label FROM ecg_trace WHERE patch=?1 AND ms>=?2 AND ms<?3 ORDER BY ms") {
+            if let Ok(rows) = st.query_map(rusqlite::params![patch as i64, from_ms as i64, to_ms as i64], |r| Ok((r.get::<_, i64>(0)? as u64, r.get::<_, String>(1)?))) { tr.extend(rows.flatten()); }
+        }
+        let mut bm = Vec::new();
+        if let Ok(mut st) = db.prepare("SELECT minute_ms, v, s FROM ecg_beatmin WHERE patch=?1 AND minute_ms>=?2 AND minute_ms<?3 ORDER BY minute_ms") {
+            if let Ok(rows) = st.query_map(rusqlite::params![patch as i64, from_ms as i64, to_ms as i64], |r| Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u32, r.get::<_, i64>(2)? as u32))) { bm.extend(rows.flatten()); }
+        }
+        (tr, bm)
+    }
+
     fn shard_of(&self, channel_id: u32) -> usize {
         (channel_id as usize).wrapping_mul(2654435761) % self.shards.len()
     }

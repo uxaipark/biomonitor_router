@@ -144,6 +144,10 @@ export const api = {
     run: (id, what) => send('POST', `/api/integration/${id}/run`, { what }),
     received: (id) => get(`/api/integration/${id}/received`),
   },
+  reports: { // 일일 ECG 리포트
+    daily: (patch, date) => get(`/api/reports/daily?patch=${encodeURIComponent(patch)}&date=${date}`),
+    days: (patch) => get(`/api/reports/days?patch=${encodeURIComponent(patch)}`),
+  },
   inventory: { // 패치 재고
     summary: () => get('/api/inventory'),
     detail: (t) => get(`/api/inventory/${encodeURIComponent(t)}`),

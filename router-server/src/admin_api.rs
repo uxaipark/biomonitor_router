@@ -33,6 +33,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/ecg/engine", get(ecg_engine_status))
         .route("/api/ecg/engine/reload", post(ecg_engine_reload))
         .route("/api/ecg/config", get(ecg_config_get).put(ecg_config_set))
+        .route("/api/reports/daily", get(rep_daily))
+        .route("/api/reports/days", get(rep_days))
         .route("/api/inventory", get(inv_summary))
         .route("/api/inventory/sku", put(inv_sku))
         .route("/api/inventory/{tenant}", get(inv_detail))
@@ -1716,5 +1718,22 @@ async fn inv_po_update(State(state): State<Arc<AppState>>, Extension(p): Extensi
     if !p.can_access(&tenant) { return (StatusCode::FORBIDDEN, "권한 없음").into_response(); }
     state.auth.audit(&p.username, &tenant, "inv_po_update", &format!("PO-{id} → {}", b.status));
     inv_res(state.inventory.po_update(&tenant, id, &b.status, &b.tracking, &b.eta, b.boxes))
+}
+
+// ───────── 일일 ECG 리포트 ─────────
+async fn rep_daily(State(state): State<Arc<AppState>>, axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>) -> impl IntoResponse {
+    let Some(patch) = q.get("patch").and_then(|v| v.parse::<u32>().ok()) else { return (StatusCode::BAD_REQUEST, "patch 필요").into_response() };
+    let date = q.get("date").cloned().unwrap_or_else(|| (chrono::Local::now() - chrono::Duration::days(1)).format("%Y-%m-%d").to_string());
+    let _permit = hist_sem().acquire().await;
+    let st = state.clone();
+    match tokio::task::spawn_blocking(move || crate::reports::daily(&st, patch, &date)).await.unwrap_or(Err("failed".into())) {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": e }))).into_response(),
+    }
+}
+async fn rep_days(State(state): State<Arc<AppState>>, axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>) -> impl IntoResponse {
+    let Some(patch) = q.get("patch").and_then(|v| v.parse::<u32>().ok()) else { return (StatusCode::BAD_REQUEST, "patch 필요").into_response() };
+    let st = state.clone();
+    Json(tokio::task::spawn_blocking(move || crate::reports::days(&st, patch)).await.unwrap_or_default()).into_response()
 }
 

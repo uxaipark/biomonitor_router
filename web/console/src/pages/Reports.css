@@ -1,0 +1,78 @@
+.rp { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 14px; align-items: start; }
+.rp-side { position: sticky; top: 8px; display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 90px); }
+.rp-side .h { margin: 0; }
+.rp-list { overflow: auto; display: flex; flex-direction: column; gap: 2px; scrollbar-gutter: stable; }
+.rp-pt { display: grid; grid-template-columns: 1fr; text-align: left; padding: 6px 9px; border-radius: 8px; border: 1px solid transparent; background: transparent; min-height: 0; }
+.rp-pt span, .rp-pt small { color: var(--muted); font-size: 11.5px; font-weight: 400; }
+.rp-pt.on { background: var(--panel); border-color: var(--accent); }
+.rp-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.rp-ctl { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.rp-empty { padding: 60px 20px; text-align: center; color: var(--muted); }
+.rp-set { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; }
+.rp-set summary { cursor: pointer; font-weight: 600; }
+.rp-setg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; margin: 10px 0; }
+.rp-setg label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.rp-setg label.ck { flex-direction: row; align-items: center; gap: 6px; }
+
+/* 종이(A4) — 화면에서도 흰 종이로 보이게, 인쇄와 같은 모양 */
+.rp-paper { background: #fff; color: #111; width: 210mm; max-width: 100%; min-height: 297mm; padding: 12mm 13mm; margin: 0 auto 20px; box-shadow: 0 2px 14px rgba(0,0,0,.25); border-radius: 2px; font-family: 'Pretendard', 'Noto Sans KR', 'Noto Sans JP', 'Inter', system-ui, sans-serif; font-size: 10.5pt; line-height: 1.4; }
+.rp-doc h1 { font-size: 17pt; margin: 0; letter-spacing: -0.01em; }
+.rp-doc h3 { font-size: 11pt; margin: 12px 0 5px; padding-bottom: 3px; border-bottom: 1.5px solid #222; }
+.rp-doc h3 small { font-weight: 400; color: #555; font-size: 8.5pt; margin-left: 6px; }
+.rp-doc .small, .rp-doc small { font-size: 8.5pt; color: #444; }
+.rp-doc .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.rp-dh { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #111; padding-bottom: 6px; margin-bottom: 6px; }
+.rp-sub { color: #444; font-size: 9pt; margin-top: 2px; }
+.rp-hosp { text-align: right; display: flex; flex-direction: column; font-size: 9.5pt; }
+.rp-id, .rp-t { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+.rp-id th, .rp-id td, .rp-t th, .rp-t td { border: 1px solid #999; padding: 3px 6px; text-align: left; vertical-align: top; color: #111; }
+.rp-id th, .rp-t th { background: #eef1f4; font-weight: 600; white-space: nowrap; }
+.rp-t td.num, .rp-t th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.rp-t td.bar { width: 35%; } .rp-t td.bar i { display: block; height: 8px; background: #3a6ea5; border-radius: 1px; }
+.rp-t tfoot th { text-align: right; }
+.rp-kpi { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 8px 0 2px; }
+.rp-kpi > div { border: 1.5px solid #222; border-radius: 4px; padding: 5px 8px; display: flex; flex-direction: column; }
+.rp-kpi small { font-size: 8pt; color: #444; font-weight: 600; } .rp-kpi b { font-size: 17pt; line-height: 1.15; font-variant-numeric: tabular-nums; } .rp-kpi span { font-size: 8pt; color: #444; }
+.rp-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.rp-hc { width: 100%; height: auto; display: block; }
+.rp-hc .g { stroke: #ddd; stroke-width: .6; } .rp-hc text { font-size: 9px; fill: #555; }
+.rp-hc .r { fill: #9fbbe0; } .rp-hc .a { stroke: #b0242a; stroke-width: 2; }
+.rp-strip { margin: 4px 0 8px; break-inside: avoid; }
+.rp-sl { display: flex; justify-content: space-between; font-size: 9pt; margin-bottom: 2px; }
+.rp-strip svg { width: 100%; height: auto; aspect-ratio: 200 / 30; display: block; border: 1px solid #e3a3a3; }
+.rp-strip .mi line { stroke: #f6d4d4; stroke-width: .08; } .rp-strip .ma line { stroke: #e79a9a; stroke-width: .16; }
+.rp-strip polyline { fill: none; stroke: #111; stroke-width: .28; stroke-linejoin: round; }
+.rp-interp { width: 100%; font: inherit; color: #111; background: #fff; border: 1px solid #999; padding: 6px; resize: vertical; }
+.rp-sign { display: flex; gap: 28px; flex-wrap: wrap; margin-top: 14px; padding-top: 8px; border-top: 1px solid #999; font-size: 10pt; }
+.rp-foot { margin-top: 10px; font-size: 8pt; color: #555; }
+.rf { border: none; border-bottom: 1px dotted #888; background: transparent; color: #111; font: inherit; padding: 0 2px; min-width: 40px; width: 100%; min-height: 0; border-radius: 0; }
+.rf.num { text-align: right; }
+.rf:focus { outline: 1px solid #3a6ea5; background: #f3f8ff; }
+/* 청구서 */
+.cl-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; border-bottom: 3px double #111; padding-bottom: 4px; margin-bottom: 8px; }
+.cl-title span { font-size: 9pt; color: #333; }
+.cl-draft { margin-left: auto; border: 1.5px solid #b0242a; color: #b0242a !important; padding: 1px 8px; border-radius: 3px; font-weight: 700; }
+.cl-payer { display: flex; flex-direction: column; font-size: 9pt; margin-bottom: 6px; padding: 4px 8px; background: #f4f6f8; border-left: 3px solid #3a6ea5; }
+.grid { display: grid; gap: 0; border-top: 1px solid #777; border-left: 1px solid #777; margin: 6px 0; }
+.grid.g6 { grid-template-columns: repeat(6, 1fr); }
+.bx { border-right: 1px solid #777; border-bottom: 1px solid #777; padding: 2px 5px 4px; min-height: 34px; position: relative; }
+.bx .bn { font-size: 7.5pt; font-weight: 700; color: #b0242a; margin-right: 4px; } .bx .bl { font-size: 7.5pt; color: #444; text-transform: none; }
+.bx .bv { font-size: 10pt; margin-top: 1px; }
+.dxg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 10px; font-size: 9pt; }
+.cl24 td { font-size: 9pt; } .cl24 td:nth-child(-n+3) { white-space: nowrap; }
+.claim.us .bx .bn { color: #b0242a; } .claim.jp .bx .bl, .claim.kr .bx .bl { font-weight: 600; }
+@media (max-width: 1100px) { .rp { grid-template-columns: 1fr; } .rp-side { position: static; max-height: 260px; } .rp-setg { grid-template-columns: 1fr 1fr; } }
+
+@media print {
+  @page { size: A4; margin: 10mm; }
+  body { background: #fff !important; }
+  body * { visibility: hidden; }
+  .rp-paper, .rp-paper * { visibility: visible; }
+  .rp-paper { position: absolute; left: 0; top: 0; width: 100%; min-height: 0; margin: 0; padding: 0; box-shadow: none; }
+  .no-print { display: none !important; }
+  .rf { border-bottom-color: transparent; }
+  .rp-interp { border: none; resize: none; }
+  .rp-pb { break-before: auto; }
+  .rp-doc h3 { break-after: avoid; }
+  .rp-t tr, .rp-kpi, .grid { break-inside: avoid; }
+}

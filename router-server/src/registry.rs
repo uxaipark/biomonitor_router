@@ -448,6 +448,10 @@ impl Registry {
         self.channels.get(channel_id).map(|e| e.gateway_id.clone())
     }
 
+    pub fn wear_start_of(&self, channel_id: &str) -> Option<u64> {
+        self.channels.get(channel_id).map(|c| c.wear_start_ms()).filter(|v| *v > 0)
+    }
+
     pub fn patient_of(&self, channel_id: &str) -> Option<Patient> {
         self.channels.get(channel_id).and_then(|c| c.patient.clone())
     }

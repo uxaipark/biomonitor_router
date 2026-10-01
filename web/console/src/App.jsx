@@ -28,6 +28,7 @@ import OpsStats from './pages/OpsStats.jsx'
 import AdminSecurity from './pages/AdminSecurity.jsx'
 import EcgEngine from './pages/EcgEngine.jsx'
 import Inventory from './pages/Inventory.jsx'
+import Reports from './pages/Reports.jsx'
 import { LiveModal } from './pages/LiveModal.jsx'
 
 // [hash, 메뉴 이름, 페이지, 묶음 메뉴(선택), 권한 자원]
@@ -40,6 +41,7 @@ const PAGES = [
   ['#/map', '병원 지도', MapPage, '모니터링', 'page.map'],
   ['#/viewers', '뷰어', Viewers, '모니터링', 'page.viewers'],
   ['#/mcot', 'MCOT', McotMap, '모니터링', 'page.mcot_map'],
+  ['#/reports', 'ECG 리포트', Reports, '모니터링', 'page.reports'],
   // 인프라 — 파이프라인·장비·기록 (운영 통계가 첫 화면; 권한이 없으면 볼 수 있는 첫 메뉴로)
   ['#/', '운영 통계', OpsStats, '인프라', 'page.ops'],
   ['#/gateways', '게이트웨이', Gateways, '인프라', 'page.gateways'],
