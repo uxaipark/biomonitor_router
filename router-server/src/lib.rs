@@ -38,3 +38,4 @@ pub mod site_locale;
 pub mod inventory;
 pub mod inv_forecast;
 pub mod reports;
+pub mod truth_store;

@@ -53,13 +53,13 @@ pub struct Truth { pub eps: Vec<(String, u64, u64)>, pub base: Option<String> }
 /// 정답 라벨 저장소 — 에뮬레이터 /api/v1/labels 를 한 번 받아 두고 이후엔 바뀐 부분만 받는다(라벨 API 는 패치 거르기가 없어 전체를 받음).
 /// 키 (패치, 시작, 값) → 끝(열린 것은 None). 8일보다 오래된 것은 버린다.
 #[derive(Default)]
-struct LabelStore { lo: u64, hi: u64, at: Option<std::time::Instant>, labels: HashMap<(u32, u64, String), Option<u64>>, base: HashMap<u32, String>, emr_at: Option<std::time::Instant> }
+struct LabelStore { lo: u64, hi: u64, at: Option<std::time::Instant>, labels: HashMap<(u32, u64, String, String), Option<u64>>, base: HashMap<u32, String>, emr_at: Option<std::time::Instant> }
 static STORE: std::sync::LazyLock<tokio::sync::Mutex<LabelStore>> = std::sync::LazyLock::new(Default::default);
 
 async fn fetch_labels(addr: &str, since: u64, until: u64, st: &mut LabelStore) -> Result<(), String> {
     let mut offset = 0usize;
     loop {
-        let path = format!("/api/v1/labels?kind=rhythm_episode&since_ms={since}&until_ms={until}&include_open=true&limit=5000&offset={offset}");
+        let path = format!("/api/v1/labels?kind=rhythm_episode,lead_off&since_ms={since}&until_ms={until}&include_open=true&limit=5000&offset={offset}");
         let (code, body) = crate::emu_link::request(addr, "GET", &path, None).await.map_err(|e| format!("정답지를 받지 못했습니다: {e}"))?;
         if code != 200 { return Err(format!("정답지 HTTP {code}")); }
         let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
@@ -70,7 +70,9 @@ async fn fetch_labels(addr: &str, since: u64, until: u64, st: &mut LabelStore) -
             let t0 = l.get("t_start_ms").and_then(|x| x.as_u64()).unwrap_or(0);
             if pid == 0 || t0 == 0 { continue; }
             if let Some(b) = l.get("meta").and_then(|x| x.get("base")).and_then(|x| x.as_str()) { st.base.insert(pid, b.to_string()); }
-            st.labels.insert((pid, t0, l.get("value").and_then(|x| x.as_str()).unwrap_or("").to_string()), l.get("t_end_ms").and_then(|x| x.as_u64()));
+            let kind = l.get("kind").and_then(|x| x.as_str()).unwrap_or("rhythm_episode").to_string();
+            let value = if kind == "lead_off" { "lead_off".to_string() } else { l.get("value").and_then(|x| x.as_str()).unwrap_or("").to_string() };
+            st.labels.insert((pid, t0, kind, value), l.get("t_end_ms").and_then(|x| x.as_u64()));
         }
         offset += got;
         if got < 5000 || offset > 400_000 { break; }
@@ -118,15 +120,38 @@ async fn ensure(state: &Arc<AppState>, need_lo: u64, need_hi: u64) -> Result<(),
     Ok(())
 }
 
-/// 한 패치·하루의 정답 (오늘은 60초마다 바뀐 부분만, 지난 날은 저장소에서 바로)
+/// 한 패치·하루의 정답: ① 로컬 정답 파일(truth/) ② 백업에서 복원 ③ 에뮬레이터 순서. 시간 파일이 하나라도 없으면 에뮬레이터로.
 pub async fn truth_for(state: &Arc<AppState>, patch: u32, date: &str) -> Result<Truth, String> {
     let (from, to) = day_window(date).ok_or("날짜는 YYYY-MM-DD")?;
-    ensure(state, from.saturating_sub(6 * 3_600_000), to).await?;
     let now = crate::protocol::now_ms();
+    let (lo, hi) = (from.saturating_sub(6 * 3_600_000), to.min(now));
+    // 끝난 시간들이 모두 정답 파일로 있으면 그것만으로 (재현 가능, 에뮬레이터 없이도)
+    let root = std::path::PathBuf::from(&state.cfg.store_dir);
+    let st2 = state.clone();
+    let local = tokio::task::spawn_blocking(move || -> Option<Truth> {
+        let mut eps: HashMap<(u64, String), Option<u64>> = HashMap::new();
+        let mut base: Option<String> = None;
+        let mut h = lo / 3_600_000 * 3_600_000;
+        while h < hi {
+            let key = crate::patch_store::hour_key(h);
+            let mut f = crate::truth_store::file_of(&root, &key);
+            if !f.exists() { f = st2.backup.restore_truth(&crate::truth_store::rel_of(&key)).ok()?; }
+            let (e, b) = crate::truth_store::read_file(&f, patch)?;
+            for (_, k, v, s0, e0) in e { if k == "rhythm_episode" { let slot = eps.entry((s0, v)).or_insert(e0); if e0.is_some() { *slot = e0; } } }
+            if b.is_some() { base = b; }
+            h += 3_600_000;
+        }
+        Some(Truth { eps: eps.into_iter().filter(|((s0, _), _)| *s0 < to).map(|((s0, v), e0)| (v, s0, e0.unwrap_or(to.min(crate::protocol::now_ms())))).filter(|(_, _, e)| *e > from).collect(), base })
+    }).await.ok().flatten();
+    if let Some(mut t) = local {
+        if t.base.is_none() { t.base = state.inventory.base_of(patch); }
+        return Ok(t);
+    }
+    ensure(state, lo, to).await?;
     let st = STORE.lock().await;
     let eps: Vec<(String, u64, u64)> = st.labels.iter()
-        .filter(|((p, t0, _), _)| *p == patch && *t0 < to)
-        .map(|((_, t0, v), e)| (v.clone(), *t0, e.unwrap_or(to.min(now))))
+        .filter(|((p, t0, k, _), _)| *p == patch && *t0 < to && k == "rhythm_episode")
+        .map(|((_, t0, _, v), e)| (v.clone(), *t0, e.unwrap_or(to.min(now))))
         .filter(|(_, _, e)| *e > from).collect();
     let base = st.base.get(&patch).cloned();
     drop(st);
@@ -134,16 +159,49 @@ pub async fn truth_for(state: &Arc<AppState>, patch: u32, date: &str) -> Result<
     Ok(Truth { eps, base })
 }
 
-/// 백그라운드: 판정 출처가 정답지면 오늘 정답을 1분마다 미리 받아 둔다(요청 때 기다리지 않게). 퇴원 환자 기저 리듬(전체 EMR, 19 MB)은 1시간에 한 번.
+/// 정답 파일 쓰기: [h_lo, h_hi) 시간들 — 봉인 안 된 것만 다시 쓰고, 끝난 지 30분 지난 것은 봉인
+async fn persist_hours(state: &Arc<AppState>, h_lo: u64, h_hi: u64) {
+    let root = std::path::PathBuf::from(&state.cfg.store_dir);
+    let now = crate::protocol::now_ms();
+    let emu = state.net.emulator().unwrap_or_default();
+    let mut jobs: Vec<(String, Vec<crate::truth_store::Ep>, HashMap<u32, String>)> = Vec::new();
+    // 기저 리듬은 그 시간에 에피소드가 있는 환자 + 지금 연결된 환자만 (퇴원한 수만 명까지 매시간 쓰지 않게)
+    let mut live: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    state.registry.for_each(|id, ch| if ch.patient.is_some() { if let Ok(p) = id.parse::<u32>() { live.insert(p); } });
+    {
+        let st = STORE.lock().await;
+        let mut h = h_lo / 3_600_000 * 3_600_000;
+        while h < h_hi.min(now) {
+            let key = crate::patch_store::hour_key(h);
+            if crate::patch_store::read_seal(&crate::truth_store::file_of(&root, &key)).is_none() {
+                let (a, b) = (h, h + 3_600_000);
+                let eps: Vec<crate::truth_store::Ep> = st.labels.iter().filter(|((_, s0, _, _), e)| *s0 < b && e.unwrap_or(now) > a).map(|((p, s0, k, v), e)| (*p, k.clone(), v.clone(), *s0, *e)).collect();
+                let pats: std::collections::HashSet<u32> = eps.iter().map(|e| e.0).collect();
+                let bases: HashMap<u32, String> = st.base.iter().filter(|(p, _)| pats.contains(p) || (b + 3_600_000 > now && live.contains(p))).map(|(p, v)| (*p, v.clone())).collect();
+                jobs.push((key, eps, bases));
+            }
+            h += 3_600_000;
+        }
+    }
+    let _ = tokio::task::spawn_blocking(move || {
+        for (key, eps, bases) in jobs {
+            if let Err(e) = crate::truth_store::write_hour(&root, &key, &eps, &bases, &emu) { tracing::warn!("truth: write {key} failed: {e}"); continue; }
+            crate::truth_store::seal_if_due(&root, &key, now);
+        }
+    }).await;
+}
+
+/// 백그라운드: 정답을 1분마다 받아(바뀐 부분만) 시간별 정답 파일(truth/)로 저장·봉인하고, 리포트가 기다리지 않게 메모리에도 둔다. 퇴원 환자 기저 리듬(전체 EMR, 19 MB)·오래된 정답 파일 정리는 1시간에 한 번.
 pub async fn run_truth_warm(state: Arc<AppState>) {
     tokio::time::sleep(std::time::Duration::from_secs(15)).await;
     let mut tick: u64 = 0;
     loop {
-        if report_source(&state) == "truth" {
-            let today = Local::now().format("%Y-%m-%d").to_string();
-            if let Some((from, to)) = day_window(&today) {
-                let lo = if tick == 0 { from.saturating_sub(30 * 3_600_000) } else { from.saturating_sub(6 * 3_600_000) }; // 처음엔 어제치까지
-                let _ = ensure(&state, lo, to).await;
+        if state.net.emulator().is_some() {
+            let now = crate::protocol::now_ms();
+            // 처음엔 30시간 앞부터(재시작 동안 빠진 시간도 채움), 이후엔 봉인 전인 최근 2시간만
+            let lo = if tick == 0 { now.saturating_sub(30 * 3_600_000) } else { now.saturating_sub(2 * 3_600_000 + crate::truth_store::SEAL_GRACE_MS) };
+            if ensure(&state, lo.saturating_sub(6 * 3_600_000), now).await.is_ok() {
+                persist_hours(&state, lo, now).await;
             }
             if tick % 60 == 0 {
                 if let Some(addr) = state.net.emulator() {
@@ -152,6 +210,9 @@ pub async fn run_truth_warm(state: Arc<AppState>) {
                         let inv = state.inventory.clone(); let _ = tokio::task::spawn_blocking(move || inv.save_bases(&b)).await;
                     }
                 }
+                let root = std::path::PathBuf::from(&state.cfg.store_dir);
+                let n = tokio::task::spawn_blocking(move || crate::truth_store::prune(&root, crate::protocol::now_ms())).await.unwrap_or(0);
+                if n > 0 { tracing::info!("truth: pruned {n} local hour files (backed up, > {} days)", crate::truth_store::KEEP_DAYS); }
             }
             tick += 1;
         }

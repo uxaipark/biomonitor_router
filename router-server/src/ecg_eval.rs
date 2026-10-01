@@ -187,8 +187,17 @@ pub async fn run(state: &Arc<AppState>, hours: f64) -> Result<serde_json::Value,
     let since = from.saturating_sub(6 * 3_600_000);
     let mut labels: Vec<(u32, String, u64, Option<u64>)> = Vec::new();
     let mut base: HashMap<u32, String> = HashMap::new();
+    // 보관된 정답 파일(truth/)이 창 전체에 있으면 그것으로 — 에뮬레이터가 라벨을 지웠거나 꺼져 있어도 같은 결과
+    let root = std::path::PathBuf::from(&state.cfg.store_dir);
+    let st2 = state.clone();
+    let local = tokio::task::spawn_blocking(move || crate::truth_store::load_range(&root, since, now, &|rel| st2.backup.restore_truth(rel).ok())).await.ok().flatten();
+    let from_files = local.is_some();
+    if let Some((eps, b)) = local {
+        for (p, _k, v, s0, e0) in eps { labels.push((p, v, s0, e0)); }
+        base = b;
+    }
     let mut offset = 0usize;
-    loop {
+    while !from_files {
         let path = format!("/api/v1/labels?kind=rhythm_episode,lead_off&since_ms={since}&until_ms={now}&include_open=true&limit=5000&offset={offset}");
         let (code, body) = crate::emu_link::request(&addr, "GET", &path, None).await.map_err(|e| e.to_string())?;
         if code != 200 { return Err(format!("labels HTTP {code}")); }
@@ -220,7 +229,8 @@ pub async fn run(state: &Arc<AppState>, hours: f64) -> Result<serde_json::Value,
     // 판정 이력: 1시간 이하는 메모리 흔적(정밀), 그 이상은 DB (분 단위 박동 → 허용 오차 60 s)
     let (traces, tol) = if hours <= 1.0 { (state.analysis.traces(), 0u64) } else { (state.analysis.traces_db(from, now), 60_000u64) };
     let st = state.clone();
-    let result = tokio::task::spawn_blocking(move || evaluate(&labels, &base, &traces, from, now, tol)).await.map_err(|e| e.to_string())?;
+    let mut result = tokio::task::spawn_blocking(move || evaluate(&labels, &base, &traces, from, now, tol)).await.map_err(|e| e.to_string())?;
+    result["truth_source"] = serde_json::json!(if from_files { "files" } else { "emulator" });
     if let Some(e) = st.analysis.engine() {
         let dir = st.analysis.versions_dir().join(crate::ecg_analysis::AnalysisHub::version_key(&e.id));
         let _ = std::fs::create_dir_all(&dir);

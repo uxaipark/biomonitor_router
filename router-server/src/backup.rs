@@ -1061,7 +1061,13 @@ impl Backup {
         let trash = format!("patches.trash-{}", now_ms());
         let root = self.list_remote(t, &p, "");
         let has_patches = root.as_ref().map(|v| v.iter().any(|x| x.0 == "patches" && x.2)).unwrap_or(true);
-        let mut leftovers: Vec<String> = root.as_ref().map(|v| v.iter().filter(|x| x.2 && x.0.starts_with("patches.trash-")).map(|x| x.0.clone()).collect()).unwrap_or_default();
+        let mut leftovers: Vec<String> = root.as_ref().map(|v| v.iter().filter(|x| x.2 && (x.0.starts_with("patches.trash-") || x.0.starts_with("truth.trash-"))).map(|x| x.0.clone()).collect()).unwrap_or_default();
+        // 정답지 폴더(truth/)도 같이 — 이름만 바꾸고 백그라운드에서 지운다
+        let has_truth = root.as_ref().map(|v| v.iter().any(|x| x.0 == crate::truth_store::DIR && x.2)).unwrap_or(false);
+        if has_truth {
+            let tt = format!("truth.trash-{}", now_ms());
+            match self.rename_remote(t, &p, crate::truth_store::DIR, &tt) { Ok(()) => leftovers.push(tt), Err(e) => warn!("backup: purge rename truth/ failed: {e}") }
+        }
         let mut deleted = 0u64;
         if has_patches {
             match self.rename_remote(t, &p, "patches", &trash) {
@@ -1178,11 +1184,25 @@ impl Backup {
                 Ok(0)
             }
             kind => {
-                let dirs: Vec<String> = match self.list_remote(t, p, rel) {
-                    Ok(v) => v.into_iter().filter(|x| x.2).map(|x| x.0).collect(),
+                let entries = match self.list_remote(t, p, rel) {
+                    Ok(v) => v,
                     Err(e) if e.contains("(9)") || e.contains("(78)") || e.contains("550") => return Ok(0), // 폴더 없음 = 지울 것 없음
                     Err(e) => return Err(e),
                 };
+                let dirs: Vec<String> = entries.iter().filter(|x| x.2).map(|x| x.0.clone()).collect();
+                // 폴더 바로 아래 파일(정답지 truth/ 처럼 하위 폴더 없는 경우): 500개씩 한 연결로
+                let top: Vec<String> = entries.iter().filter(|x| !x.2).map(|x| x.0.clone()).collect();
+                let mut top_n = 0u64;
+                for ch in top.chunks(500) {
+                    let mut cmd = t.curl(p);
+                    cmd.args(["-o", "/dev/null"]);
+                    for name in ch { cmd.arg("-Q").arg(if kind == "sftp" { format!("-*rm \"{}\"", sftp_q(t, &format!("{rel}/{name}"))) } else { format!("-*DELE {name}") }); }
+                    cmd.arg(format!("{}/", t.url(rel).trim_end_matches('/')));
+                    let o = run_with_stdin(cmd, &t.curl_cfg())?;
+                    if !o.status.success() { return Err(format!("삭제 실패: {}", stderr_msg(&o))); }
+                    top_n += ch.len() as u64;
+                    progress(0, dirs.len(), top_n);
+                }
                 let total = dirs.len();
                 let chunks: Vec<Vec<String>> = dirs.chunks(50).map(|c| c.to_vec()).collect();
                 let q = Mutex::new(chunks);
@@ -1221,6 +1241,7 @@ impl Backup {
                     }
                 });
                 if let Some(e) = err.into_inner().unwrap() { return Err(e); }
+                fl.fetch_add(top_n, AO::Relaxed);
                 let mut cmd = t.curl(p);
                 let rm = if kind == "sftp" { format!("-*rmdir \"{}\"", sftp_q(t, rel)) } else { format!("-*RMD {rel}") };
                 cmd.args(["-o", "/dev/null", "-Q", &rm]).arg(format!("{}/", t.url("").trim_end_matches('/')));
@@ -1265,9 +1286,18 @@ impl Backup {
 
     /// 백업에서 파일 하나를 복원 캐시로 받는다: 대상 순위대로 시도, SHA-256(업로드 때 값, 없으면 원격 .sum)으로 검증
     fn restore(&self, patch_id: u32, rel: &str) -> Result<PathBuf, String> {
+        self.restore_into(crate::patch_store::restore_dir(&self.root, patch_id), rel)
+    }
+
+    /// 정답지 시간 파일(`truth/<키>.jsonl`)을 백업에서 복원 캐시로 받는다 (로컬에서 정리된 지난 시간)
+    pub fn restore_truth(&self, rel: &str) -> Result<PathBuf, String> {
+        if !rel.starts_with("truth/") { return Err("정답지 파일 아님".into()); }
+        self.restore_into(self.root.join(crate::patch_store::RESTORE_DIR).join(crate::truth_store::DIR), rel)
+    }
+
+    fn restore_into(&self, dir: PathBuf, rel: &str) -> Result<PathBuf, String> {
         static LOCKS: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
         let name = rel.rsplit('/').next().unwrap_or(rel).to_string();
-        let dir = crate::patch_store::restore_dir(&self.root, patch_id);
         let dest = dir.join(&name);
         // 같은 파일을 두 요청이 동시에 받지 않게 (먼저 받은 쪽을 기다렸다가 결과를 쓴다)
         loop {
@@ -1880,6 +1910,19 @@ impl Backup {
                         jobs.push((key.to_string(), rel, size));
                     }
                 }
+            }
+        }
+        // 정답지 시간 파일(truth/<키>.jsonl): 봉인된 것만, 파형과 같은 규칙으로
+        if let Ok(rd) = fs::read_dir(self.root.join(crate::truth_store::DIR)) {
+            for f in rd.flatten() {
+                let name = f.file_name().to_string_lossy().to_string();
+                let Some(key) = name.strip_suffix(".jsonl") else { continue };
+                let Ok(md) = f.metadata() else { continue };
+                let size = md.len();
+                let rel = format!("{}/{name}", crate::truth_store::DIR);
+                if SAFE.get(&rel).map(|s| *s == size).unwrap_or(false) { continue; }
+                if crate::patch_store::read_seal(&f.path()).is_none() { continue; }
+                if !inflight.contains(&rel) { jobs.push((key.to_string(), rel, size)); }
             }
         }
         *self.pending.lock().unwrap() = pend;

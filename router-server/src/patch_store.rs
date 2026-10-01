@@ -343,6 +343,29 @@ pub fn read_seal(data: &Path) -> Option<Seal> {
     (s.size == size && Some(s.file.as_str()) == data.file_name().and_then(|n| n.to_str())).then_some(s)
 }
 
+/// 일반 파일(정답지 jsonl 등) 봉인: CRC-32 + SHA-256 + 줄 수를 `<이름>.sum` 에 쓴다 (항목별 CRC 가 없는 형식).
+pub fn seal_plain(path: &Path) -> std::io::Result<Seal> {
+    use sha2::{Digest, Sha256};
+    let bytes = fs::read(path)?;
+    let seal = Seal {
+        file: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        size: bytes.len() as u64,
+        crc32: format!("{:08x}", wire::crc32(&bytes)),
+        sha256: Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect(),
+        entries: bytes.iter().filter(|b| **b == b'\n').count() as u64,
+        bad_entries: 0,
+        first_ts_ms: 0,
+        last_ts_ms: 0,
+        sealed_ms: crate::protocol::now_ms(),
+        ok: true,
+    };
+    let sp = seal_path(path);
+    let tmp = sp.with_extension("sum.tmp");
+    fs::write(&tmp, serde_json::to_vec(&seal).unwrap_or_default())?;
+    fs::rename(&tmp, &sp)?;
+    Ok(seal)
+}
+
 /// Integrity check of a closed file: walk every entry (per-entry CRC), optionally gzip it, then CRC-32 + SHA-256
 /// the final file and write `<key>.sum`. One read of the data (the walk and the hashes share the buffer).
 pub fn seal_file(path: &Path, gzip_level: u32) -> std::io::Result<Seal> {
