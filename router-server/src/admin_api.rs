@@ -36,6 +36,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/reports/daily", get(rep_daily))
         .route("/api/ecg/report-source", get(rep_source_get).put(rep_source_set))
         .route("/api/reports/days", get(rep_days))
+        .route("/api/reports/patients", get(rep_patients))
         .route("/api/inventory", get(inv_summary))
         .route("/api/inventory/sku", put(inv_sku))
         .route("/api/inventory/{tenant}", get(inv_detail))
@@ -1734,7 +1735,8 @@ async fn inv_po_update(State(state): State<Arc<AppState>>, Extension(p): Extensi
 async fn rep_daily(State(state): State<Arc<AppState>>, axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>) -> impl IntoResponse {
     let Some(patch) = q.get("patch").and_then(|v| v.parse::<u32>().ok()) else { return (StatusCode::BAD_REQUEST, "patch 필요").into_response() };
     let date = q.get("date").cloned().unwrap_or_else(|| (chrono::Local::now() - chrono::Duration::days(1)).format("%Y-%m-%d").to_string());
-    let _permit = hist_sem().acquire().await;
+    static REP_SEM: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+    let _permit = REP_SEM.get_or_init(|| tokio::sync::Semaphore::new(4)).acquire().await;
     // 판정 출처(관리 › ECG 분석 엔진): 정답지면 에뮬레이터 정답을 먼저 받는다. ?source= 로 한 번만 바꿔 볼 수도 있다.
     let source = q.get("source").cloned().filter(|s| s == "truth" || s == "engine").unwrap_or_else(|| crate::reports::report_source(&state));
     let truth = if source == "truth" {
@@ -1824,5 +1826,13 @@ struct RepSrcIn { source: String }
 async fn rep_source_set(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(b): Json<RepSrcIn>) -> impl IntoResponse {
     state.auth.audit(&p.username, "", "report_source", &b.source);
     match crate::reports::set_report_source(&state, &b.source, &p.username) { Ok(v) => Json(v).into_response(), Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response() }
+}
+/// 리포트 화면용 가벼운 환자 목록 (채널 전체 2.6 MB 대신 필요한 칸만)
+async fn rep_patients(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    state.registry.for_each(|id, ch| if let Some(p) = &ch.patient {
+        out.push(serde_json::json!({ "channel_id": id, "profile_id": p.profile_no, "patient": { "id": p.id, "name": p.name, "room": p.room, "ward": p.ward, "bed": p.bed, "department": p.department, "diagnosis": p.diagnosis, "mode": p.mode, "home_region": p.home_region, "profile_no": p.profile_no, "emr": p.emr } }));
+    });
+    Json(out)
 }
 

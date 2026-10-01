@@ -147,6 +147,7 @@ export const api = {
   reports: { // 일일 ECG 리포트
     daily: (patch, date) => get(`/api/reports/daily?patch=${encodeURIComponent(patch)}&date=${date}`),
     days: (patch) => get(`/api/reports/days?patch=${encodeURIComponent(patch)}`),
+    patients: () => get('/api/reports/patients'),
   },
   inventory: { // 패치 재고
     summary: () => get('/api/inventory'),

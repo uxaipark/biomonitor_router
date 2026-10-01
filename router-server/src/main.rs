@@ -86,6 +86,8 @@ async fn main() -> anyhow::Result<()> {
 
     // 패치 재고: 새 부착 자동 차감 (60초)
     tokio::spawn(router_core::inventory::run(state.clone()));
+    // ECG 리포트 정답지 미리 받기 (판정 출처가 정답지일 때)
+    tokio::spawn(router_core::reports::run_truth_warm(state.clone()));
     // 사이트 국가(에뮬레이터 송출 국가) 60초 주기
     tokio::spawn(router_core::site_locale::run(state.clone()));
 

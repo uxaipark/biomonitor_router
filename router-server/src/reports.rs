@@ -50,24 +50,17 @@ pub fn truth_key(v: &str) -> &'static str {
 #[derive(Clone, Default)]
 pub struct Truth { pub eps: Vec<(String, u64, u64)>, pub base: Option<String> }
 
-type TruthDay = (std::time::Instant, HashMap<u32, Truth>);
-static TRUTH_CACHE: std::sync::LazyLock<tokio::sync::Mutex<HashMap<(u64, u64), TruthDay>>> = std::sync::LazyLock::new(Default::default);
+/// 정답 라벨 저장소 — 에뮬레이터 /api/v1/labels 를 한 번 받아 두고 이후엔 바뀐 부분만 받는다(라벨 API 는 패치 거르기가 없어 전체를 받음).
+/// 키 (패치, 시작, 값) → 끝(열린 것은 None). 8일보다 오래된 것은 버린다.
+#[derive(Default)]
+struct LabelStore { lo: u64, hi: u64, at: Option<std::time::Instant>, labels: HashMap<(u32, u64, String), Option<u64>>, base: HashMap<u32, String>, emr_at: Option<std::time::Instant> }
+static STORE: std::sync::LazyLock<tokio::sync::Mutex<LabelStore>> = std::sync::LazyLock::new(Default::default);
 
-/// 에뮬레이터 /api/v1/labels 에서 그날 정답을 받아 패치별로 나눠 둔다 (지난 날은 30분, 오늘은 2분 캐시). 라벨 API 는 패치 거르기를 지원하지 않아 하루치를 한 번에 받는다.
-pub async fn truth_for(state: &Arc<AppState>, patch: u32, date: &str) -> Result<Truth, String> {
-    let (from, to) = day_window(date).ok_or("날짜는 YYYY-MM-DD")?;
-    let now = crate::protocol::now_ms();
-    let mut cache = TRUTH_CACHE.lock().await;
-    let ttl = if to > now { 120 } else { 1800 };
-    if let Some((at, m)) = cache.get(&(from, to)) { if at.elapsed().as_secs() < ttl { let mut t = m.get(&patch).cloned().unwrap_or_default(); if t.base.is_none() { t.base = state.inventory.base_of(patch); } if t.base.is_some() { return Ok(t); } } }
-    let addr = state.net.emulator().ok_or("에뮬레이터 주소가 없습니다 (네트워크 설정)")?;
-    let until = to.min(now);
-    let since = from.saturating_sub(6 * 3_600_000);
-    let mut m: HashMap<u32, Truth> = HashMap::new();
+async fn fetch_labels(addr: &str, since: u64, until: u64, st: &mut LabelStore) -> Result<(), String> {
     let mut offset = 0usize;
     loop {
         let path = format!("/api/v1/labels?kind=rhythm_episode&since_ms={since}&until_ms={until}&include_open=true&limit=5000&offset={offset}");
-        let (code, body) = crate::emu_link::request(&addr, "GET", &path, None).await.map_err(|e| format!("정답지를 받지 못했습니다: {e}"))?;
+        let (code, body) = crate::emu_link::request(addr, "GET", &path, None).await.map_err(|e| format!("정답지를 받지 못했습니다: {e}"))?;
         if code != 200 { return Err(format!("정답지 HTTP {code}")); }
         let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
         let arr = v.get("labels").and_then(|a| a.as_array()).cloned().unwrap_or_default();
@@ -75,43 +68,95 @@ pub async fn truth_for(state: &Arc<AppState>, patch: u32, date: &str) -> Result<
         for l in arr {
             let pid = l.get("patch_id").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
             let t0 = l.get("t_start_ms").and_then(|x| x.as_u64()).unwrap_or(0);
-            if pid == 0 || t0 == 0 || t0 >= to { continue; }
-            let t1 = l.get("t_end_ms").and_then(|x| x.as_u64()).unwrap_or(until);
-            if t1 <= from { continue; }
-            let e = m.entry(pid).or_default();
-            if let Some(b) = l.get("meta").and_then(|x| x.get("base")).and_then(|x| x.as_str()) { e.base.get_or_insert_with(|| b.to_string()); }
-            e.eps.push((l.get("value").and_then(|x| x.as_str()).unwrap_or("").to_string(), t0, t1));
+            if pid == 0 || t0 == 0 { continue; }
+            if let Some(b) = l.get("meta").and_then(|x| x.get("base")).and_then(|x| x.as_str()) { st.base.insert(pid, b.to_string()); }
+            st.labels.insert((pid, t0, l.get("value").and_then(|x| x.as_str()).unwrap_or("").to_string()), l.get("t_end_ms").and_then(|x| x.as_u64()));
         }
         offset += got;
         if got < 5000 || offset > 400_000 { break; }
     }
-    // 기저 리듬: 라벨 meta.base → 재원 환자 EMR → 보관값 → (없으면) 퇴원 포함 전체 EMR(1시간에 한 번)
-    let mut bases: Vec<(u32, String)> = m.iter().filter_map(|(p, t)| t.base.clone().map(|b| (*p, b))).collect();
-    let emr_bases = |body: &str| -> Vec<(u32, String)> {
-        serde_json::from_str::<serde_json::Value>(body).ok().and_then(|v| v.get("patients").and_then(|a| a.as_array()).cloned()).unwrap_or_default().iter()
-            .filter_map(|p| Some((p.get("patch_id").and_then(|x| x.as_u64())? as u32, p.get("rhythm").and_then(|x| x.as_str())?.to_string()))).collect()
-    };
-    if let Ok((200, body)) = crate::emu_link::request(&addr, "GET", "/api/v1/emr/patients?status=admitted&limit=10000", None).await { bases.extend(emr_bases(&body)); }
-    { let inv = state.inventory.clone(); let b = bases.clone(); let _ = tokio::task::spawn_blocking(move || inv.save_bases(&b)).await; }
-    for (p, b) in &bases { let e = m.entry(*p).or_default(); if e.base.is_none() { e.base = Some(b.clone()); } }
-    let mut out = m.get(&patch).cloned().unwrap_or_default();
-    if out.base.is_none() {
-        out.base = state.inventory.base_of(patch);
-        static FULL_AT: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
-        let due = FULL_AT.lock().unwrap().map(|t| t.elapsed().as_secs() > 3600).unwrap_or(true);
-        if out.base.is_none() && due {
-            *FULL_AT.lock().unwrap() = Some(std::time::Instant::now());
-            if let Ok((200, body)) = crate::emu_link::request(&addr, "GET", "/api/v1/emr/patients?status=all&limit=20000", None).await {
-                let all = emr_bases(&body);
-                { let inv = state.inventory.clone(); let b = all.clone(); let _ = tokio::task::spawn_blocking(move || inv.save_bases(&b)).await; }
-                out.base = all.iter().find(|(p, _)| *p == patch).map(|x| x.1.clone());
-                for (p, b) in all { let e = m.entry(p).or_default(); if e.base.is_none() { e.base = Some(b); } }
-            }
+    Ok(())
+}
+fn emr_bases(body: &str) -> Vec<(u32, String)> {
+    serde_json::from_str::<serde_json::Value>(body).ok().and_then(|v| v.get("patients").and_then(|a| a.as_array()).cloned()).unwrap_or_default().iter()
+        .filter_map(|p| Some((p.get("patch_id").and_then(|x| x.as_u64())? as u32, p.get("rhythm").and_then(|x| x.as_str())?.to_string()))).collect()
+}
+
+/// [need_lo, need_hi] 구간 라벨을 저장소에 확보한다. 오늘 쪽 끝은 60초가 지났으면 마지막 30분부터 다시 받아 열린 에피소드의 끝을 갱신.
+async fn ensure(state: &Arc<AppState>, need_lo: u64, need_hi: u64) -> Result<(), String> {
+    let addr = state.net.emulator().ok_or("에뮬레이터 주소가 없습니다 (네트워크 설정)")?;
+    let now = crate::protocol::now_ms();
+    let need_hi = need_hi.min(now);
+    let mut st = STORE.lock().await;
+    if st.at.is_none() || need_hi + 3_600_000 < st.lo || need_lo > st.hi + 3_600_000 {
+        // 처음이거나 멀리 떨어진 구간: 그 구간만 새로
+        let mut fresh = LabelStore { base: std::mem::take(&mut st.base), emr_at: st.emr_at, ..Default::default() };
+        fetch_labels(&addr, need_lo, need_hi, &mut fresh).await?;
+        fresh.lo = need_lo; fresh.hi = need_hi; fresh.at = Some(std::time::Instant::now());
+        *st = fresh;
+    } else {
+        if need_lo < st.lo { let (a, b) = (need_lo, st.lo); fetch_labels(&addr, a, b, &mut st).await?; st.lo = need_lo; }
+        let stale = st.at.map(|t| t.elapsed().as_secs() >= 60).unwrap_or(true);
+        if need_hi > st.hi || (stale && need_hi + 120_000 >= now) {
+            let from = st.hi.saturating_sub(30 * 60_000);
+            fetch_labels(&addr, from, now, &mut st).await?;
+            st.hi = now; st.at = Some(std::time::Instant::now());
         }
     }
-    cache.retain(|_, (at, _)| at.elapsed().as_secs() < 3600);
-    cache.insert((from, to), (std::time::Instant::now(), m));
-    Ok(out)
+    // 오래된 라벨 정리 (8일)
+    let cut = now.saturating_sub(8 * 86_400_000);
+    if st.lo < cut { st.labels.retain(|k, e| e.unwrap_or(u64::MAX) >= cut || k.1 >= cut); st.lo = cut; }
+    // 재원 환자 기저 리듬: 5분에 한 번
+    if st.emr_at.map(|t| t.elapsed().as_secs() >= 300).unwrap_or(true) {
+        st.emr_at = Some(std::time::Instant::now());
+        if let Ok((200, body)) = crate::emu_link::request(&addr, "GET", "/api/v1/emr/patients?status=admitted&limit=10000", None).await {
+            let b = emr_bases(&body);
+            for (p, r) in &b { st.base.insert(*p, r.clone()); }
+            let inv = state.inventory.clone(); let _ = tokio::task::spawn_blocking(move || inv.save_bases(&b)).await;
+        }
+    }
+    Ok(())
+}
+
+/// 한 패치·하루의 정답 (오늘은 60초마다 바뀐 부분만, 지난 날은 저장소에서 바로)
+pub async fn truth_for(state: &Arc<AppState>, patch: u32, date: &str) -> Result<Truth, String> {
+    let (from, to) = day_window(date).ok_or("날짜는 YYYY-MM-DD")?;
+    ensure(state, from.saturating_sub(6 * 3_600_000), to).await?;
+    let now = crate::protocol::now_ms();
+    let st = STORE.lock().await;
+    let eps: Vec<(String, u64, u64)> = st.labels.iter()
+        .filter(|((p, t0, _), _)| *p == patch && *t0 < to)
+        .map(|((_, t0, v), e)| (v.clone(), *t0, e.unwrap_or(to.min(now))))
+        .filter(|(_, _, e)| *e > from).collect();
+    let base = st.base.get(&patch).cloned();
+    drop(st);
+    let base = base.or_else(|| state.inventory.base_of(patch));
+    Ok(Truth { eps, base })
+}
+
+/// 백그라운드: 판정 출처가 정답지면 오늘 정답을 1분마다 미리 받아 둔다(요청 때 기다리지 않게). 퇴원 환자 기저 리듬(전체 EMR, 19 MB)은 1시간에 한 번.
+pub async fn run_truth_warm(state: Arc<AppState>) {
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+    let mut tick: u64 = 0;
+    loop {
+        if report_source(&state) == "truth" {
+            let today = Local::now().format("%Y-%m-%d").to_string();
+            if let Some((from, to)) = day_window(&today) {
+                let lo = if tick == 0 { from.saturating_sub(30 * 3_600_000) } else { from.saturating_sub(6 * 3_600_000) }; // 처음엔 어제치까지
+                let _ = ensure(&state, lo, to).await;
+            }
+            if tick % 60 == 0 {
+                if let Some(addr) = state.net.emulator() {
+                    if let Ok((200, body)) = crate::emu_link::request(&addr, "GET", "/api/v1/emr/patients?status=all&limit=20000", None).await {
+                        let b = emr_bases(&body);
+                        let inv = state.inventory.clone(); let _ = tokio::task::spawn_blocking(move || inv.save_bases(&b)).await;
+                    }
+                }
+            }
+            tick += 1;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    }
 }
 
 pub fn day_window(date: &str) -> Option<(u64, u64)> {
@@ -204,10 +249,21 @@ pub fn daily(state: &Arc<AppState>, patch: u32, date: &str, truth: Option<&Truth
         ectopy = serde_json::json!({ "v_beats": v_beats, "s_beats": s_beats, "v_pct": if total_beats > 0.0 { Some((v_beats as f64 / total_beats * 1000.0).round() / 10.0) } else { None }, "s_pct": if total_beats > 0.0 { Some((s_beats as f64 / total_beats * 1000.0).round() / 10.0) } else { None } });
     }
     let burden_pct: HashMap<String, f64> = burden.iter().map(|(k, v)| (k.clone(), if analyzable_ms > 0 { ((*v as f64 / analyzable_ms as f64 * 1000.0).round() / 10.0).min(100.0) } else { 0.0 })).collect();
-    // 3) 대표 파형: 최고·최저 심박 분, 중요 에피소드 시작(심각도 순, 라벨당 최대 2개, 총 8개)
-    let mut picks: Vec<(String, u64)> = Vec::new();
-    if let Some((m, v)) = hr_max { picks.push((format!("max_hr:{:.0}", v), m + 30_000)); }
-    if let Some((m, v)) = hr_min { picks.push((format!("min_hr:{:.0}", v), m + 30_000)); }
+    // 3) 대표 파형: 최고·최저 심박 분, 기저 리듬(비정상이면), 중요 에피소드(심각도 순, 라벨당 최대 2개), 총 8개.
+    //    각 후보 구간 안에서 '전극 탈락 없고 표본이 거의 다 있는 8초'를 찾아 쓴다 — 못 찾으면 그 파형은 뺀다(빈 칸을 만들지 않음).
+    let mut picks: Vec<(String, u64, u64)> = Vec::new(); // (무엇, 찾을 구간 시작, 끝)
+    if let Some((m, v)) = hr_max { picks.push((format!("max_hr:{:.0}", v), m.saturating_sub(60_000), m + 120_000)); }
+    if let Some((m, v)) = hr_min { picks.push((format!("min_hr:{:.0}", v), m.saturating_sub(60_000), m + 120_000)); }
+    // 기저 리듬 / 가장 많은 비정상 리듬 — 에피소드가 없는 환자도 주된 리듬 파형을 보이게
+    let dominant: Option<String> = if let Some(b) = truth_base.as_deref().filter(|b| !b.is_empty() && *b != "nsr") { Some(b.to_string()) } else if truth.is_none() {
+        burden.iter().filter(|(k, _)| !matches!(k.as_str(), "nsr" | "noise" | "unknown" | "leadoff") && !EXCLUDED.contains(&k.as_str())).max_by_key(|(_, v)| **v).filter(|(_, v)| **v * 10 >= analyzable_ms).map(|(k, _)| k.clone())
+    } else { None };
+    if let Some(dl) = &dominant {
+        if !episodes.iter().any(|e| e["label"] == dl.as_str()) && first < last {
+            let span = last - first;
+            for q in [1u64, 2] { let c = first + span * q / 3; picks.push((format!("base:{dl}"), c.saturating_sub(120_000), c + 120_000)); }
+        }
+    }
     let mut per: HashMap<String, usize> = HashMap::new();
     for sev in if truth.is_some() { TRUTH_ORDER } else { SEVERE } {
         for e in episodes.iter().filter(|e| e["label"] == *sev) {
@@ -215,22 +271,16 @@ pub fn daily(state: &Arc<AppState>, patch: u32, date: &str, truth: Option<&Truth
             let n = per.entry(sev.to_string()).or_default();
             if *n >= 2 { break; }
             *n += 1;
-            picks.push((format!("episode:{sev}"), e["start_ms"].as_u64().unwrap_or(from) + 1500));
+            let s0 = e["start_ms"].as_u64().unwrap_or(from);
+            let e0 = e["end_ms"].as_u64().unwrap_or(s0 + 60_000).min(s0 + 180_000).max(s0 + STRIP_MS);
+            picks.push((format!("episode:{sev}"), s0, e0));
         }
     }
     let mut strips = Vec::new();
-    for (what, center) in picks {
-        let a = center.saturating_sub(STRIP_MS / 2);
-        let recs = crate::patch_store::read_ecg_range(&root, patch, a, a + STRIP_MS);
-        let mut pts: Vec<f32> = Vec::new();
-        let mut t0 = 0u64;
-        for (ts, _seq, s) in recs {
-            if t0 == 0 { t0 = ts.saturating_sub((s.len() as u64).saturating_sub(1) * 4); }
-            pts.extend(s.iter().step_by(2)); // 250 → 125 Hz
+    for (what, a, b) in picks {
+        if let Some((t0, pts)) = best_window(&root, patch, a.max(from), b.min(to), &sec_off) {
+            strips.push(serde_json::json!({ "what": what, "t0_ms": t0, "fs": 125, "mv": pts.iter().map(|v| (v * 1000.0).round() / 1000.0).collect::<Vec<_>>() }));
         }
-        if pts.len() < 200 { continue; }
-        pts.truncate(1000);
-        strips.push(serde_json::json!({ "what": what, "t0_ms": t0, "fs": 125, "mv": pts.iter().map(|v| (v * 1000.0).round() / 1000.0).collect::<Vec<_>>() }));
     }
     // 지금 연결된 환자가 없으면(퇴원·패치 교체) 마지막으로 저장한 환자 정보로
     let snap = state.inventory.patient_snapshot(&patch.to_string());
@@ -277,10 +327,47 @@ pub fn days(state: &Arc<AppState>, patch: u32) -> Vec<String> {
         for (key, path, _) in &files {
             if any { break; }
             if !crate::patch_store::key_range(key).map(|(a, b)| a < to && b > from).unwrap_or(false) { continue; }
-            let _ = crate::patch_store::stream_entries_in(path, from, to, |_| { any = true; });
+            // 한 시간씩 보다가 레코드가 나오면 멈춘다 (하루 전체를 읽지 않게)
+            let mut h = from;
+            while h < to && !any { let _ = crate::patch_store::stream_entries_in(path, h, (h + 3_600_000).min(to), |_| { any = true; }); h += 3_600_000; }
         }
         if any { out.push(d); }
         if out.len() >= 30 { break; }
     }
     out
 }
+
+/// [a, b] 안에서 전극 탈락이 없고 표본이 거의 다 있는(≥95%) 8초를 찾는다. 2초 간격으로 밀며 첫 번째 좋은 구간, 없으면 가장 많이 찬 구간(≥60%).
+fn best_window(root: &std::path::Path, patch: u32, a: u64, b: u64, sec_off: &std::collections::HashSet<u64>) -> Option<(u64, Vec<f32>)> {
+    if b <= a { return None; }
+    let recs = crate::patch_store::read_ecg_range(root, patch, a, b.max(a + STRIP_MS));
+    // 표본별 시각 (레코드 ts = 마지막 표본, 250 Hz → 125 Hz)
+    let mut ts: Vec<u64> = Vec::new();
+    let mut vs: Vec<f32> = Vec::new();
+    for (t, _seq, s) in recs {
+        let n = s.len() as u64;
+        for (i, v) in s.iter().enumerate().step_by(2) {
+            if !v.is_finite() { continue; }
+            ts.push(t.saturating_sub((n - 1 - i as u64) * 4)); vs.push(*v);
+        }
+    }
+    if ts.len() < 200 { return None; }
+    let need = (STRIP_MS / 8) as usize; // 125 Hz × 8 s = 1000
+    let mut best: Option<(usize, u64)> = None;
+    let mut w0 = a;
+    while w0 + STRIP_MS <= b.max(a + STRIP_MS) {
+        let off = (w0 / 1000..=(w0 + STRIP_MS) / 1000).any(|sec| sec_off.contains(&sec));
+        if !off {
+            let i0 = ts.partition_point(|t| *t < w0);
+            let i1 = ts.partition_point(|t| *t < w0 + STRIP_MS);
+            let n = i1 - i0;
+            if n * 100 >= need * 95 { best = Some((i0, w0)); break; }
+            if best.map(|(bi, bw)| { let bn = ts.partition_point(|t| *t < bw + STRIP_MS) - bi; n > bn }).unwrap_or(true) && n * 100 >= need * 60 { best = Some((i0, w0)); }
+        }
+        w0 += 2000;
+    }
+    let (i0, w) = best?;
+    let i1 = ts.partition_point(|t| *t < w + STRIP_MS);
+    Some((ts[i0], vs[i0..i1].iter().take(need).cloned().collect()))
+}
+
