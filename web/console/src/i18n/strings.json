@@ -17,6 +17,12 @@
 "src/pages/OpsStats.jsx"
 ]
 },
+"% (최근 4주 대비)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "% · 최장 휴지": {
 "kind": "jsx",
 "src": [
@@ -493,6 +499,12 @@
 "src/pages/NasMigration.jsx"
 ]
 },
+"/일 (착용 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "0 ? ` · 좌표 있는 환자 $": {
 "kind": "jsx",
 "src": [
@@ -587,6 +599,12 @@
 "kind": "str",
 "src": [
 "src/pages/EcgEngine.jsx"
+]
+},
+"14일 안 품절 예상": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "14일 초과 기록: 코드 없음 — 14일까지 산정": {
@@ -750,6 +768,24 @@
 "src/pages/AdminSecurity.jsx"
 ]
 },
+"30일 예측": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"30일 예측 수요": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"30일 추가 필요": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "3도 (완전) 방실차단": {
 "kind": "str",
 "src": [
@@ -799,6 +835,18 @@
 "src/pages/AdminControl.jsx"
 ]
 },
+"60일 · 90일": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"60일 추가 필요": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "6개 품질 지표를 칸 하나씩 색으로 요약(정상/주의/문제). 마우스를 올리면 수치가 보이고, 펼치면 개별 열로 풀립니다.": {
 "kind": "str",
 "src": [
@@ -818,10 +866,28 @@
 "src/pages/EcgEngine.jsx"
 ]
 },
+"7일 예측": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "8자 이상, 대·소문자·숫자·기호 중 3가지": {
 "kind": "str",
 "src": [
 "src/App.jsx"
+]
+},
+"90일 이상": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"90일 추가 필요": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "9100 잘못된 바이트 {0}B": {
@@ -3623,6 +3689,12 @@
 "src/pages/LiveModal.jsx"
 ]
 },
+"· 이력": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "· 이벤트": {
 "kind": "jsx",
 "src": [
@@ -3743,22 +3815,28 @@
 "src/pages/MultiViewerTest.jsx"
 ]
 },
+"· 착용 기준선 {0}/일 (착용 {1}명 ÷ 착용 일수, 비중 {2}%)": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "· 최고": {
 "kind": "jsx",
 "src": [
 "src/pages/Reports.jsx"
 ]
 },
-"· 최근 30일 사용": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "· 최근 500건": {
 "kind": "str",
 "src": [
 "src/pages/Alarms.jsx"
+]
+},
+"· 최근 7일 오차 {0}%": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "· 최대": {
@@ -4420,6 +4498,12 @@
 "src/pages/Inventory.jsx"
 ]
 },
+"감쇠 추세 (Holt)": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "감시 중": {
 "kind": "jsx",
 "src": [
@@ -4550,6 +4634,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/BiosignalAdmin.jsx"
+]
+},
+"개 · 소비 추이 기반": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "개 · 오류": {
@@ -6194,6 +6284,12 @@
 "src/pages/Reports.jsx"
 ]
 },
+"늦어도 {0} 발주 (리드타임 {1}일)": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "다른 대상의 기존 파일도 미러링": {
 "kind": "jsx",
 "src": [
@@ -7613,6 +7709,12 @@
 "src/pages/MapPage.jsx"
 ]
 },
+"명 ÷ 착용 일수, 비중 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "명 표시": {
 "kind": "jsx",
 "src": [
@@ -8242,6 +8344,18 @@
 ]
 },
 "발주": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"발주 (리드타임 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"발주 기한": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -10528,6 +10642,12 @@
 "router-server/src/inventory.rs"
 ]
 },
+"소비 추이 · 수요 예측": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "소속": {
 "kind": "jsx",
 "src": [
@@ -12006,6 +12126,12 @@
 "src/pages/AdminSecurity.jsx"
 ]
 },
+"약 {0}일분": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "약함": {
 "kind": "jsx",
 "src": [
@@ -12346,8 +12472,9 @@
 ]
 },
 "여유": {
-"kind": "jsx",
+"kind": "str",
 "src": [
+"src/pages/Inventory.jsx",
 "src/pages/NasMigration.jsx"
 ]
 },
@@ -12644,7 +12771,8 @@
 "오늘": {
 "kind": "jsx",
 "src": [
-"src/pages/BiosignalAdmin.jsx"
+"src/pages/BiosignalAdmin.jsx",
+"src/pages/Inventory.jsx"
 ]
 },
 "오늘 ECG 분석 알람": {
@@ -12760,12 +12888,6 @@
 "kind": "jsx",
 "src": [
 "src/pages/Reports.jsx"
-]
-},
-"왼쪽이 30일 전, 오른쪽이 오늘": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 "요약 행": {
@@ -13779,7 +13901,8 @@
 "이력 없음": {
 "kind": "jsx",
 "src": [
-"src/pages/EcgEngine.jsx"
+"src/pages/EcgEngine.jsx",
+"src/pages/Inventory.jsx"
 ]
 },
 "이력을 불러오지 못했습니다:": {
@@ -14142,12 +14265,6 @@
 "kind": "jsx",
 "src": [
 "src/pages/Reports.jsx"
-]
-},
-"일평균 사용": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 "읽기 · 활성화 · 설정 변경": {
@@ -16637,6 +16754,12 @@
 "src/pages/BiosignalAdmin.jsx"
 ]
 },
+"추세 + 요일 계절성 (Holt-Winters)": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "추적 중인 IP 가 없습니다.": {
 "kind": "str",
 "src": [
@@ -17527,6 +17650,7 @@
 "kind": "jsx",
 "src": [
 "src/pages/BiosignalAdmin.jsx",
+"src/pages/Inventory.jsx",
 "src/pages/Reports.jsx"
 ]
 },
@@ -17631,6 +17755,18 @@
 "kind": "rs",
 "src": [
 "router-server/src/admin_api.rs"
+]
+},
+"품절 예상": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"품절 예상 · 발주 기한": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "품질": {
@@ -17980,6 +18116,12 @@
 ]
 },
 "현재고": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"현재고 + 입고 예정": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"

@@ -17,6 +17,8 @@ use std::sync::{Arc, Mutex};
 
 pub struct Inventory {
     db: Mutex<Connection>,
+    /// 병원별 현재 착용 인원 (수요 예측 기준선)
+    census: Mutex<std::collections::HashMap<String, usize>>,
 }
 
 const SCHEMA: &str = "
@@ -28,6 +30,8 @@ CREATE TABLE IF NOT EXISTS inv_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, ms 
 CREATE INDEX IF NOT EXISTS inv_ledger_t ON inv_ledger(tenant, sku, ms);
 CREATE TABLE IF NOT EXISTS inv_po (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant TEXT NOT NULL, sku TEXT NOT NULL, boxes INTEGER NOT NULL, status TEXT NOT NULL, created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL, by_user TEXT NOT NULL DEFAULT '', tracking TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', eta TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS inv_seen (patch TEXT PRIMARY KEY, ms INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS inv_demand (patch TEXT PRIMARY KEY, tenant TEXT NOT NULL, ms INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS inv_demand_t ON inv_demand(tenant, ms);
 ";
 
 pub const PO_FLOW: [&str; 6] = ["draft", "submitted", "confirmed", "shipped", "received", "cancelled"];
@@ -47,7 +51,7 @@ impl Inventory {
         if n == 0 {
             let _ = db.execute("INSERT INTO inv_sku (id, name, per_box, unit_price, wear_days) VALUES ('ECG-PATCH-14D', 'ECG 패치 14일형', 10, 0, 14)", []);
         }
-        Arc::new(Inventory { db: Mutex::new(db) })
+        Arc::new(Inventory { db: Mutex::new(db), census: Mutex::new(Default::default()) })
     }
 
     fn on_hand(db: &Connection, tenant: &str, sku: &str, usable_only: bool) -> i64 {
@@ -80,10 +84,13 @@ impl Inventory {
 
     /// 사이트 병원의 새 패치 부착 → 1개 자동 차감 (패치 번호당 한 번). 오래된 발급(7일 넘음)은 재고 이전 기록이라 세지 않는다.
     pub fn auto_consume(&self, tenant: &str, patch: &str, issued_ms: u64) {
-        if tenant.is_empty() || crate::protocol::now_ms().saturating_sub(issued_ms) > 7 * 86_400_000 {
+        if tenant.is_empty() || crate::protocol::now_ms().saturating_sub(issued_ms) > 180 * 86_400_000 {
             return;
         }
         let db = self.db.lock().unwrap();
+        // 수요 이력: 재고 시작 전 부착도 소비 패턴으로는 센다
+        let _ = db.execute("INSERT OR IGNORE INTO inv_demand (patch, tenant, ms) VALUES (?1, ?2, ?3)", params![patch, tenant, issued_ms as i64]);
+        if crate::protocol::now_ms().saturating_sub(issued_ms) > 7 * 86_400_000 { return; }
         // 재고 관리를 시작(이 병원의 첫 입고)하기 전에 붙인 패치는 세지 않는다 — 시작하자마자 기존 부착분이 한꺼번에 빠지지 않게
         let start: Option<i64> = db.query_row("SELECT MIN(received_ms) FROM inv_lot WHERE tenant=?1", params![tenant], |r| r.get(0)).ok().flatten();
         match start { Some(st) if issued_ms as i64 >= st => {} _ => return }
@@ -93,6 +100,31 @@ impl Inventory {
         Self::consume_fefo(&db, tenant, &sku, 1, "use", "patch_attach", patch, "auto");
     }
 
+    pub fn set_census(&self, tenant: &str, n: usize) { self.census.lock().unwrap().insert(tenant.to_string(), n); }
+
+    /// 일별 수요 (오래된 것 → 어제, 최대 90일) — 사이트 병원은 부착 이력 + 수동 사용, 그 외는 사용 원장
+    fn demand_history(db: &Connection, tenant: &str, sku: &str, from_demand: bool) -> Vec<f64> {
+        let today0 = chrono::Local::now().date_naive().and_hms_opt(0, 0, 0).and_then(|d| d.and_local_timezone(chrono::Local).earliest()).map(|d| d.timestamp_millis()).unwrap_or(now());
+        let since = today0 - 90 * 86_400_000;
+        let mut ev: Vec<(i64, f64)> = Vec::new();
+        if from_demand {
+            if let Ok(mut st) = db.prepare("SELECT ms FROM inv_demand WHERE tenant=?1 AND ms>=?2 AND ms<?3") {
+                if let Ok(rs) = st.query_map(params![tenant, since, today0], |r| r.get::<_, i64>(0)) { ev.extend(rs.flatten().map(|m| (m, 1.0))); }
+            }
+            if let Ok(mut st) = db.prepare("SELECT ms, -qty FROM inv_ledger WHERE tenant=?1 AND sku=?2 AND kind='use' AND reason<>'patch_attach' AND ms>=?3 AND ms<?4") {
+                if let Ok(rs) = st.query_map(params![tenant, sku, since, today0], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)? as f64))) { ev.extend(rs.flatten()); }
+            }
+        } else if let Ok(mut st) = db.prepare("SELECT ms, -qty FROM inv_ledger WHERE tenant=?1 AND sku=?2 AND kind='use' AND ms>=?3 AND ms<?4") {
+            if let Ok(rs) = st.query_map(params![tenant, sku, since, today0], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)? as f64))) { ev.extend(rs.flatten()); }
+        }
+        let Some(first) = ev.iter().map(|e| e.0).min() else { return Vec::new() };
+        let days = (((today0 - first) / 86_400_000) + 1).clamp(1, 90) as usize;
+        let start = today0 - days as i64 * 86_400_000;
+        let mut y = vec![0f64; days];
+        for (ms, q) in ev { let i = ((ms - start) / 86_400_000) as usize; if i < days { y[i] += q; } }
+        y
+    }
+
     /// 병원·품목별 상태와 보충 권장
     pub fn summary(&self, tenants: &[(String, String)]) -> serde_json::Value {
         let db = self.db.lock().unwrap();
@@ -100,33 +132,50 @@ impl Inventory {
             .and_then(|mut st| st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?.collect()).unwrap_or_default();
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let soon = (chrono::Local::now() + chrono::Duration::days(60)).format("%Y-%m-%d").to_string();
-        let since = now() - 30 * 86_400_000;
+        
         let mut rows = Vec::new();
         for (tid, tname) in tenants {
             for (sku, sname, per_box, price, _wear) in &skus {
                 let (lead, review, service, min_boxes): (f64, f64, f64, i64) = db.query_row("SELECT lead_days, review_days, service, min_boxes FROM inv_policy WHERE tenant=?1 AND sku=?2", params![tid, sku], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).unwrap_or((7.0, 7.0, 0.95, 1));
-                // 일별 사용량 (최근 30일, 사용 kind 만)
-                let mut daily = vec![0f64; 30];
-                if let Ok(mut st) = db.prepare("SELECT ms, -qty FROM inv_ledger WHERE tenant=?1 AND sku=?2 AND kind='use' AND ms>=?3") {
-                    if let Ok(rs) = st.query_map(params![tid, sku, since], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))) {
-                        for (ms, q) in rs.flatten() { let d = ((now() - ms) / 86_400_000).clamp(0, 29) as usize; daily[d] += q as f64; }
-                    }
-                }
-                // 이력이 30일보다 짧으면 있는 날만으로 평균 (첫 사용일부터)
-                let first_use: Option<i64> = db.query_row("SELECT MIN(ms) FROM inv_ledger WHERE tenant=?1 AND sku=?2 AND kind='use'", params![tid, sku], |r| r.get(0)).ok().flatten();
-                let days = first_use.map(|f| (((now() - f) / 86_400_000) + 1).clamp(1, 30) as usize).unwrap_or(30);
-                let used: f64 = daily[..days].iter().sum();
-                let d = used / days as f64;
-                let var = daily[..days].iter().map(|x| (x - d).powi(2)).sum::<f64>() / days.max(2).saturating_sub(1) as f64;
+                let site_like = self.census.lock().unwrap().get(tid).copied();
+                let hist = Self::demand_history(&db, tid, sku, site_like.is_some());
+                let prior = site_like.filter(|n| *n > 0).map(|n| n as f64 / _wear.max(1.0));
+                let fc = crate::inv_forecast::forecast(&hist, prior, 90);
                 let z = if service >= 0.99 { 2.33 } else if service >= 0.975 { 1.96 } else if service >= 0.95 { 1.65 } else if service >= 0.9 { 1.28 } else { 0.84 };
-                let ss = (z * var.sqrt() * lead.sqrt()).ceil();
-                let rop = (d * lead + ss).ceil();
-                let par = (d * (lead + review) + ss).ceil();
+                let sum_to = |days: f64| { let k = days.floor() as usize; fc.daily.iter().take(k).sum::<f64>() + fc.daily.get(k).copied().unwrap_or(0.0) * (days - k as f64) };
+                let d = if fc.next30 > 0.0 { fc.next30 / 30.0 } else { 0.0 };
+                let ss = (z * fc.sd * lead.max(0.0).sqrt()).ceil();
+                let rop = (sum_to(lead) + ss).ceil();
+                let par = (sum_to(lead + review) + ss).ceil();
+                let used: f64 = hist.iter().rev().take(30).sum();
+                let days = hist.len();
                 let on_hand = Self::on_hand(&db, tid, sku, true);
                 let expired = Self::on_hand(&db, tid, sku, false) - on_hand;
                 let expiring: i64 = db.query_row("SELECT COALESCE(SUM(qty),0) FROM inv_lot WHERE tenant=?1 AND sku=?2 AND qty>0 AND expiry<>'' AND expiry>=?3 AND expiry<?4", params![tid, sku, today, soon], |r| r.get(0)).unwrap_or(0);
-                let on_order_boxes: i64 = db.query_row("SELECT COALESCE(SUM(boxes),0) FROM inv_po WHERE tenant=?1 AND sku=?2 AND status IN ('submitted','confirmed','shipped')", params![tid, sku], |r| r.get(0)).unwrap_or(0);
+                // 입고 예정: 발주별 도착일(eta, 없으면 오늘+리드타임)
+                let pos: Vec<(i64, String)> = db.prepare("SELECT boxes, eta FROM inv_po WHERE tenant=?1 AND sku=?2 AND status IN ('submitted','confirmed','shipped')")
+                    .and_then(|mut st| st.query_map(params![tid, sku], |r| Ok((r.get(0)?, r.get(1)?)))?.collect()).unwrap_or_default();
+                let on_order_boxes: i64 = pos.iter().map(|p| p.0).sum();
                 let on_order = on_order_boxes * per_box;
+                let today_d = chrono::Local::now().date_naive();
+                let arrivals: Vec<(usize, f64)> = pos.iter().map(|(bx, eta)| {
+                    let day = chrono::NaiveDate::parse_from_str(eta, "%Y-%m-%d").ok().map(|e| (e - today_d).num_days().max(0) as usize).unwrap_or(lead.ceil() as usize);
+                    (day, (*bx * per_box) as f64)
+                }).collect();
+                // 품절 예상일: 예측 수요로 하루씩 차감(입고 예정 반영)
+                let mut stock = on_hand as f64;
+                let mut stockout_day: Option<usize> = None;
+                let mut stockout_no_order: Option<usize> = None;
+                let mut bare = on_hand as f64;
+                for (i, q) in fc.daily.iter().enumerate() {
+                    for (dday, u) in &arrivals { if *dday == i { stock += u; } }
+                    stock -= q; bare -= q;
+                    if stockout_day.is_none() && stock < 0.0 { stockout_day = Some(i); }
+                    if stockout_no_order.is_none() && bare < 0.0 { stockout_no_order = Some(i); }
+                }
+                let date_of = |i: usize| (today_d + chrono::Duration::days(i as i64)).format("%Y-%m-%d").to_string();
+                let order_by = stockout_day.map(|i| date_of(i.saturating_sub(lead.ceil() as usize)));
+                let need_more = |k: f64| (k - (on_hand + on_order) as f64).max(0.0).ceil();
                 let need = (par - (on_hand + on_order) as f64).max(0.0);
                 let mut boxes = (need / *per_box as f64).ceil() as i64;
                 if boxes > 0 { boxes = boxes.max(min_boxes); }
@@ -134,10 +183,13 @@ impl Inventory {
                 rows.push(serde_json::json!({
                     "tenant": tid, "tenant_name": tname, "sku": sku, "sku_name": sname, "per_box": per_box, "unit_price": price,
                     "on_hand": on_hand, "expired": expired, "expiring_60d": expiring, "on_order": on_order, "on_order_boxes": on_order_boxes,
-                    "avg_daily": (d * 100.0).round() / 100.0, "used_30d": used, "history_days": days, "sd_daily": (var.sqrt() * 100.0).round() / 100.0,
+                    "avg_daily": (d * 100.0).round() / 100.0, "used_30d": used, "history_days": days, "sd_daily": fc.sd,
                     "lead_days": lead, "review_days": review, "service": service, "min_boxes": min_boxes,
                     "safety_stock": ss, "reorder_point": rop, "par": par, "dos": if d > 0.0 { Some(((on_hand as f64 / d) * 10.0).round() / 10.0) } else { None },
                     "suggest_boxes": boxes, "suggest_units": boxes * per_box, "suggest_amount": boxes as f64 * *per_box as f64 * price, "status": status,
+                    "forecast": fc, "history": hist, "census": site_like,
+                    "stockout_date": stockout_day.map(date_of), "stockout_date_no_order": stockout_no_order.map(date_of), "order_by": order_by,
+                    "need_more_30": need_more(sum_to(30.0)), "need_more_60": need_more(sum_to(60.0)), "need_more_90": need_more(sum_to(90.0)),
                 }));
             }
         }
@@ -234,12 +286,18 @@ impl Inventory {
 
 /// 감시: 패치 발급 시각을 주기적으로 훑어 새 부착을 차감 (사이트 병원)
 pub async fn run(state: Arc<AppState>) {
+    tokio::time::sleep(std::time::Duration::from_secs(20)).await;
     loop {
-        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         let site = state.auth.site_tenant();
         let mut issued: Vec<(String, u64)> = Vec::new();
-        state.registry.for_each(|id, ch| if ch.patch_issued_ms > 0 { issued.push((id.to_string(), ch.patch_issued_ms)) });
+        let mut census = 0usize;
+        state.registry.for_each(|id, ch| {
+            if ch.patient.is_some() { census += 1; }
+            if ch.patch_issued_ms > 0 { issued.push((id.to_string(), ch.patch_issued_ms)) }
+        });
+        state.inventory.set_census(&site, census);
         let inv = state.inventory.clone();
         let _ = tokio::task::spawn_blocking(move || for (p, ms) in issued { inv.auto_consume(&site, &p, ms) }).await;
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
     }
 }

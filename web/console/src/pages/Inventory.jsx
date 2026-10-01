@@ -15,6 +15,7 @@ const PO_NEXT = { draft: 'submitted', submitted: 'confirmed', confirmed: 'shippe
 const REASON_LABEL = { damaged: '파손', expired: '유효기간 만료', returned: '반품', lost: '분실', count: '실사 차이', other: '기타' }
 const KIND_LABEL = { receive: '입고', use: '사용', adjust: '조정', count: '실사' }
 const fmtD = (ms) => (ms ? new Date(ms).toLocaleDateString('ko-KR') : '—')
+const stockCls = (d) => { if (!d) return ''; const n = (new Date(d) - Date.now()) / 86400000; return n <= 7 ? 'err' : n <= 21 ? 'warnv' : '' }
 const money = (x) => (x ? Math.round(x).toLocaleString('ko-KR') : '—')
 
 export default function Inventory() {
@@ -23,6 +24,7 @@ export default function Inventory() {
   const canSku = ['super_admin', 'system_admin', 'reseller', 'sales_crm'].includes(me?.user?.role)
   const [sum, , refresh] = usePoll(api.inventory.summary, 15000)
   const [sel, setSel] = useState(null) // tenant
+  const [selSku, setSelSku] = useState(null)
   const [det, , refreshDet] = usePoll(() => (sel ? api.inventory.detail(sel) : Promise.resolve(null)), 15000, [sel])
   const [modal, setModal] = useState(null) // {kind, row}
   const [msg, setMsg] = useState('')
@@ -32,8 +34,9 @@ export default function Inventory() {
   useEffect(() => { if (!sel && sum?.rows?.length) setSel(sum.site && sum.rows.some((r) => r.tenant === sum.site) ? sum.site : sum.rows[0].tenant) }, [sum, sel])
   const totals = useMemo(() => {
     const r = sum?.rows || []
-    return { need: r.filter((x) => x.status === 'reorder' || x.status === 'stockout').length, boxes: r.reduce((a, x) => a + x.suggest_boxes, 0), amount: r.reduce((a, x) => a + x.suggest_amount, 0), exp: r.reduce((a, x) => a + x.expiring_60d, 0), expired: r.reduce((a, x) => a + x.expired, 0), onHand: r.reduce((a, x) => a + x.on_hand, 0) }
+    return { fc30: r.reduce((a, x) => a + (x.forecast?.next30 || 0), 0), soon: r.filter((x) => x.stockout_date && (new Date(x.stockout_date) - Date.now()) / 86400000 <= 14).length, need: r.filter((x) => x.status === 'reorder' || x.status === 'stockout').length, boxes: r.reduce((a, x) => a + x.suggest_boxes, 0), amount: r.reduce((a, x) => a + x.suggest_amount, 0), exp: r.reduce((a, x) => a + x.expiring_60d, 0), expired: r.reduce((a, x) => a + x.expired, 0), onHand: r.reduce((a, x) => a + x.on_hand, 0) }
   }, [sum])
+  const fr = (sum?.rows || []).find((r) => r.tenant === sel && (!selSku || r.sku === selSku))
   const done = (m) => { setMsg(m); setModal(null); refresh(); refreshDet() }
   const run = async (f, m) => { try { await f(); done(m) } catch (e) { setMsg(e.message) } }
 
@@ -50,6 +53,8 @@ export default function Inventory() {
         <div><small>현재고 합계</small><b>{totals.onHand.toLocaleString()}</b><span>개</span></div>
         <div className={totals.need ? 'warn' : ''}><small>발주 필요 품목</small><b>{totals.need}</b><span>병원·품목</span></div>
         <div><small>권장 발주</small><b>{totals.boxes.toLocaleString()}</b><span>상자 · {money(totals.amount)}</span></div>
+        <div><small>30일 예측 수요</small><b>{Math.round(totals.fc30).toLocaleString()}</b><span>개 · 소비 추이 기반</span></div>
+        <div className={totals.soon ? 'err' : ''}><small>14일 안 품절 예상</small><b>{totals.soon}</b><span>병원·품목</span></div>
         <div className={totals.exp ? 'warn' : ''}><small>유효기간 60일 이내</small><b>{totals.exp.toLocaleString()}</b><span>개</span></div>
         <div className={totals.expired ? 'err' : ''}><small>유효기간 지남</small><b>{totals.expired.toLocaleString()}</b><span>개 · 폐기 조정 권장</span></div>
       </div>
@@ -59,15 +64,16 @@ export default function Inventory() {
       </div>
       <div className="tbl-wrap">
         <table className="tbl inv-tbl">
-          <thead><tr><th>상태</th><th>병원</th><th>품목</th><th className="num">현재고</th><th className="num">재고 일수</th><th className="num">일평균 사용</th><th className="num">재주문점</th><th className="num">목표재고</th><th className="num">입고 예정</th><th className="num">유효기간 임박</th><th className="num">권장 발주</th><th></th></tr></thead>
+          <thead><tr><th>상태</th><th>병원</th><th>품목</th><th className="num">현재고</th><th className="num">재고 일수</th><th className="num">30일 예측</th><th>품절 예상</th><th className="num">재주문점</th><th className="num">목표재고</th><th className="num">입고 예정</th><th className="num">유효기간 임박</th><th className="num">권장 발주</th><th></th></tr></thead>
           <tbody>{rows.map((r) => { const [sl, st] = STATUS[r.status]; return (
-            <tr key={r.tenant + r.sku} className={'clickable' + (sel === r.tenant ? ' selected' : '')} onClick={() => setSel(r.tenant)}>
+            <tr key={r.tenant + r.sku} className={'clickable' + (sel === r.tenant && (!selSku || selSku === r.sku) ? ' selected' : '')} onClick={() => { setSel(r.tenant); setSelSku(r.sku) }}>
               <td><span className={`lk-pill ${st}`}>{sl}</span></td>
               <td><b>{r.tenant}</b> <span className="muted small">{r.tenant_name}</span>{r.tenant === sum?.site && <span className="muted small"> · 이 라우터</span>}</td>
               <td>{r.sku_name}<div className="muted small mono">{r.sku} · {r.per_box}개/상자</div></td>
               <td className="num"><b>{r.on_hand}</b>{r.expired > 0 && <div className="err small">만료 {r.expired}</div>}</td>
               <td className={'num' + (r.dos != null && r.dos < r.lead_days ? ' warnv' : '')}>{r.dos != null ? `${r.dos}일` : '—'}</td>
-              <td className="num">{r.avg_daily}<div className="muted small">σ {r.sd_daily} · {r.history_days}일</div></td>
+              <td className="num"><b>{r.forecast?.next30 ?? '—'}</b><div className="muted small">일 {r.avg_daily}{r.forecast?.trend_pct != null ? ` · ${r.forecast.trend_pct > 0 ? '▲' : r.forecast.trend_pct < 0 ? '▼' : ''}${Math.abs(r.forecast.trend_pct)}%` : ''}</div></td>
+              <td className={stockCls(r.stockout_date)}>{r.stockout_date || '90일 이상'}{r.order_by && <div className="muted small">발주 기한 {r.order_by}</div>}</td>
               <td className="num">{r.reorder_point}<div className="muted small">안전 {r.safety_stock}</div></td>
               <td className="num">{r.par}<div className="muted small">L {r.lead_days} · R {r.review_days}일</div></td>
               <td className="num">{r.on_order || '—'}</td>
@@ -81,18 +87,14 @@ export default function Inventory() {
                 {edit && <button className="ghost" onClick={() => setModal({ kind: 'policy', row: r })}>기준</button>}
               </td>
             </tr>) })}
-            {!rows.length && <tr><td colSpan="12" className="muted">표시할 재고가 없습니다.</td></tr>}
+            {!rows.length && <tr><td colSpan="13" className="muted">표시할 재고가 없습니다.</td></tr>}
           </tbody>
         </table>
       </div>
 
       {sel && det && (
         <div className="inv-detail">
-          <section className="inv-card">
-            <h3>{sel} · 최근 30일 사용</h3>
-            <div className="inv-bars">{(det.daily_use || []).map((n, i) => { const mx = Math.max(1, ...(det.daily_use || [1])); return <i key={i} style={{ height: `${(n / mx) * 100}%` }} title={`${29 - i}일 전 · ${n}개`} /> })}</div>
-            <small className="muted">왼쪽이 30일 전, 오른쪽이 오늘</small>
-          </section>
+          {fr && <ForecastCard r={fr} />}
           <section className="inv-card">
             <h3>로트 <small>유효기간 순 (먼저 쓰는 순서)</small></h3>
             <table className="tbl"><thead><tr><th>품목</th><th>로트</th><th>유효기간</th><th className="num">수량</th><th>입고</th></tr></thead>
@@ -170,5 +172,56 @@ function InvModal({ m, skus, tenant, onClose, onRun }) {
         <div className="toolbar" style={{ marginTop: 10 }}><span className="spacer" /><button onClick={onClose}>취소</button><button className="primary" onClick={submit}>저장</button></div>
       </div>
     </div>
+  )
+}
+
+const METHOD = { holt_winters: '추세 + 요일 계절성 (Holt-Winters)', holt_damped: '감쇠 추세 (Holt)', mean: '평균', none: '이력 없음' }
+
+/** 소비 추이와 수요 예측: 지난 사용(막대) + 앞으로 90일 예측(선) + 80% 구간(띠), 오늘·품절 예상 표시 */
+export function ForecastCard({ r }) {
+  const f = r.forecast
+  const [h, setH] = useState(30)
+  if (!f) return null
+  const hist = r.history || []
+  const past = hist.slice(-60)
+  const fut = f.daily.slice(0, h)
+  const n = past.length + fut.length
+  const W = 1100, H = 210, L = 38, B = 20, T = 8
+  const mx = Math.max(1, ...past, ...f.hi.slice(0, h)) * 1.1
+  const x = (i) => L + (i / Math.max(1, n - 1)) * (W - L - 6)
+  const y = (v) => H - B - (v / mx) * (H - B - T)
+  const bw = Math.max(1, (W - L) / n - 1)
+  const off = past.length
+  const band = fut.map((_, i) => `${x(off + i)},${y(f.hi[i])}`).join(' ') + ' ' + fut.map((_, i) => `${x(off + fut.length - 1 - i)},${y(f.lo[fut.length - 1 - i])}`).join(' ')
+  const line = fut.map((v, i) => `${x(off + i)},${y(v)}`).join(' ')
+  const so = r.stockout_date ? Math.round((new Date(r.stockout_date) - new Date(new Date().toDateString())) / 86400000) : null
+  const ticks = [0, Math.round(mx / 2), Math.round(mx)]
+  return (
+    <section className="inv-card inv-fc">
+      <h3>{r.tenant} · {r.sku_name} <small>소비 추이 · 수요 예측</small></h3>
+      <div className="inv-fc-top">
+        <span className="seg">{[30, 60, 90].map((k) => <button key={k} className={h === k ? 'active' : ''} onClick={() => setH(k)}>{k}일</button>)}</span>
+        <span className="muted small">{METHOD[f.method] || f.method} · 이력 {f.history_days}일{f.prior != null ? ` · 착용 기준선 ${f.prior}/일 (착용 ${r.census}명 ÷ 착용 일수, 비중 ${Math.round((1 - f.weight_hist) * 100)}%)` : ''}{f.wape != null ? ` · 최근 7일 오차 ${f.wape}%` : ''}</span>
+      </div>
+      <svg className="inv-fc-svg" viewBox={`0 0 ${W} ${H}`}>
+        {ticks.map((t) => <g key={t}><line x1={L} x2={W} y1={y(t)} y2={y(t)} className="g" /><text x={L - 4} y={y(t) + 3} textAnchor="end">{t}</text></g>)}
+        {past.map((v, i) => <rect key={i} x={x(i) - bw / 2} y={y(v)} width={bw} height={Math.max(0.5, y(0) - y(v))} className="hb"><title>{`${past.length - i}일 전 · ${v}개`}</title></rect>)}
+        <polygon points={band} className="band" />
+        <polyline points={line} className="fc" />
+        <line x1={x(off) - bw} x2={x(off) - bw} y1={T} y2={H - B} className="today" /><text x={x(off) - bw + 3} y={T + 9} className="lbl">오늘</text>
+        {so != null && so < h && <><line x1={x(off + so)} x2={x(off + so)} y1={T} y2={H - B} className="so" /><text x={x(off + so) + 4} y={T + 26} className="lbl so">품절 예상 {r.stockout_date}</text></>}
+        <text x={L} y={H - 4} className="lbl">{past.length ? `${past.length}일 전` : ''}</text><text x={W - 6} y={H - 4} textAnchor="end" className="lbl">+{h}일</text>
+      </svg>
+      <div className="inv-fc-grid">
+        <div><small>7일 예측</small><b>{f.next7}</b></div>
+        <div><small>30일 예측</small><b>{f.next30}</b>{f.trend_pct != null && <span className={f.trend_pct > 5 ? 'warnv' : f.trend_pct < -5 ? 'okv' : ''}>{f.trend_pct > 0 ? '▲' : f.trend_pct < 0 ? '▼' : ''} {Math.abs(f.trend_pct)}% (최근 4주 대비)</span>}</div>
+        <div><small>60일 · 90일</small><b>{f.next60} · {f.next90}</b></div>
+        <div><small>현재고 + 입고 예정</small><b>{r.on_hand + r.on_order}</b><span>{r.dos != null ? `약 ${r.dos}일분` : ''}</span></div>
+        <div className={r.need_more_30 ? 'warn' : ''}><small>30일 추가 필요</small><b>{r.need_more_30}</b><span>{Math.ceil(r.need_more_30 / r.per_box)}상자</span></div>
+        <div className={r.need_more_60 ? 'warn' : ''}><small>60일 추가 필요</small><b>{r.need_more_60}</b><span>{Math.ceil(r.need_more_60 / r.per_box)}상자</span></div>
+        <div><small>90일 추가 필요</small><b>{r.need_more_90}</b><span>{Math.ceil(r.need_more_90 / r.per_box)}상자{r.unit_price ? ` · ${money(r.need_more_90 * r.unit_price)}` : ''}</span></div>
+        <div className={so != null && so <= r.lead_days ? 'err' : ''}><small>품절 예상 · 발주 기한</small><b className="sm">{r.stockout_date || '90일 이상'}</b><span>{r.order_by ? `늦어도 ${r.order_by} 발주 (리드타임 ${r.lead_days}일)` : '여유'}</span></div>
+      </div>
+    </section>
   )
 }

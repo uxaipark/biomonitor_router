@@ -36,4 +36,5 @@ pub mod ecg_analysis;
 pub mod ecg_eval;
 pub mod site_locale;
 pub mod inventory;
+pub mod inv_forecast;
 pub mod reports;
