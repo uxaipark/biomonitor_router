@@ -18,6 +18,19 @@ export const RHYTHM = {
   vrun: ['비지속성 심실빈맥', 'NSVT (V-run)', '非持続性心室頻拍'],
   ivr: ['심실고유리듬', 'Idioventricular rhythm', '心室固有調律'],
   svrun: ['상심실성 빈맥(연발)', 'SVT run', '上室性頻拍(連発)'],
+  aflutter: ['심방조동', 'Atrial flutter', '心房粗動'],
+  pac: ['심방조기수축', 'PAC', '上室性期外収縮'],
+  svt: ['상심실성 빈맥', 'Supraventricular tachycardia', '上室頻拍'],
+  avb1: ['1도 방실차단', '1st-degree AV block', 'I度房室ブロック'],
+  avb2_m1: ['2도 방실차단 (모비츠 I)', '2nd-degree AV block, Mobitz I', 'II度房室ブロック（ウェンケバッハ）'],
+  avb2_m2: ['2도 방실차단 (모비츠 II)', '2nd-degree AV block, Mobitz II', 'II度房室ブロック（モビッツII）'],
+  avb3: ['3도(완전) 방실차단', 'Complete AV block', '完全房室ブロック'],
+  avb: ['방실차단', 'AV block', '房室ブロック'],
+  lbbb: ['좌각차단', 'Left bundle branch block', '左脚ブロック'],
+  rbbb: ['우각차단', 'Right bundle branch block', '右脚ブロック'],
+  stemi: ['ST 분절 상승', 'ST elevation', 'ST上昇'],
+  ischemia: ['허혈성 ST 변화', 'Ischemic ST change', '虚血性ST変化'],
+  paced: ['심박조율 리듬', 'Paced rhythm', 'ペーシング調律'],
   leadoff: ['전극 탈락', 'Lead off', '電極外れ'],
   noise: ['잡음', 'Noise', 'ノイズ'],
   unknown: ['미확인', 'Unclassified', '未分類'],
@@ -55,6 +68,16 @@ const FINDING_ICD = {
   tachy: ['R00.0', 'R00.0', 'Tachycardia, unspecified', '빈맥, 상세불명', '頻脈'],
   pause: ['I49.9', 'I49.9', 'Cardiac arrhythmia, unspecified', '상세불명의 심장부정맥', '不整脈'],
   asystole: ['I46.9', 'I46.9', 'Cardiac arrest, cause unspecified', '심장정지, 상세불명', '心停止'],
+  aflutter: ['I48.92', 'I48.9', 'Unspecified atrial flutter', '심방조동, 상세불명', '心房粗動'],
+  svt: ['I47.10', 'I47.1', 'Supraventricular tachycardia, unspecified', '상심실성 빈맥', '上室頻拍'],
+  pac: ['I49.1', 'I49.1', 'Atrial premature depolarization', '심방조기탈분극', '上室性期外収縮'],
+  avb1: ['I44.0', 'I44.0', 'Atrioventricular block, first degree', '1도 방실차단', 'I度房室ブロック'],
+  avb2_m1: ['I44.1', 'I44.1', 'Atrioventricular block, second degree', '2도 방실차단', 'II度房室ブロック'],
+  avb2_m2: ['I44.1', 'I44.1', 'Atrioventricular block, second degree', '2도 방실차단', 'II度房室ブロック'],
+  avb3: ['I44.2', 'I44.2', 'Atrioventricular block, complete', '완전 방실차단', '完全房室ブロック'],
+  avb: ['I44.30', 'I44.3', 'Unspecified atrioventricular block', '방실차단, 상세불명', '房室ブロック'],
+  lbbb: ['I44.7', 'I44.7', 'Left bundle-branch block, unspecified', '좌각차단, 상세불명', '左脚ブロック'],
+  rbbb: ['I45.10', 'I45.1', 'Unspecified right bundle-branch block', '우각차단', '右脚ブロック'],
 }
 /** 진단·소견 → 상병 후보 [{cm, kcd, en, ko, ja, from}] (중복 제거, 진단 먼저) */
 export function suggestDx(diagnosis, counts) {
@@ -62,7 +85,7 @@ export function suggestDx(diagnosis, counts) {
   const add = (row, from) => { if (!out.some((x) => x.cm === row[0])) out.push({ cm: row[0], kcd: row[1], en: row[2], ko: row[3], ja: row[4], from }) }
   for (const m of DX_MAP) if (diagnosis && m[0].test(diagnosis)) add(m.slice(1), 'emr')
   // 휴지·무수축은 원인(신호 문제 포함)을 알 수 없어 상병 후보로 자동 제안하지 않는다 — 의사가 파형을 보고 직접 넣는다
-  for (const k of ['vf', 'vtach', 'vrun', 'afib', 'svrun', 'bigeminy', 'pvc', 'brady', 'tachy']) if (counts?.[k]) add(FINDING_ICD[k], 'ecg')
+  for (const k of ['vf', 'vtach', 'vrun', 'avb3', 'avb2_m2', 'avb2_m1', 'afib', 'aflutter', 'svt', 'svrun', 'avb1', 'avb', 'lbbb', 'rbbb', 'bigeminy', 'pvc', 'pac', 'brady', 'tachy']) if (counts?.[k]) add(FINDING_ICD[k], 'ecg')
   if (!out.length) add(['R00.2', 'R00.2', 'Palpitations', '두근거림', '動悸'], 'default')
   return out.slice(0, 12)
 }

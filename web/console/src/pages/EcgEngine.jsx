@@ -65,6 +65,8 @@ export default function EcgEngine() {
   useEffect(() => { try { localStorage.setItem('ecg.report.open', reportOpen ? '1' : '0') } catch { /* ignore */ } }, [reportOpen])
   // 알고리즘 검증 (에뮬레이터 정답지)
   const [evalR, , refreshEval] = usePoll(api.ecg.evalLast, 30000)
+  const [rsrc, , refreshRsrc] = usePoll(api.ecg.reportSource, 60000)
+  const setRsrc = async (v) => { if (v === rsrc?.source) return; if (v === 'engine' && !window.confirm('ECG 리포트의 리듬 판정을 분석 엔진 결과로 바꿀까요?\n엔진 정확도가 충분히 검증되기 전에는 잘못된 소견이 리포트에 실릴 수 있습니다.')) return; try { await api.ecg.setReportSource(v); setMsg(v === 'truth' ? '리포트 판정 출처: 에뮬레이터 정답지' : '리포트 판정 출처: 분석 엔진'); refreshRsrc(); refreshHist() } catch (x) { setMsg(x.message) } }
   const [evalBusy, setEvalBusy] = useState(false)
   const [evalHours, setEvalHours] = useState(1)
   const [evalNow, setEvalNow] = useState(null)
@@ -150,6 +152,20 @@ export default function EcgEngine() {
           {e?.last_error && <div className="ecg-err"><small>오류</small><b>{e.last_error}</b></div>}
         </div>
         <p className="muted small">엔진을 다시 읽거나 재시작하는 버튼은 <a href="#/admin/control">서비스 제어</a>에 있습니다. 새 엔진 설치: 라우터 PC 에서 <code>scripts/update-ecg-engine.sh</code> (레포 pull → 빌드 → 적합성 검사 → 보관함 등록 → 활성화).</p>
+      </section>
+
+      {/* 리포트 판정 출처 */}
+      <section className="ecg-card">
+        <h3>ECG 리포트 판정 출처 <small className="muted">리포트·청구서의 리듬 소견(에피소드·부담률·대표 파형)을 무엇으로 만들지 고릅니다</small></h3>
+        <div className="ecg-src">
+          {[['truth', '에뮬레이터 정답지', '데모용 · 정확', '에뮬레이터가 실제로 만든 리듬 구간(정답)으로 리포트를 씁니다. 방실 차단·각차단처럼 엔진이 아직 못 하는 소견도 들어갑니다. 박동 단위 정답이 없어 기외수축 개수·비율은 표시하지 않습니다.'],
+            ['engine', '알고리즘 분석 결과', `live-ecg ${e?.engine ? e.engine.split(' ').slice(0, 2).join(' ') : ''}`, '내장 분석 엔진의 판정으로 리포트를 씁니다. 실제 운영 방식입니다. 성능 검증 기준을 통과한 엔진일 때 고르세요.']].map(([k, l, tag, d]) => (
+            <button key={k} className={'ecg-srcopt' + (rsrc?.source === k ? ' on' : '')} disabled={!edit} onClick={() => setRsrc(k)}>
+              <span className="r"><i />{l}<em>{tag}</em></span><small>{d}</small>
+              {k === 'engine' && evalR?.overall && <span className="ev">최근 검증 민감도 {Math.round((evalR.overall.sensitivity || 0) * 100)}% · 양성 예측도 {Math.round((evalR.overall.precision || 0) * 100)}%</span>}
+            </button>))}
+        </div>
+        <p className="muted small">{rsrc?.updated_ms ? `마지막 변경 ${fmtDT(rsrc.updated_ms)} · ${rsrc.by || ''}. ` : '기본값은 에뮬레이터 정답지입니다. '}휴지·무수축은 어느 쪽이든 리포트에 넣지 않습니다. 심박수(평균·최저·최고)와 대표 파형은 패치 기록에서 그대로 가져옵니다.</p>
       </section>
 
       {/* 실행 설정 */}

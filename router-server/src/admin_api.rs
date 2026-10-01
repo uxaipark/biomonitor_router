@@ -34,6 +34,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/ecg/engine/reload", post(ecg_engine_reload))
         .route("/api/ecg/config", get(ecg_config_get).put(ecg_config_set))
         .route("/api/reports/daily", get(rep_daily))
+        .route("/api/ecg/report-source", get(rep_source_get).put(rep_source_set))
         .route("/api/reports/days", get(rep_days))
         .route("/api/inventory", get(inv_summary))
         .route("/api/inventory/sku", put(inv_sku))
@@ -1734,8 +1735,13 @@ async fn rep_daily(State(state): State<Arc<AppState>>, axum::extract::Query(q): 
     let Some(patch) = q.get("patch").and_then(|v| v.parse::<u32>().ok()) else { return (StatusCode::BAD_REQUEST, "patch 필요").into_response() };
     let date = q.get("date").cloned().unwrap_or_else(|| (chrono::Local::now() - chrono::Duration::days(1)).format("%Y-%m-%d").to_string());
     let _permit = hist_sem().acquire().await;
+    // 판정 출처(관리 › ECG 분석 엔진): 정답지면 에뮬레이터 정답을 먼저 받는다. ?source= 로 한 번만 바꿔 볼 수도 있다.
+    let source = q.get("source").cloned().filter(|s| s == "truth" || s == "engine").unwrap_or_else(|| crate::reports::report_source(&state));
+    let truth = if source == "truth" {
+        match crate::reports::truth_for(&state, patch, &date).await { Ok(t) => Some(t), Err(e) => return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": format!("{e} — 관리 › ECG 분석 엔진에서 리포트 판정 출처를 '분석 엔진'으로 바꾸면 엔진 결과로 만듭니다") }))).into_response() }
+    } else { None };
     let st = state.clone();
-    match tokio::task::spawn_blocking(move || crate::reports::daily(&st, patch, &date)).await.unwrap_or(Err("failed".into())) {
+    match tokio::task::spawn_blocking(move || crate::reports::daily(&st, patch, &date, truth.as_ref())).await.unwrap_or(Err("failed".into())) {
         Ok(v) => Json(v).into_response(),
         Err(e) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": e }))).into_response(),
     }
@@ -1811,5 +1817,12 @@ async fn inv_trace(State(state): State<Arc<AppState>>, Extension(p): Extension<P
     let lot = q.get("lot").cloned().unwrap_or_default();
     let t: Vec<String> = inv_tenants(&state, &p).into_iter().map(|x| x.0).collect();
     Json(state.inventory.lot_trace(&lot, &t)).into_response()
+}
+async fn rep_source_get(State(state): State<Arc<AppState>>) -> impl IntoResponse { Json(crate::reports::report_source_json(&state)) }
+#[derive(serde::Deserialize)]
+struct RepSrcIn { source: String }
+async fn rep_source_set(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(b): Json<RepSrcIn>) -> impl IntoResponse {
+    state.auth.audit(&p.username, "", "report_source", &b.source);
+    match crate::reports::set_report_source(&state, &b.source, &p.username) { Ok(v) => Json(v).into_response(), Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response() }
 }
 

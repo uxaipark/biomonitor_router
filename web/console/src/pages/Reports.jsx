@@ -13,9 +13,9 @@ import './Reports.css'
  * 문서 안 글자는 문서 언어(한/영/일)로 직접 쓰고 화면 번역기에서 뺀다(data-no-i18n) — 청구서는 그 나라 언어 고정.
  */
 const D = {
-  ko: { title: '일일 심전도 리포트', interim: '심전도 중간 분석 보고서', hosp: '의료기관', patient: '환자', mrn: '등록번호', sexAge: '성별/나이', dept: '진료과', ward: '병동/병상', dx: '진단', period: '기록 구간', rec: '기록 시간', ana: '분석 가능', leadoff: '전극 탈락', hr: '심박수', avg: '평균', min: '최저', max: '최고', beats: '총 박동(추정)', rhythm: '리듬 부담률', episodes: '주요 에피소드', ectopy: '기외수축', vbeats: '심실성(V)', sbeats: '상심실성(S)', pause: '최장 휴지', none: '없음', strips: '대표 파형', hourly: '시간대별 심박수', interp: '판독 소견', concl: '결론', reader: '판독의', sign: '서명', date: '일자', gen: '생성', engine: '분석 엔진', start: '시작', end: '종료', dur: '지속', count: '횟수', day: '일자', cum: '누적', cumPeriod: '누적 구간', wearStart: '착용 시작', provisional: '잠정 청구 산정 (중간 — 최종 청구 아님)', note: '자동 분석 결과이며 의사의 판독·확인이 필요합니다.', scale: '25 mm/s · 10 mm/mV', maxhr: '최고 심박', minhr: '최저 심박', ep: '에피소드', exNote: '휴지·무수축은 원인(전극 탈락·접촉 불량·움직임·수신 끊김 포함)을 확인할 수 없어 이 리포트에 넣지 않았습니다. 필요하면 원 파형을 직접 확인하세요.' },
-  en: { title: 'Daily ECG Report', interim: 'ECG Interim Analysis Report', hosp: 'Facility', patient: 'Patient', mrn: 'MRN', sexAge: 'Sex/Age', dept: 'Department', ward: 'Ward/Bed', dx: 'Diagnosis', period: 'Recording window', rec: 'Recorded', ana: 'Analyzable', leadoff: 'Lead off', hr: 'Heart rate', avg: 'Mean', min: 'Min', max: 'Max', beats: 'Total beats (est.)', rhythm: 'Rhythm burden', episodes: 'Significant episodes', ectopy: 'Ectopy', vbeats: 'Ventricular (V)', sbeats: 'Supraventricular (S)', pause: 'Longest pause', none: 'None', strips: 'Representative strips', hourly: 'Hourly heart rate', interp: 'Interpretation', concl: 'Conclusion', reader: 'Interpreting physician', sign: 'Signature', date: 'Date', gen: 'Generated', engine: 'Analysis engine', start: 'Start', end: 'End', dur: 'Duration', count: 'Count', day: 'Date', cum: 'Cumulative', cumPeriod: 'Cumulative window', wearStart: 'Monitoring start', provisional: 'Provisional billing determination (interim — not a final claim)', note: 'Automated analysis; requires physician review and confirmation.', scale: '25 mm/s · 10 mm/mV', maxhr: 'Max HR', minhr: 'Min HR', ep: 'Episode', exNote: 'Pauses and asystole are not included in this report because their cause (including lead-off, poor contact, motion or data loss) cannot be determined. Review the raw waveform if needed.' },
-  ja: { title: '日次心電図レポート', interim: '心電図 中間解析報告書', hosp: '医療機関', patient: '患者', mrn: '患者ID', sexAge: '性別/年齢', dept: '診療科', ward: '病棟/病床', dx: '診断', period: '記録区間', rec: '記録時間', ana: '解析可能', leadoff: '電極外れ', hr: '心拍数', avg: '平均', min: '最小', max: '最大', beats: '総心拍数(推定)', rhythm: '調律の負荷率', episodes: '主なエピソード', ectopy: '期外収縮', vbeats: '心室性(V)', sbeats: '上室性(S)', pause: '最長ポーズ', none: 'なし', strips: '代表波形', hourly: '時間帯別心拍数', interp: '所見', concl: '結論', reader: '判読医', sign: '署名', date: '日付', gen: '作成', engine: '解析エンジン', start: '開始', end: '終了', dur: '持続', count: '回数', day: '日付', cum: '累積', cumPeriod: '累積区間', wearStart: '装着開始', provisional: '暫定算定（中間・確定請求ではありません）', note: '自動解析結果です。医師の判読・確認が必要です。', scale: '25 mm/s · 10 mm/mV', maxhr: '最大心拍', minhr: '最小心拍', ep: 'エピソード', exNote: 'ポーズ・心停止は原因（電極外れ・接触不良・体動・受信断を含む）を確認できないため、本レポートには含めていません。必要に応じて元波形を確認してください。' },
+  ko: { title: '일일 심전도 리포트', interim: '심전도 중간 분석 보고서', hosp: '의료기관', patient: '환자', mrn: '등록번호', sexAge: '성별/나이', dept: '진료과', ward: '병동/병상', dx: '진단', period: '기록 구간', rec: '기록 시간', ana: '분석 가능', leadoff: '전극 탈락', hr: '심박수', avg: '평균', min: '최저', max: '최고', beats: '총 박동(추정)', rhythm: '리듬 부담률', episodes: '주요 에피소드', ectopy: '기외수축', vbeats: '심실성(V)', sbeats: '상심실성(S)', pause: '최장 휴지', none: '없음', strips: '대표 파형', hourly: '시간대별 심박수', interp: '판독 소견', concl: '결론', reader: '판독의', sign: '서명', date: '일자', gen: '생성', engine: '분석 엔진', start: '시작', end: '종료', dur: '지속', count: '횟수', day: '일자', cum: '누적', cumPeriod: '누적 구간', wearStart: '착용 시작', provisional: '잠정 청구 산정 (중간 — 최종 청구 아님)', note: '자동 분석 결과이며 의사의 판독·확인이 필요합니다.', scale: '25 mm/s · 10 mm/mV', maxhr: '최고 심박', minhr: '최저 심박', ep: '에피소드', exNote: '휴지·무수축은 원인(전극 탈락·접촉 불량·움직임·수신 끊김 포함)을 확인할 수 없어 이 리포트에 넣지 않았습니다. 필요하면 원 파형을 직접 확인하세요.', noBeatTruth: '판정 출처가 에뮬레이터 정답지라 박동 단위 기외수축 개수는 표시하지 않습니다.', noBeatTruthShort: '정답지 모드 — 표시 안 함', srcTruth: '리듬 판정: 에뮬레이터 정답지(데모)', baseR: '기저 리듬(정답지)', noBase: '이 환자의 기저 리듬 정답이 없어 기저 리듬 비율은 넣지 않았습니다. 아래는 정답지에 있는 에피소드만입니다.' },
+  en: { title: 'Daily ECG Report', interim: 'ECG Interim Analysis Report', hosp: 'Facility', patient: 'Patient', mrn: 'MRN', sexAge: 'Sex/Age', dept: 'Department', ward: 'Ward/Bed', dx: 'Diagnosis', period: 'Recording window', rec: 'Recorded', ana: 'Analyzable', leadoff: 'Lead off', hr: 'Heart rate', avg: 'Mean', min: 'Min', max: 'Max', beats: 'Total beats (est.)', rhythm: 'Rhythm burden', episodes: 'Significant episodes', ectopy: 'Ectopy', vbeats: 'Ventricular (V)', sbeats: 'Supraventricular (S)', pause: 'Longest pause', none: 'None', strips: 'Representative strips', hourly: 'Hourly heart rate', interp: 'Interpretation', concl: 'Conclusion', reader: 'Interpreting physician', sign: 'Signature', date: 'Date', gen: 'Generated', engine: 'Analysis engine', start: 'Start', end: 'End', dur: 'Duration', count: 'Count', day: 'Date', cum: 'Cumulative', cumPeriod: 'Cumulative window', wearStart: 'Monitoring start', provisional: 'Provisional billing determination (interim — not a final claim)', note: 'Automated analysis; requires physician review and confirmation.', scale: '25 mm/s · 10 mm/mV', maxhr: 'Max HR', minhr: 'Min HR', ep: 'Episode', exNote: 'Pauses and asystole are not included in this report because their cause (including lead-off, poor contact, motion or data loss) cannot be determined. Review the raw waveform if needed.', noBeatTruth: 'Rhythm source is the emulator answer key, which has no beat-level truth, so ectopic beat counts are not shown.', noBeatTruthShort: 'answer-key mode — not shown', srcTruth: 'Rhythm source: emulator answer key (demo)', baseR: 'Underlying rhythm (answer key)', noBase: 'No answer-key underlying rhythm for this patient, so its share is omitted. Only answer-key episodes are listed.' },
+  ja: { title: '日次心電図レポート', interim: '心電図 中間解析報告書', hosp: '医療機関', patient: '患者', mrn: '患者ID', sexAge: '性別/年齢', dept: '診療科', ward: '病棟/病床', dx: '診断', period: '記録区間', rec: '記録時間', ana: '解析可能', leadoff: '電極外れ', hr: '心拍数', avg: '平均', min: '最小', max: '最大', beats: '総心拍数(推定)', rhythm: '調律の負荷率', episodes: '主なエピソード', ectopy: '期外収縮', vbeats: '心室性(V)', sbeats: '上室性(S)', pause: '最長ポーズ', none: 'なし', strips: '代表波形', hourly: '時間帯別心拍数', interp: '所見', concl: '結論', reader: '判読医', sign: '署名', date: '日付', gen: '作成', engine: '解析エンジン', start: '開始', end: '終了', dur: '持続', count: '回数', day: '日付', cum: '累積', cumPeriod: '累積区間', wearStart: '装着開始', provisional: '暫定算定（中間・確定請求ではありません）', note: '自動解析結果です。医師の判読・確認が必要です。', scale: '25 mm/s · 10 mm/mV', maxhr: '最大心拍', minhr: '最小心拍', ep: 'エピソード', exNote: 'ポーズ・心停止は原因（電極外れ・接触不良・体動・受信断を含む）を確認できないため、本レポートには含めていません。必要に応じて元波形を確認してください。', noBeatTruth: '判定元がエミュレーター正解データのため、拍単位の期外収縮数は表示しません。', noBeatTruthShort: '正解データモード — 非表示', srcTruth: '調律判定: エミュレーター正解データ（デモ）', baseR: '基本調律（正解データ）', noBase: 'この患者の基本調律の正解がないため、その比率は含めていません。正解データのエピソードのみ表示します。' },
 }
 const LOC = { ko: 'ko-KR', en: 'en-US', ja: 'ja-JP' }
 const pad = (n) => String(n).padStart(2, '0')
@@ -209,7 +209,7 @@ function ToolPanel({ ctx, doc, lang, setLang, ctry, setCountry, interp, setInter
         <div><small>최고</small><b>{rep.hr.max?.bpm ?? '—'}</b><span>{hm(rep.hr.max?.at_ms)}</span></div>
         <div><small>기록</small><b>{hours.toFixed(1)}</b><span>시간</span></div>
         <div><small>에피소드</small><b>{Object.values(rep.episode_counts || {}).reduce((a, n) => a + n, 0)}</b><span>건</span></div>
-        <div><small>심실 조기</small><b>{rep.ectopy.v_pct ?? 0}</b><span>% 박동</span></div>
+        <div><small>심실 조기</small><b>{rep.ectopy ? rep.ectopy.v_pct ?? 0 : '—'}</b><span>{rep.ectopy ? '% 박동' : '정답지 모드'}</span></div>
       </div></section>}
 
     <section className="rp-sec"><h4>문서</h4>
@@ -262,21 +262,21 @@ export function DailyDoc({ rep, emr, row, lang, interp, sign }) {
   const counts = Object.entries(rep.episode_counts || {}).sort((a, b) => b[1] - a[1])
   const auto = autoSummary(rep, lang)
   return (<div className="rp-doc">
-    <Header rep={rep} emr={emr} row={row} lang={lang} title={t.title} sub={`${rep.date} 00:00 – 24:00 (UTC${rep.tz}) · ${t.engine} ${rep.engine || '—'}`} />
+    <Header rep={rep} emr={emr} row={row} lang={lang} title={t.title} sub={`${rep.date} 00:00 – 24:00 (UTC${rep.tz}) · ${rep.source === 'truth' ? t.srcTruth : `${t.engine} ${rep.engine || '—'}`}`} />
     <div className="rp-kpi">
       <div><small>{t.hr} {t.avg}</small><b>{rep.hr.avg ?? '—'}</b><span>bpm</span></div>
       <div><small>{t.hr} {t.min}</small><b>{rep.hr.min?.bpm ?? '—'}</b><span>{hm(rep.hr.min?.at_ms)}</span></div>
       <div><small>{t.hr} {t.max}</small><b>{rep.hr.max?.bpm ?? '—'}</b><span>{hm(rep.hr.max?.at_ms)}</span></div>
       <div><small>{t.rec}</small><b>{hrs(rep.recorded_ms)}</b><span>h · {t.ana} {hrs(rep.analyzable_ms)} h</span></div>
-      <div><small>{t.beats}</small><b>{Math.round(rep.hr.total_beats).toLocaleString()}</b><span>V {rep.ectopy.v_pct ?? 0}% · S {rep.ectopy.s_pct ?? 0}%</span></div>
+      <div><small>{t.beats}</small><b>{Math.round(rep.hr.total_beats).toLocaleString()}</b><span>{rep.ectopy ? `V ${rep.ectopy.v_pct ?? 0}% · S ${rep.ectopy.s_pct ?? 0}%` : ''}</span></div>
     </div>
     <h3>{t.hourly}</h3>
     <HourChart hourly={rep.hourly} />
     <div className="rp-two">
-      <section><h3>{t.rhythm}</h3><table className="rp-t"><tbody>{burden.map(([k, v]) => <tr key={k}><td>{rname(k, lang)}</td><td className="num">{v}%</td><td className="bar"><i style={{ width: `${Math.min(100, v)}%` }} /></td></tr>)}{!burden.length && <tr><td>{t.none}</td></tr>}</tbody></table></section>
+      <section><h3>{t.rhythm}</h3>{rep.source === 'truth' && <p className="rp-note-ex">{rep.truth_base ? `${t.baseR}: ${rname(rep.truth_base, lang)}` : t.noBase}</p>}<table className="rp-t"><tbody>{burden.map(([k, v]) => <tr key={k}><td>{rname(k, lang)}</td><td className="num">{v}%</td><td className="bar"><i style={{ width: `${Math.min(100, v)}%` }} /></td></tr>)}{!burden.length && <tr><td>{t.none}</td></tr>}</tbody></table></section>
       <section><h3>{t.ectopy}</h3><table className="rp-t"><tbody>
-        <tr><td>{t.vbeats}</td><td className="num">{rep.ectopy.v_beats.toLocaleString()}</td><td className="num">{rep.ectopy.v_pct ?? 0}%</td></tr>
-        <tr><td>{t.sbeats}</td><td className="num">{rep.ectopy.s_beats.toLocaleString()}</td><td className="num">{rep.ectopy.s_pct ?? 0}%</td></tr>
+        {rep.ectopy ? <><tr><td>{t.vbeats}</td><td className="num">{rep.ectopy.v_beats.toLocaleString()}</td><td className="num">{rep.ectopy.v_pct ?? 0}%</td></tr>
+        <tr><td>{t.sbeats}</td><td className="num">{rep.ectopy.s_beats.toLocaleString()}</td><td className="num">{rep.ectopy.s_pct ?? 0}%</td></tr></> : <tr><td colSpan="3" className="small">{t.noBeatTruth}</td></tr>}
         <tr><td>{t.leadoff}</td><td className="num">{dur(rep.lead_off_ms)}</td><td /></tr>
         <tr><td>{t.period}</td><td colSpan="2" className="num">{hm(rep.first_ms)} – {hm(rep.last_ms)}</td></tr>
       </tbody></table></section>
@@ -299,9 +299,9 @@ function autoSummary(rep, lang) {
   const t = D[lang]
   const top = Object.entries(rep.burden_pct || {}).filter(([k]) => k !== 'leadoff').sort((a, b) => b[1] - a[1])[0]
   const ep = Object.entries(rep.episode_counts || {}).filter(([k]) => !isPause(k)).map(([k, n]) => `${rname(k, lang)} ${n}`).join(', ')
-  if (lang === 'en') return `Predominant rhythm: ${top ? rname(top[0], lang) : '—'}. Mean HR ${rep.hr.avg ?? '—'} bpm (min ${rep.hr.min?.bpm ?? '—'} at ${hm(rep.hr.min?.at_ms)}, max ${rep.hr.max?.bpm ?? '—'} at ${hm(rep.hr.max?.at_ms)}). Episodes: ${ep || 'none'}. PVC ${rep.ectopy.v_pct ?? 0}%, PAC ${rep.ectopy.s_pct ?? 0}%.`
-  if (lang === 'ja') return `基本調律: ${top ? rname(top[0], lang) : '—'}。平均心拍数 ${rep.hr.avg ?? '—'} bpm（最小 ${rep.hr.min?.bpm ?? '—'} ${hm(rep.hr.min?.at_ms)}、最大 ${rep.hr.max?.bpm ?? '—'} ${hm(rep.hr.max?.at_ms)}）。エピソード: ${ep || 'なし'}。VPC ${rep.ectopy.v_pct ?? 0}%、SVPC ${rep.ectopy.s_pct ?? 0}%。`
-  return `기본 리듬: ${top ? rname(top[0], lang) : '—'}. 평균 심박수 ${rep.hr.avg ?? '—'} bpm (최저 ${rep.hr.min?.bpm ?? '—'} ${hm(rep.hr.min?.at_ms)}, 최고 ${rep.hr.max?.bpm ?? '—'} ${hm(rep.hr.max?.at_ms)}). ${t.episodes}: ${ep || '없음'}. 심실조기수축 ${rep.ectopy.v_pct ?? 0}%, 상심실성 ${rep.ectopy.s_pct ?? 0}%.`
+  if (lang === 'en') return `Predominant rhythm: ${top ? rname(top[0], lang) : '—'}. Mean HR ${rep.hr.avg ?? '—'} bpm (min ${rep.hr.min?.bpm ?? '—'} at ${hm(rep.hr.min?.at_ms)}, max ${rep.hr.max?.bpm ?? '—'} at ${hm(rep.hr.max?.at_ms)}). Episodes: ${ep || 'none'}. ${rep.ectopy ? `PVC ${rep.ectopy.v_pct ?? 0}%, PAC ${rep.ectopy.s_pct ?? 0}%.` : ''}`
+  if (lang === 'ja') return `基本調律: ${top ? rname(top[0], lang) : '—'}。平均心拍数 ${rep.hr.avg ?? '—'} bpm（最小 ${rep.hr.min?.bpm ?? '—'} ${hm(rep.hr.min?.at_ms)}、最大 ${rep.hr.max?.bpm ?? '—'} ${hm(rep.hr.max?.at_ms)}）。エピソード: ${ep || 'なし'}。${rep.ectopy ? `VPC ${rep.ectopy.v_pct ?? 0}%、SVPC ${rep.ectopy.s_pct ?? 0}%。` : ''}`
+  return `기본 리듬: ${top ? rname(top[0], lang) : '—'}. 평균 심박수 ${rep.hr.avg ?? '—'} bpm (최저 ${rep.hr.min?.bpm ?? '—'} ${hm(rep.hr.min?.at_ms)}, 최고 ${rep.hr.max?.bpm ?? '—'} ${hm(rep.hr.max?.at_ms)}). ${t.episodes}: ${ep || '없음'}. ${rep.ectopy ? `심실조기수축 ${rep.ectopy.v_pct ?? 0}%, 상심실성 ${rep.ectopy.s_pct ?? 0}%.` : ''}`
 }
 
 function Sign({ lang, sign }) {
@@ -343,9 +343,10 @@ function aggregate(series) {
   const avg = rec ? series.reduce((a, r) => a + (r.hr.avg || 0) * r.recorded_ms, 0) / rec : null
   const burden = {}; for (const r of series) for (const [k, v] of Object.entries(r.burden_pct || {}).filter(([k]) => !isPause(k))) burden[k] = (burden[k] || 0) + (v * r.analyzable_ms) / 100
   const counts = {}; for (const r of series) for (const [k, n] of Object.entries(r.episode_counts || {}).filter(([k]) => !isPause(k))) counts[k] = (counts[k] || 0) + n
-  const v = series.reduce((a, r) => a + r.ectopy.v_beats, 0), s = series.reduce((a, r) => a + r.ectopy.s_beats, 0)
+  const hasEct = series.every((r) => r.ectopy)
+  const v = series.reduce((a, r) => a + (r.ectopy?.v_beats || 0), 0), s = series.reduce((a, r) => a + (r.ectopy?.s_beats || 0), 0)
   const first = Math.min(...series.map((r) => r.first_ms || Infinity)), last = Math.max(...series.map((r) => r.last_ms || 0))
-  return { rec, ana, beats, min: mins[0], max: maxs[0], avg, burden: Object.fromEntries(Object.entries(burden).map(([k, ms]) => [k, ana ? Math.round((ms / ana) * 1000) / 10 : 0])), counts, v, s, first, last }
+  return { hasEct, rec, ana, beats, min: mins[0], max: maxs[0], avg, burden: Object.fromEntries(Object.entries(burden).map(([k, ms]) => [k, ana ? Math.round((ms / ana) * 1000) / 10 : 0])), counts, v, s, first, last }
 }
 function spanOf(rep, series) {
   const a = aggregate(series)
@@ -367,7 +368,7 @@ export function InterimDoc({ rep, emr, row, lang, series, bill, sign }) {
       <div><small>{t.hr} {t.min}</small><b>{a.min?.bpm ?? '—'}</b><span>{dt(a.min?.at_ms, lang)}</span></div>
       <div><small>{t.hr} {t.max}</small><b>{a.max?.bpm ?? '—'}</b><span>{dt(a.max?.at_ms, lang)}</span></div>
       <div><small>{t.rec}</small><b>{hrs(a.rec)}</b><span>h · {t.ana} {a.rec ? Math.round((a.ana / a.rec) * 100) : 0}%</span></div>
-      <div><small>{t.ectopy}</small><b>{a.beats ? ((a.v / a.beats) * 100).toFixed(1) : 0}%</b><span>V {a.v.toLocaleString()} · S {a.s.toLocaleString()}</span></div>
+      <div><small>{t.ectopy}</small><b>{a.hasEct ? `${a.beats ? ((a.v / a.beats) * 100).toFixed(1) : 0}%` : '—'}</b><span>{a.hasEct ? `V ${a.v.toLocaleString()} · S ${a.s.toLocaleString()}` : t.noBeatTruthShort}</span></div>
     </div>
     <div className="rp-two">
       <section><h3>{t.rhythm} ({t.cum})</h3><table className="rp-t"><tbody>{burden.map(([k, v]) => <tr key={k}><td>{rname(k, lang)}</td><td className="num">{v}%</td><td className="bar"><i style={{ width: `${Math.min(100, v)}%` }} /></td></tr>)}</tbody></table></section>
@@ -376,7 +377,7 @@ export function InterimDoc({ rep, emr, row, lang, series, bill, sign }) {
     <p className="rp-note-ex">{t.exNote}</p>
     <h3>{t.day}</h3>
     <table className="rp-t"><thead><tr><th>{t.day}</th><th className="num">{t.rec} h</th><th className="num">{t.avg}</th><th className="num">{t.min}</th><th className="num">{t.max}</th><th className="num">V%</th><th className="num">S%</th><th>{t.episodes}</th></tr></thead>
-      <tbody>{series.map((r) => <tr key={r.date}><td>{r.date}</td><td className="num">{hrs(r.recorded_ms)}</td><td className="num">{r.hr.avg ?? '—'}</td><td className="num">{r.hr.min?.bpm ?? '—'}</td><td className="num">{r.hr.max?.bpm ?? '—'}</td><td className="num">{r.ectopy.v_pct ?? 0}</td><td className="num">{r.ectopy.s_pct ?? 0}</td><td className="small">{Object.entries(r.episode_counts || {}).map(([k, n]) => `${rname(k, lang)} ${n}`).join(', ') || '—'}</td></tr>)}</tbody></table>
+      <tbody>{series.map((r) => <tr key={r.date}><td>{r.date}</td><td className="num">{hrs(r.recorded_ms)}</td><td className="num">{r.hr.avg ?? '—'}</td><td className="num">{r.hr.min?.bpm ?? '—'}</td><td className="num">{r.hr.max?.bpm ?? '—'}</td><td className="num">{r.ectopy?.v_pct ?? '—'}</td><td className="num">{r.ectopy?.s_pct ?? '—'}</td><td className="small">{Object.entries(r.episode_counts || {}).map(([k, n]) => `${rname(k, lang)} ${n}`).join(', ') || '—'}</td></tr>)}</tbody></table>
     <h3 className="rp-pb">{t.strips} <small>{rep.date} · {t.scale}</small></h3>
     {(rep.strips || []).slice(0, 4).map((s, i) => <Strip key={i} s={s} lang={lang} />)}
     <h3>{t.provisional}</h3>
@@ -431,7 +432,7 @@ export function ClaimKR({ rep, emr, series, bill }) {
     <table className="rp-t"><tbody>
       <tr><th>기록 시작</th><td>{dt(start, 'ko')}</td><th>기록 종료</th><td>{dt(a.last, 'ko')}</td></tr>
       <tr><th>총 기록</th><td>{hours.toFixed(1)} 시간 (분석 가능 {a.rec ? Math.round((a.ana / a.rec) * 100) : 0}%)</td><th>심박수</th><td>평균 {a.avg?.toFixed(0) ?? '—'} · 최저 {a.min?.bpm ?? '—'} · 최고 {a.max?.bpm ?? '—'} bpm</td></tr>
-      <tr><th>주요 소견</th><td colSpan="3">{Object.entries(a.counts).filter(([k]) => !isPause(k)).map(([k, n]) => `${rname(k, 'ko')} ${n}회`).join(', ') || '특이 소견 없음'} · 심실조기수축 {a.beats ? ((a.v / a.beats) * 100).toFixed(1) : 0}%</td></tr>
+      <tr><th>주요 소견</th><td colSpan="3">{Object.entries(a.counts).filter(([k]) => !isPause(k)).map(([k, n]) => `${rname(k, 'ko')} ${n}회`).join(', ') || '특이 소견 없음'} {a.hasEct ? `· 심실조기수축 ${a.beats ? ((a.v / a.beats) * 100).toFixed(1) : 0}%` : ''}</td></tr>
     </tbody></table>
     <div className="rp-sign"><span>판독 의사: <b>{bill.physician || '________'}</b></span><span>면허번호: <b className="mono">{bill.license || '________'}</b></span><span>판독일시: ____________</span><span>(서명)</span></div>
   </div>)

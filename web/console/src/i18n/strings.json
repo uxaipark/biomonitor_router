@@ -17,6 +17,12 @@
 "src/pages/OpsStats.jsx"
 ]
 },
+"% · 양성 예측도": {
+"kind": "jsx",
+"src": [
+"src/pages/EcgEngine.jsx"
+]
+},
 "% · 클럭": {
 "kind": "jsx",
 "src": [
@@ -30,7 +36,7 @@
 ]
 },
 "% 박동": {
-"kind": "jsx",
+"kind": "str",
 "src": [
 "src/pages/Reports.jsx"
 ]
@@ -474,12 +480,6 @@
 "src/pages/Integration.jsx"
 ]
 },
-". 심실조기수축 $": {
-"kind": "jsx",
-"src": [
-"src/pages/Reports.jsx"
-]
-},
 ". 평균 심박수 $": {
 "kind": "jsx",
 "src": [
@@ -706,7 +706,8 @@
 "1도 방실차단": {
 "kind": "str",
 "src": [
-"src/pages/LiveModal.jsx"
+"src/pages/LiveModal.jsx",
+"src/reports/billing.js"
 ]
 },
 "1시간": {
@@ -772,6 +773,24 @@
 "src/pages/AdminSecurity.jsx"
 ]
 },
+"2도 방실차단": {
+"kind": "str",
+"src": [
+"src/reports/billing.js"
+]
+},
+"2도 방실차단 (모비츠 I)": {
+"kind": "str",
+"src": [
+"src/reports/billing.js"
+]
+},
+"2도 방실차단 (모비츠 II)": {
+"kind": "str",
+"src": [
+"src/reports/billing.js"
+]
+},
 "2도 방실차단 Mobitz I (Wenckebach)": {
 "kind": "str",
 "src": [
@@ -820,6 +839,12 @@
 "kind": "str",
 "src": [
 "src/pages/LiveModal.jsx"
+]
+},
+"3도(완전) 방실차단": {
+"kind": "str",
+"src": [
+"src/reports/billing.js"
 ]
 },
 "3일": {
@@ -1145,6 +1170,18 @@
 "kind": "rs",
 "src": [
 "router-server/src/auth.rs"
+]
+},
+"ECG 리포트 판정 출처": {
+"kind": "jsx",
+"src": [
+"src/pages/EcgEngine.jsx"
+]
+},
+"ECG 리포트의 리듬 판정을 분석 엔진 결과로 바꿀까요?\\n엔진 정확도가 충분히 검증되기 전에는 잘못된 소견이 리포트에 실릴 수 있습니다.": {
+"kind": "str",
+"src": [
+"src/pages/EcgEngine.jsx"
 ]
 },
 "ECG 무수축 의심": {
@@ -1940,6 +1977,12 @@
 "kind": "rs",
 "src": [
 "router-server/src/backup.rs"
+]
+},
+"ST 분절 상승": {
+"kind": "str",
+"src": [
+"src/reports/billing.js"
 ]
 },
 "ST 상승 (STEMI)": {
@@ -2774,6 +2817,12 @@
 "kind": "rs-tpl",
 "src": [
 "router-server/src/emr_link.rs"
+]
+},
+"{0} — 관리 › ECG 분석 엔진에서 리포트 판정 출처를 '분석 엔진'으로 바꾸면 엔진 결과로 만듭니다": {
+"kind": "rs-tpl",
+"src": [
+"router-server/src/admin_api.rs"
 ]
 },
 "{0} → {1} {2}개 이동": {
@@ -3804,8 +3853,8 @@
 "src/viewer/History.jsx"
 ]
 },
-"· 심실조기수축": {
-"kind": "jsx",
+"· 심실조기수축 {0}%": {
+"kind": "tpl",
 "src": [
 "src/pages/Reports.jsx"
 ]
@@ -6435,14 +6484,14 @@
 "src/pages/Inventory.jsx"
 ]
 },
-"기본 리듬: {0}. 평균 심박수 {1} bpm (최저 {2} {3}, 최고 {4} {5}). {6}: {7}. 심실조기수축 {8}%, 상심실성 {9}%.": {
-"kind": "tpl",
-"src": [
-"src/pages/Reports.jsx"
-]
-},
 "기본값으로": {
 "kind": "jsx",
+"src": [
+"src/pages/EcgEngine.jsx"
+]
+},
+"기본값은 에뮬레이터 정답지입니다.": {
+"kind": "str",
 "src": [
 "src/pages/EcgEngine.jsx"
 ]
@@ -6457,6 +6506,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/EcgEngine.jsx"
+]
+},
+"기저 리듬(정답지)": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "기저질환": {
@@ -6734,6 +6789,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/Alarms.jsx"
+]
+},
+"내장 분석 엔진의 판정으로 리포트를 씁니다. 실제 운영 방식입니다. 성능 검증 기준을 통과한 엔진일 때 고르세요.": {
+"kind": "str",
+"src": [
+"src/pages/EcgEngine.jsx"
 ]
 },
 "네트워크 설정": {
@@ -7258,6 +7319,12 @@
 "kind": "rs",
 "src": [
 "router-server/src/auth.rs"
+]
+},
+"데모용 · 정확": {
+"kind": "str",
+"src": [
+"src/pages/EcgEngine.jsx"
 ]
 },
 "데이터": {
@@ -8055,6 +8122,12 @@
 "src/pages/Reports.jsx"
 ]
 },
+"리듬 판정: 에뮬레이터 정답지(데모)": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
 "리듬만": {
 "kind": "str",
 "src": [
@@ -8085,6 +8158,30 @@
 "kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
+]
+},
+"리포트 판정 출처 → {0}": {
+"kind": "rs-tpl",
+"src": [
+"router-server/src/reports.rs"
+]
+},
+"리포트 판정 출처: 분석 엔진": {
+"kind": "str",
+"src": [
+"src/pages/EcgEngine.jsx"
+]
+},
+"리포트 판정 출처: 에뮬레이터 정답지": {
+"kind": "str",
+"src": [
+"src/pages/EcgEngine.jsx"
+]
+},
+"리포트·청구서의 리듬 소견(에피소드·부담률·대표 파형)을 무엇으로 만들지 고릅니다": {
+"kind": "jsx",
+"src": [
+"src/pages/EcgEngine.jsx"
 ]
 },
 "링크 품질 (최근 5분)": {
@@ -9215,7 +9312,8 @@
 "방실차단": {
 "kind": "str",
 "src": [
-"src/pages/LiveModal.jsx"
+"src/pages/LiveModal.jsx",
+"src/reports/billing.js"
 ]
 },
 "방실차단, 상세불명": {
@@ -10480,6 +10578,7 @@
 "분석 엔진": {
 "kind": "str",
 "src": [
+"router-server/src/reports.rs",
 "src/pages/Reports.jsx"
 ]
 },
@@ -12632,6 +12731,12 @@
 "router-server/src/alarms.rs"
 ]
 },
+"심박조율 리듬": {
+"kind": "str",
+"src": [
+"src/reports/billing.js"
+]
+},
 "심방세동": {
 "kind": "str",
 "src": [
@@ -12683,15 +12788,28 @@
 ]
 },
 "심방조기수축": {
-"kind": "rs",
+"kind": "str",
 "src": [
-"router-server/src/ecg_eval.rs"
+"router-server/src/ecg_eval.rs",
+"src/reports/billing.js"
 ]
 },
 "심방조기수축 (PAC)": {
 "kind": "str",
 "src": [
 "src/pages/LiveModal.jsx"
+]
+},
+"심방조기탈분극": {
+"kind": "str",
+"src": [
+"src/reports/billing.js"
+]
+},
+"심방조동": {
+"kind": "str",
+"src": [
+"src/reports/billing.js"
 ]
 },
 "심방조동 (Atrial Flutter)": {
@@ -13020,6 +13138,12 @@
 },
 "알고리즘 검증": {
 "kind": "jsx",
+"src": [
+"src/pages/EcgEngine.jsx"
+]
+},
+"알고리즘 분석 결과": {
+"kind": "str",
 "src": [
 "src/pages/EcgEngine.jsx"
 ]
@@ -13406,6 +13530,13 @@
 "src/pages/Integration.jsx"
 ]
 },
+"에뮬레이터 정답지": {
+"kind": "str",
+"src": [
+"router-server/src/reports.rs",
+"src/pages/EcgEngine.jsx"
+]
+},
 "에뮬레이터 정답지(리듬 에피소드·전극 탈락) 대비 — 엔진 판정 흔적과 대조": {
 "kind": "jsx",
 "src": [
@@ -13439,7 +13570,8 @@
 "에뮬레이터 주소가 없습니다 (네트워크 설정)": {
 "kind": "rs",
 "src": [
-"router-server/src/ecg_eval.rs"
+"router-server/src/ecg_eval.rs",
+"router-server/src/reports.rs"
 ]
 },
 "에뮬레이터 주소가 없습니다 (운영관리 › 네트워크 설정)": {
@@ -13458,6 +13590,12 @@
 "kind": "rs-tpl",
 "src": [
 "router-server/src/site_locale.rs"
+]
+},
+"에뮬레이터가 실제로 만든 리듬 구간(정답)으로 리포트를 씁니다. 방실 차단·각차단처럼 엔진이 아직 못 하는 소견도 들어갑니다. 박동 단위 정답이 없어 기외수축 개수·비율은 표시하지 않습니다.": {
+"kind": "str",
+"src": [
+"src/pages/EcgEngine.jsx"
 ]
 },
 "에피소드": {
@@ -14016,6 +14154,12 @@
 "src/pages/NasMigration.jsx"
 ]
 },
+"완전 방실차단": {
+"kind": "str",
+"src": [
+"src/reports/billing.js"
+]
+},
 "외": {
 "kind": "jsx",
 "src": [
@@ -14121,6 +14265,12 @@
 "kind": "str",
 "src": [
 "src/pages/LiveModal.jsx"
+]
+},
+"우각차단": {
+"kind": "str",
+"src": [
+"src/reports/billing.js"
 ]
 },
 "우각차단 (RBBB)": {
@@ -15067,6 +15217,12 @@
 "kind": "str",
 "src": [
 "src/pages/AdminPermissions.jsx"
+]
+},
+"이 환자의 기저 리듬 정답이 없어 기저 리듬 비율은 넣지 않았습니다. 아래는 정답지에 있는 에피소드만입니다.": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "이 환자의 최신 10초로": {
@@ -16845,6 +17001,30 @@
 "router-server/src/ecg_eval.rs"
 ]
 },
+"정답지 HTTP {0}": {
+"kind": "rs-tpl",
+"src": [
+"router-server/src/reports.rs"
+]
+},
+"정답지 모드": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
+"정답지 모드 — 표시 안 함": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
+]
+},
+"정답지를 받지 못했습니다: {0}": {
+"kind": "rs-tpl",
+"src": [
+"router-server/src/reports.rs"
+]
+},
 "정렬: {0}": {
 "kind": "tpl",
 "src": [
@@ -17157,10 +17337,22 @@
 "src/reports/billing.js"
 ]
 },
+"좌각차단": {
+"kind": "str",
+"src": [
+"src/reports/billing.js"
+]
+},
 "좌각차단 (LBBB)": {
 "kind": "str",
 "src": [
 "src/pages/LiveModal.jsx"
+]
+},
+"좌각차단, 상세불명": {
+"kind": "str",
+"src": [
+"src/reports/billing.js"
 ]
 },
 "좌위": {
@@ -18246,6 +18438,12 @@
 "src/pages/Gateways.jsx"
 ]
 },
+"최근 검증 민감도": {
+"kind": "jsx",
+"src": [
+"src/pages/EcgEngine.jsx"
+]
+},
 "최근 방문 점검": {
 "kind": "jsx",
 "src": [
@@ -18419,6 +18617,12 @@
 "kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
+]
+},
+"출처는 truth 또는 engine": {
+"kind": "rs",
+"src": [
+"router-server/src/reports.rs"
 ]
 },
 "충남": {
@@ -19023,6 +19227,12 @@
 "kind": "str",
 "src": [
 "src/model.js"
+]
+},
+"판정 출처가 에뮬레이터 정답지라 박동 단위 기외수축 개수는 표시하지 않습니다.": {
+"kind": "str",
+"src": [
+"src/pages/Reports.jsx"
 ]
 },
 "패치": {
@@ -19762,6 +19972,12 @@
 "src/pages/LiveModal.jsx"
 ]
 },
+"허혈성 ST 변화": {
+"kind": "str",
+"src": [
+"src/reports/billing.js"
+]
+},
 "현장에서 세는 간격": {
 "kind": "jsx",
 "src": [
@@ -20325,6 +20541,12 @@
 "src/model.js",
 "src/pages/Alarms.jsx",
 "src/reports/billing.js"
+]
+},
+"휴지·무수축은 어느 쪽이든 리포트에 넣지 않습니다. 심박수(평균·최저·최고)와 대표 파형은 패치 기록에서 그대로 가져옵니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/EcgEngine.jsx"
 ]
 },
 "휴지·무수축은 원인(전극 탈락·접촉 불량·움직임·수신 끊김 포함)을 확인할 수 없어 이 리포트에 넣지 않았습니다. 필요하면 원 파형을 직접 확인하세요.": {

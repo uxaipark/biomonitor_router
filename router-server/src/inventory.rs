@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS inv_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, ms 
 CREATE INDEX IF NOT EXISTS inv_ledger_t ON inv_ledger(tenant, sku, ms);
 CREATE TABLE IF NOT EXISTS inv_po (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant TEXT NOT NULL, sku TEXT NOT NULL, boxes INTEGER NOT NULL, status TEXT NOT NULL, created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL, by_user TEXT NOT NULL DEFAULT '', tracking TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', eta TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS inv_seen (patch TEXT PRIMARY KEY, ms INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS patch_base (patch INTEGER PRIMARY KEY, rhythm TEXT NOT NULL, ms INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS patch_patient (patch TEXT PRIMARY KEY, patient TEXT NOT NULL, wear_ms INTEGER NOT NULL DEFAULT 0, ms INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS inv_demand (patch TEXT PRIMARY KEY, tenant TEXT NOT NULL, ms INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS inv_demand_t ON inv_demand(tenant, ms);
@@ -130,6 +131,17 @@ impl Inventory {
         }
         let _ = tx.commit();
     }
+    /// 패치별 기저 리듬(에뮬레이터 정답) — 퇴원 뒤에도 정답지 리포트에 쓰려고 보관
+    pub fn save_bases(&self, rows: &[(u32, String)]) {
+        let mut db = self.db.lock().unwrap();
+        let tx = match db.transaction() { Ok(t) => t, Err(_) => return };
+        for (p, r) in rows { let _ = tx.execute("INSERT INTO patch_base (patch, rhythm, ms) VALUES (?1,?2,?3) ON CONFLICT(patch) DO UPDATE SET rhythm=excluded.rhythm, ms=excluded.ms WHERE patch_base.rhythm<>excluded.rhythm", params![*p as i64, r, now()]); }
+        let _ = tx.commit();
+    }
+    pub fn base_of(&self, patch: u32) -> Option<String> {
+        self.db.lock().unwrap().query_row("SELECT rhythm FROM patch_base WHERE patch=?1", params![patch as i64], |r| r.get(0)).ok()
+    }
+
     pub fn patient_snapshot(&self, patch: &str) -> Option<(serde_json::Value, u64)> {
         let db = self.db.lock().unwrap();
         db.query_row("SELECT patient, wear_ms FROM patch_patient WHERE patch=?1", params![patch], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))).ok()

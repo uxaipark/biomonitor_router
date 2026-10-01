@@ -181,6 +181,8 @@ export const api = {
     summary: () => get('/api/ecg/summary'),
     bench: (seconds = 20, channels = 8) => send('POST', '/api/ecg/bench', { seconds, channels }),
     evalLast: () => get('/api/ecg/eval'),
+    reportSource: () => get('/api/ecg/report-source'),
+    setReportSource: (source) => send('PUT', '/api/ecg/report-source', { source }),
     evalRun: (hours = 1) => send('POST', '/api/ecg/eval', { hours }),
     criteria: () => get('/api/ecg/criteria'),
     setCriteria: (c) => send('PUT', '/api/ecg/criteria', c),
