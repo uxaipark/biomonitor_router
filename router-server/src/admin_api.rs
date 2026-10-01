@@ -42,7 +42,15 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/inventory/{tenant}/receive", post(inv_receive))
         .route("/api/inventory/{tenant}/adjust", post(inv_adjust))
         .route("/api/inventory/{tenant}/po", post(inv_po_create))
-        .route("/api/inventory/{tenant}/po/{id}", put(inv_po_update))
+        .route("/api/inventory/{tenant}/po/{id}", put(inv_po_update).delete(inv_po_delete))
+        .route("/api/inventory/{tenant}/po/{id}/approve", post(inv_po_approve))
+        .route("/api/inventory/{tenant}/po/{id}/ship", post(inv_po_ship))
+        .route("/api/inventory/{tenant}/po/{id}/receive", post(inv_po_receive))
+        .route("/api/inventory/{tenant}/contract", put(inv_contract))
+        .route("/api/inventory/{tenant}/count", post(inv_count))
+        .route("/api/inventory/{tenant}/statement", get(inv_statement))
+        .route("/api/inventory-transfer", post(inv_transfer))
+        .route("/api/inventory-trace", get(inv_trace))
         .route("/api/ecg/versions", get(ecg_versions))
         .route("/api/ecg/versions/{key}/activate", post(ecg_version_activate))
         .route("/api/ecg/versions/{key}", delete(ecg_version_delete))
@@ -1716,6 +1724,7 @@ async fn inv_po_create(State(state): State<Arc<AppState>>, Extension(p): Extensi
 struct PoUpd { status: String, #[serde(default)] tracking: String, #[serde(default)] eta: String, #[serde(default)] boxes: Option<i64> }
 async fn inv_po_update(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path((tenant, id)): Path<(String, i64)>, Json(b): Json<PoUpd>) -> impl IntoResponse {
     if !p.can_access(&tenant) { return (StatusCode::FORBIDDEN, "권한 없음").into_response(); }
+    if b.status != "cancelled" { return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "승인·출고·수령은 각 단계 버튼으로 진행합니다" }))).into_response(); }
     state.auth.audit(&p.username, &tenant, "inv_po_update", &format!("PO-{id} → {}", b.status));
     inv_res(state.inventory.po_update(&tenant, id, &b.status, &b.tracking, &b.eta, b.boxes))
 }
@@ -1735,5 +1744,72 @@ async fn rep_days(State(state): State<Arc<AppState>>, axum::extract::Query(q): a
     let Some(patch) = q.get("patch").and_then(|v| v.parse::<u32>().ok()) else { return (StatusCode::BAD_REQUEST, "patch 필요").into_response() };
     let st = state.clone();
     Json(tokio::task::spawn_blocking(move || crate::reports::days(&st, patch)).await.unwrap_or_default()).into_response()
+}
+
+// 역할: 공급사(요청·출고·계약·이동) / 병원(승인·수령). 관리자는 둘 다(시험·대행).
+fn is_supplier(p: &Principal) -> bool { matches!(p.role.as_str(), "super_admin" | "system_admin" | "reseller" | "sales_crm") }
+fn is_hospital(p: &Principal) -> bool { matches!(p.role.as_str(), "super_admin" | "system_admin" | "hospital_it" | "nurse" | "staff") }
+fn inv_forbid(msg: &str) -> axum::response::Response { (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": msg }))).into_response() }
+async fn inv_po_delete(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path((tenant, id)): Path<(String, i64)>) -> impl IntoResponse {
+    if !p.can_access(&tenant) { return inv_forbid("권한 없음"); }
+    state.auth.audit(&p.username, &tenant, "inv_po_delete", &format!("PO-{id}"));
+    inv_res(state.inventory.po_delete(&tenant, id))
+}
+#[derive(serde::Deserialize)]
+struct ApproveIn { #[serde(default)] hospital_po: String }
+async fn inv_po_approve(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path((tenant, id)): Path<(String, i64)>, Json(b): Json<ApproveIn>) -> impl IntoResponse {
+    if !p.can_access(&tenant) || !is_hospital(&p) { return inv_forbid("발주 승인은 병원 담당자(IT·간호·원무)가 합니다"); }
+    state.auth.audit(&p.username, &tenant, "inv_po_approve", &format!("PO-{id} {}", b.hospital_po));
+    inv_res(state.inventory.po_approve(&tenant, id, &b.hospital_po, &p.username))
+}
+#[derive(serde::Deserialize)]
+struct ShipIn { lines: Vec<crate::inventory::ShipLine>, #[serde(default)] tracking: String, #[serde(default)] eta: String }
+async fn inv_po_ship(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path((tenant, id)): Path<(String, i64)>, Json(b): Json<ShipIn>) -> impl IntoResponse {
+    if !p.can_access(&tenant) || !is_supplier(&p) { return inv_forbid("출고는 공급사(리셀러·영업)가 합니다"); }
+    state.auth.audit(&p.username, &tenant, "inv_po_ship", &format!("PO-{id} {}줄 {}", b.lines.len(), b.tracking));
+    inv_res(state.inventory.po_ship(&tenant, id, &b.lines, &b.tracking, &b.eta, &p.username))
+}
+#[derive(serde::Deserialize)]
+struct RecvIn { #[serde(default)] lines: std::collections::HashMap<String, i64> }
+async fn inv_po_receive(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path((tenant, id)): Path<(String, i64)>, Json(b): Json<RecvIn>) -> impl IntoResponse {
+    if !p.can_access(&tenant) { return inv_forbid("권한 없음"); }
+    let m: std::collections::HashMap<i64, i64> = b.lines.iter().filter_map(|(k, v)| Some((k.parse().ok()?, *v))).collect();
+    state.auth.audit(&p.username, &tenant, "inv_po_receive", &format!("PO-{id}"));
+    inv_res(state.inventory.po_receive(&tenant, id, &m, &p.username))
+}
+#[derive(serde::Deserialize)]
+struct ContractIn { sku: String, model: String, #[serde(default)] price: Option<f64>, #[serde(default = "d30")] count_days: f64, #[serde(default)] auto_request: bool, #[serde(default)] contract_end: String, #[serde(default)] committed: i64,
+    lead_days: f64, review_days: f64, service: f64, #[serde(default)] min_boxes: i64 }
+fn d30() -> f64 { 30.0 }
+async fn inv_contract(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(tenant): Path<String>, Json(b): Json<ContractIn>) -> impl IntoResponse {
+    if !p.can_access(&tenant) || !is_supplier(&p) { return inv_forbid("계약·보충 설정은 공급사(리셀러·영업)가 합니다"); }
+    state.auth.audit(&p.username, &tenant, "inv_contract", &format!("{} {} L{} R{} {} auto={}", b.sku, b.model, b.lead_days, b.review_days, b.service, b.auto_request));
+    if let Err(e) = state.inventory.set_policy(&tenant, &b.sku, b.lead_days, b.review_days, b.service, b.min_boxes) { return inv_res::<()>(Err(e)); }
+    inv_res(state.inventory.set_contract(&tenant, &b.sku, &b.model, b.price.filter(|v| *v > 0.0), b.count_days, b.auto_request, &b.contract_end, b.committed))
+}
+#[derive(serde::Deserialize)]
+struct CountIn { sku: String, counts: Vec<crate::inventory::LotCount>, #[serde(default)] extra_found: i64, #[serde(default)] note: String }
+async fn inv_count(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(tenant): Path<String>, Json(b): Json<CountIn>) -> impl IntoResponse {
+    if !p.can_access(&tenant) { return inv_forbid("권한 없음"); }
+    state.auth.audit(&p.username, &tenant, "inv_visit_count", &format!("{} {}로트", b.sku, b.counts.len()));
+    inv_res(state.inventory.visit_count(&tenant, &b.sku, &b.counts, b.extra_found, &b.note, &p.username))
+}
+async fn inv_statement(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(tenant): Path<String>, axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>) -> impl IntoResponse {
+    if !p.can_access(&tenant) { return inv_forbid("권한 없음"); }
+    let month = q.get("month").cloned().unwrap_or_else(|| chrono::Local::now().format("%Y-%m").to_string());
+    let inv = state.inventory.clone();
+    match tokio::task::spawn_blocking(move || inv.statement(&tenant, &month)).await.unwrap_or(Err("failed".into())) { Ok(v) => Json(v).into_response(), Err(e) => inv_res::<()>(Err(e)) }
+}
+#[derive(serde::Deserialize)]
+struct TransferIn { from: String, to: String, lot_id: i64, qty: i64 }
+async fn inv_transfer(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(b): Json<TransferIn>) -> impl IntoResponse {
+    if !p.can_access(&b.from) || !p.can_access(&b.to) || !is_supplier(&p) { return inv_forbid("병원 간 이동은 두 병원을 모두 맡은 공급사가 합니다"); }
+    state.auth.audit(&p.username, &b.from, "inv_transfer", &format!("lot#{} ×{} → {}", b.lot_id, b.qty, b.to));
+    inv_res(state.inventory.transfer(&b.from, &b.to, b.lot_id, b.qty, &p.username))
+}
+async fn inv_trace(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>) -> impl IntoResponse {
+    let lot = q.get("lot").cloned().unwrap_or_default();
+    let t: Vec<String> = inv_tenants(&state, &p).into_iter().map(|x| x.0).collect();
+    Json(state.inventory.lot_trace(&lot, &t)).into_response()
 }
 

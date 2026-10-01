@@ -87,7 +87,7 @@ pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 31] = [
     // ECG 분석 엔진: 버전 보관함·활성화·프리셋/단계 선택·성능 (병원 IT 매니저 편집, 의사 보기)
     ("page.ecg_engine", "운영관리 › ECG 분석 엔진", "메뉴", [2, 2, 0, 0, 2, 1, 0, 0]),
     // 패치 재고: 리셀러·영업이 납품·보충, 병원 IT 가 입고·실사, 임상은 보기
-    ("page.inventory", "패치 재고", "메뉴", [2, 2, 2, 2, 2, 0, 1, 1]),
+    ("page.inventory", "패치 재고", "메뉴", [2, 2, 2, 2, 2, 0, 2, 2]),
     // 일일 ECG 리포트·보험 청구서: 의료인(의사·간호사·스태프)
     ("page.reports", "ECG 리포트 · 청구", "메뉴", [2, 1, 0, 0, 1, 2, 2, 2]),
     ("action.alarm_ack", "알람 확인", "동작", [2, 0, 0, 0, 0, 2, 2, 0]),
@@ -1645,7 +1645,8 @@ fn requirement(path: &str, method: &axum::http::Method) -> Option<(Vec<&'static 
 
 /// 병원 데이터가 아닌 경로 (계정·병원 관리, 에뮬레이터 상태)
 fn tenant_free(path: &str) -> bool {
-    path.starts_with("/api/auth/") || path.starts_with("/api/admin/") || path.starts_with("/api/emu/")
+    // 재고는 여러 병원을 함께 다루는 공급사 포털 — 처리기가 병원마다 접근을 확인한다
+    path.starts_with("/api/auth/") || path.starts_with("/api/admin/") || path.starts_with("/api/emu/") || path.starts_with("/api/inventory")
 }
 
 fn token_of(req: &Request) -> Option<String> {

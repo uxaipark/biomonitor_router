@@ -17,12 +17,6 @@
 "src/pages/OpsStats.jsx"
 ]
 },
-"% (최근 4주 대비)": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "% · 최장 휴지": {
 "kind": "jsx",
 "src": [
@@ -113,10 +107,28 @@
 "src/pages/Events.jsx"
 ]
 },
+"(개)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"(개/일)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "(경고 {0})": {
 "kind": "rs-tpl",
 "src": [
 "router-server/src/emr_link.rs"
+]
+},
+"(권장 {0}상자)": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "(기록 보관": {
@@ -153,6 +165,12 @@
 "kind": "tpl",
 "src": [
 "src/pages/LiveModal.jsx"
+]
+},
+"(만료)": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "(미차단 {0})": {
@@ -252,6 +270,12 @@
 "src/pages/Trips.jsx"
 ]
 },
+"(착용 {0}명 기준)": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "(참고용)": {
 "kind": "jsx",
 "src": [
@@ -268,6 +292,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/EcgEngine.jsx"
+]
+},
+"(최근 4주보다": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "(템플릿 최대 {0}명)": {
@@ -294,13 +324,19 @@
 "src/pages/NasMigration.jsx"
 ]
 },
-"), `품목 $": {
+") 를 상자 단위로 올림.": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
-"), 상자당": {
+")), extra_found: Number(extra) || 0, note: `병원 확인: $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"), `품목 $": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -360,6 +396,12 @@
 "src/pages/BiosignalAdmin.jsx"
 ]
 },
+"+ 로트 줄 추가": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "+ 백업 대상 추가": {
 "kind": "jsx",
 "src": [
@@ -384,8 +426,14 @@
 "src/pages/Integration.jsx"
 ]
 },
-"+ 입고 예정": {
+"+ 오는 중": {
 "kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"+ 오는 중 {0}개": {
+"kind": "tpl",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -424,6 +472,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/EcgEngine.jsx"
+]
+},
+". 개수(개)를 상자 칸에 넣지 않았는지 확인하세요.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 ". 만든 뒤 상세에서 바꿀 수 있습니다.": {
@@ -499,12 +553,6 @@
 "src/pages/NasMigration.jsx"
 ]
 },
-"/일 (착용 $": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "0 ? ` · 좌표 있는 환자 $": {
 "kind": "jsx",
 "src": [
@@ -527,6 +575,12 @@
 "kind": "jsx",
 "src": [
 "src/App.jsx"
+]
+},
+"0 ? `유효기간 지난 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "0 ? p.store_max_gb : capEnvGb; if (!gb) return '상한 없음 — 디스크가 찰 때까지 보존합니다.'; const h = gb / 8; return `이 상한에 닿으면 오래된 파일부터 지웁니다(백업 대상이 있으면 백업이 끝난 파일만). 환자 2,000명 전 채널(약 8 GB/h)이면 로컬에 약 $": {
@@ -599,12 +653,6 @@
 "kind": "str",
 "src": [
 "src/pages/EcgEngine.jsx"
-]
-},
-"14일 안 품절 예상": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 "14일 초과 기록: 코드 없음 — 14일까지 산정": {
@@ -742,6 +790,12 @@
 "src/pages/LiveModal.jsx"
 ]
 },
+"2주 안에 떨어질 곳": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "3 ? ` 외 $": {
 "kind": "jsx",
 "src": [
@@ -766,24 +820,6 @@
 "kind": "str",
 "src": [
 "src/pages/AdminSecurity.jsx"
-]
-},
-"30일 예측": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"30일 예측 수요": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"30일 추가 필요": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 "3도 (완전) 방실차단": {
@@ -835,14 +871,14 @@
 "src/pages/AdminControl.jsx"
 ]
 },
-"60일 · 90일": {
-"kind": "jsx",
+"60일 안 만료 {0}개 — 먼저 쓰거나 다른 병원으로 이동": {
+"kind": "tpl",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
-"60일 추가 필요": {
-"kind": "jsx",
+"60일 안 만료 · 만료 (개)": {
+"kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -866,26 +902,20 @@
 "src/pages/EcgEngine.jsx"
 ]
 },
-"7일 예측": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "8자 이상, 대·소문자·숫자·기호 중 3가지": {
 "kind": "str",
 "src": [
 "src/App.jsx"
 ]
 },
-"90일 이상": {
-"kind": "str",
+"90일 넘게": {
+"kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
-"90일 추가 필요": {
-"kind": "jsx",
+"90일+": {
+"kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -894,12 +924,6 @@
 "kind": "rs-tpl",
 "src": [
 "router-server/src/ingest.rs"
-]
-},
-"95% (권장)": {
-"kind": "str",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 ": !st?.active ? '백업 대상 없음' : `마지막 검사 $": {
@@ -924,6 +948,12 @@
 "kind": "str",
 "src": [
 "src/pages/Events.jsx"
+]
+},
+"<p>기록 없음</p>": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "<경로>": {
@@ -1541,6 +1571,24 @@
 "router-server/src/metrics.rs"
 ]
 },
+"INSERT INTO inv_ledger (ms, tenant, sku, lot, kind, qty, reason, ref, by_user) VALUES (?1,?2,?3,?4,'adjust',?5,'count','방문 점검',?6)": {
+"kind": "rs",
+"src": [
+"router-server/src/inventory.rs"
+]
+},
+"INSERT INTO inv_ledger (ms, tenant, sku, lot, kind, qty, reason, ref, by_user) VALUES (?1,?2,?3,?4,'adjust',?5,'count','방문 점검: 기록 없는 재고',?6)": {
+"kind": "rs",
+"src": [
+"router-server/src/inventory.rs"
+]
+},
+"INSERT INTO inv_ledger (ms, tenant, sku, lot, kind, qty, reason, ref, by_user) VALUES (?1,?2,?3,?4,'adjust',?5,?6,'방문 점검',?7)": {
+"kind": "rs",
+"src": [
+"router-server/src/inventory.rs"
+]
+},
 "INSERT INTO inv_sku (id, name, per_box, unit_price, wear_days) VALUES ('ECG-PATCH-14D', 'ECG 패치 14일형', 10, 0, 14)": {
 "kind": "rs",
 "src": [
@@ -1761,7 +1809,49 @@
 "src/pages/AdminUsers.jsx"
 ]
 },
+"PO-{0} {1}: 출고 {2} / 수령 {3}": {
+"kind": "rs-tpl",
+"src": [
+"router-server/src/inventory.rs"
+]
+},
+"PO-{0} {1}줄 {2}": {
+"kind": "rs-tpl",
+"src": [
+"router-server/src/admin_api.rs"
+]
+},
 "PO-{0} 를 취소할까요?": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"PO-{0} 삭제": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"PO-{0} 수령 {1}개": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"PO-{0} 수령 확인": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"PO-{0} 승인": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"PO-{0} 요청을 지울까요?": {
 "kind": "tpl",
 "src": [
 "src/pages/Inventory.jsx"
@@ -2009,11 +2099,29 @@
 "src/pages/Alarms.jsx"
 ]
 },
+"`, p.approved_by && `승인 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"`, p.eta && `도착 예정 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "`, p.nurse && `간호사 $": {
 "kind": "jsx",
 "src": [
 "src/pages/MapPage.jsx",
 "src/pages/Patients.jsx"
+]
+},
+"`, p.tracking && `송장 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "`, q.get('dept') && `진료과 $": {
@@ -2074,6 +2182,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/Integration.jsx"
+]
+},
+"`점검 저장 — 기록 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "alarm rules {0}: {1} — 기본값 사용": {
@@ -2554,7 +2668,7 @@
 "router-server/src/reset.rs"
 ]
 },
-"{0} {1} 반영": {
+"{0} {1} {2}개": {
 "kind": "tpl",
 "src": [
 "src/pages/Inventory.jsx"
@@ -2584,6 +2698,12 @@
 "router-server/src/emu_link.rs"
 ]
 },
+"{0} {1}로트": {
+"kind": "rs-tpl",
+"src": [
+"router-server/src/admin_api.rs"
+]
+},
 "{0} {1}회": {
 "kind": "tpl",
 "src": [
@@ -2600,6 +2720,12 @@
 "kind": "rs-tpl",
 "src": [
 "router-server/src/auth.rs"
+]
+},
+"{0} · {1}개": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "{0} · 세션 {1} · 구독 {2} · 저장 큐 최대 {3}": {
@@ -2626,10 +2752,22 @@
 "router-server/src/emr_link.rs"
 ]
 },
+"{0} → {1} {2}개 이동": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "{0} 가 로컬 저장소와 같은 디스크입니다 — NAS 가 마운트되지 않았습니다 (의도한 경우 '마운트 확인 생략')": {
 "kind": "rs-tpl",
 "src": [
 "router-server/src/backup.rs"
+]
+},
+"{0} 계약·보충 설정 저장": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "{0} 단일 침상 모니터 열기": {
@@ -2692,13 +2830,7 @@
 "router-server/src/backup.rs"
 ]
 },
-"{0} 발주 작성 {1}상자": {
-"kind": "tpl",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"{0} 보충 기준 저장": {
+"{0} 발주 요청 {1}상자": {
 "kind": "tpl",
 "src": [
 "src/pages/Inventory.jsx"
@@ -2720,12 +2852,6 @@
 "kind": "tpl",
 "src": [
 "src/pages/AdminSecurity.jsx"
-]
-},
-"{0} 실사 {1}개 반영": {
-"kind": "tpl",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 "{0} 실패 목록을 지웠습니다": {
@@ -2806,7 +2932,7 @@
 "src/pages/AdminUsers.jsx"
 ]
 },
-"{0} 입고 {1}개 ({2})": {
+"{0} 입고 {1}개": {
 "kind": "tpl",
 "src": [
 "src/pages/Inventory.jsx"
@@ -2979,7 +3105,8 @@
 "{0}개": {
 "kind": "tpl",
 "src": [
-"src/pages/Gateways.jsx"
+"src/pages/Gateways.jsx",
+"src/pages/Inventory.jsx"
 ]
 },
 "{0}개 멈춤": {
@@ -2994,6 +3121,12 @@
 "src/pages/Viewers.jsx"
 ]
 },
+"{0}개 병원, 남은 수량 {1}개": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "{0}개{1}": {
 "kind": "tpl",
 "src": [
@@ -3004,6 +3137,12 @@
 "kind": "rs-tpl",
 "src": [
 "router-server/src/emr_link.rs"
+]
+},
+"{0}까지 발주": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "{0}명": {
@@ -3053,6 +3192,18 @@
 "src/pages/Events.jsx"
 ]
 },
+"{0}상자 · {1}개": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"{0}상자 발주 요청": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "{0}세": {
 "kind": "tpl",
 "src": [
@@ -3095,6 +3246,18 @@
 "src/pages/AdminSecurity.jsx"
 ]
 },
+"{0}원": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"{0}을 반영했습니다.": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "{0}을(를) {1} 합니다. 계속할까요?": {
 "kind": "tpl",
 "src": [
@@ -3111,8 +3274,7 @@
 "kind": "tpl",
 "src": [
 "router-server/src/alarms.rs",
-"src/model.js",
-"src/pages/Inventory.jsx"
+"src/model.js"
 ]
 },
 "{0}일 {1}시간": {
@@ -3143,7 +3305,13 @@
 "src/pages/AdminSecurity.jsx"
 ]
 },
-"{0}일 전 · {1}개": {
+"{0}일분": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"{0}쯤 다음 발주 (배송 {1}일 감안, {2} 품절 예상)": {
 "kind": "tpl",
 "src": [
 "src/pages/Inventory.jsx"
@@ -3254,6 +3422,12 @@
 "src/pages/Patients.jsx"
 ]
 },
+"· {0} 품절": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "· ☁ 백업 $": {
 "kind": "jsx",
 "src": [
@@ -3287,6 +3461,7 @@
 "· 남은": {
 "kind": "jsx",
 "src": [
+"src/pages/Inventory.jsx",
 "src/pages/Trips.jsx"
 ]
 },
@@ -3412,6 +3587,12 @@
 "src/pages/Viewers.jsx"
 ]
 },
+"· 목표 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "· 무응답 $": {
 "kind": "jsx",
 "src": [
@@ -3434,6 +3615,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/EcgEngine.jsx"
+]
+},
+"· 발주 시점 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "· 배터리": {
@@ -3635,6 +3822,18 @@
 "src/pages/Gateways.jsx"
 ]
 },
+"· 오는 중 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"· 오는 중 {0}": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "· 오늘": {
 "kind": "str",
 "src": [
@@ -3672,7 +3871,7 @@
 ]
 },
 "· 이 라우터": {
-"kind": "jsx",
+"kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -3687,12 +3886,6 @@
 "kind": "jsx",
 "src": [
 "src/pages/LiveModal.jsx"
-]
-},
-"· 이력": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 "· 이벤트": {
@@ -3815,12 +4008,6 @@
 "src/pages/MultiViewerTest.jsx"
 ]
 },
-"· 착용 기준선 {0}/일 (착용 {1}명 ÷ 착용 일수, 비중 {2}%)": {
-"kind": "tpl",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "· 최고": {
 "kind": "jsx",
 "src": [
@@ -3831,12 +4018,6 @@
 "kind": "str",
 "src": [
 "src/pages/Alarms.jsx"
-]
-},
-"· 최근 7일 오차 {0}%": {
-"kind": "tpl",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 "· 최대": {
@@ -4021,6 +4202,12 @@
 "src/pages/NasMigration.jsx"
 ]
 },
+"— 남은 재고 + 오는 중이 이만큼 이하가 되면 발주합니다. 배송 기간(": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "— 누르거나 ←/→ 로 바꿉니다$": {
 "kind": "jsx",
 "src": [
@@ -4057,6 +4244,12 @@
 "src/pages/Viewers.jsx"
 ]
 },
+"— 목표 재고 − (남은 재고": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "— 백업이 밀리면 상한을 넘어도 지우지 않음": {
 "kind": "jsx",
 "src": [
@@ -4067,6 +4260,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/AdminUsers.jsx"
+]
+},
+"— 사용이 예측보다 많을 때를 대비한 양. 품절 방지 수준": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "— 사용자·비밀번호 또는 공유 권한을 확인하세요": {
@@ -4135,6 +4334,12 @@
 "src/pages/McotMap.jsx"
 ]
 },
+"— 채울 때 맞추는 양. 배송 기간 + 다음 점검까지(": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "— 초기화 실패: SFTP 는 대부분 호스트 키가 ~/.ssh/known_hosts 에 없을 때입니다 ('호스트 키 확인 생략' 또는 ssh 로 한 번 접속)": {
 "kind": "rs",
 "src": [
@@ -4165,13 +4370,25 @@
 "src/pages/LiveModal.jsx"
 ]
 },
+"→ 실제": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"→ 실제 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "→ 지금": {
 "kind": "jsx",
 "src": [
 "src/pages/MapPatientPanel.jsx"
 ]
 },
-"− (현재고": {
+"− (남은 재고": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -4207,6 +4424,12 @@
 "src/pages/NasMigration.jsx"
 ]
 },
+"① 재고 전망 — 지금 재고로 언제까지 버티나": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "② 설정 시간 — 백업이 멈춰 있습니다. NAS 를 연결·마운트하세요": {
 "kind": "jsx",
 "src": [
@@ -4217,6 +4440,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/NasMigration.jsx"
+]
+},
+"② 하루 사용량 — 지금까지 실제와 앞으로 예측": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "②의 행(병동·병실·담당의 …)이나 ③의 환자를 끌어 놓거나, 체크 후 \"그룹에 담기 →\"": {
@@ -4235,6 +4464,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/NasMigration.jsx"
+]
+},
+"③ 앞으로 필요한 양": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "④ 이관 —": {
@@ -4486,24 +4721,6 @@
 "src/pages/AdminAudit.jsx"
 ]
 },
-"감소 조정": {
-"kind": "str",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"감소는 유효기간이 먼저인 로트부터 뺍니다. 이 라우터 병원의 패치 부착은 자동 차감되므로 수동 사용은 다른 병원·예외에만 쓰세요.": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"감쇠 추세 (Holt)": {
-"kind": "str",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "감시 중": {
 "kind": "jsx",
 "src": [
@@ -4604,7 +4821,7 @@
 "src/pages/NasMigration.jsx"
 ]
 },
-"개 ($": {
+"개 (하루 약": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -4624,6 +4841,12 @@
 "src/pages/BiosignalAdmin.jsx"
 ]
 },
+"개 · 목표 재고": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "개 · 사용": {
 "kind": "jsx",
 "src": [
@@ -4634,12 +4857,6 @@
 "kind": "jsx",
 "src": [
 "src/pages/BiosignalAdmin.jsx"
-]
-},
-"개 · 소비 추이 기반": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 "개 · 오류": {
@@ -4672,13 +4889,7 @@
 "src/pages/BiosignalAdmin.jsx"
 ]
 },
-"개 · 폐기 조정 권장": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"개 — 차이는 '실사 차이' 조정으로 원장에 남습니다.": {
+"개 — 방문 점검에서 폐기·반품` : `60일 안 만료 $": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -4694,6 +4905,24 @@
 "kind": "jsx",
 "src": [
 "src/pages/Integration.jsx"
+]
+},
+"개 병원, 남은 수량 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"개 사용 예측)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"개 상자 단위로 올림.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "개 추가$": {
@@ -4729,7 +4958,32 @@
 "개$": {
 "kind": "jsx",
 "src": [
-"src/pages/BiosignalAdmin.jsx"
+"src/pages/BiosignalAdmin.jsx",
+"src/pages/Inventory.jsx"
+]
+},
+"개) — 목표 재고까지 채우는 양`, action: 'po', label: `$": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"개)씩 늘어납니다. 로트가 여러 개면 줄이 추가됩니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"개)을 주로 썼습니다.` : ` $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"개.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "개/상자": {
@@ -4738,7 +4992,7 @@
 "src/pages/Inventory.jsx"
 ]
 },
-"개로 올림": {
+"개가 부착됐습니다. 실제로 센 수량으로 맞추면 해소됩니다.": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -4857,6 +5111,12 @@
 "src/pages/Dashboard.jsx"
 ]
 },
+"건 (자동 차감)` : l.grp === 'shortage' ? `재고 기록 없을 때 부착 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "건 · 10초마다 갱신 · 병원 역할은 자기 병원 기록만": {
 "kind": "jsx",
 "src": [
@@ -4873,6 +5133,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/AdminSecurity.jsx"
+]
+},
+"건 — 병원 발주번호를 넣고 승인하세요.` : `발주 요청 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "건 — 최근": {
@@ -5082,12 +5348,6 @@
 "router-server/src/admin_api.rs"
 ]
 },
-"검토 주기(일)": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "게이트웨이": {
 "kind": "str",
 "src": [
@@ -5277,10 +5537,52 @@
 "src/pages/FloorPlan.jsx"
 ]
 },
+"계산 근거 보기": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "계속하려면 대상 이름을 그대로 입력하세요: {0}": {
 "kind": "tpl",
 "src": [
 "src/pages/BiosignalAdmin.jsx"
+]
+},
+"계약": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"계약 · 보충 설정": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"계약 종료일": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"계약 종료일은 YYYY-MM-DD": {
+"kind": "rs",
+"src": [
+"router-server/src/inventory.rs"
+]
+},
+"계약·보충 설정": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"계약·보충 설정은 공급사(리셀러·영업)가 합니다": {
+"kind": "rs",
+"src": [
+"router-server/src/admin_api.rs"
 ]
 },
 "계정": {
@@ -5460,6 +5762,36 @@
 "src/pages/AdminSecurity.jsx"
 ]
 },
+"공급사 메모:": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"공급사 발주 요청 {0}건 — 병원 발주번호를 넣고 승인하세요.": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"공급사 소유 · 쓴 만큼 매달 청구": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"공급사 출고를 기다리는 중입니다.": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"공급사 확인: ______________": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "공유 안 폴더": {
 "kind": "str",
 "src": [
@@ -5539,10 +5871,33 @@
 "src/pages/OpsStats.jsx"
 ]
 },
+"구매": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"구매 — 납품 수량 청구": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"구매 — 납품(입고) 수량 청구": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"구매(납품 때 청구)": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "구분": {
 "kind": "jsx",
 "src": [
-"src/pages/Inventory.jsx",
 "src/pages/Reports.jsx"
 ]
 },
@@ -5584,8 +5939,32 @@
 "src/pages/ViewerSettings.jsx"
 ]
 },
+"권장 (95%)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"권장 {0}상자 ({1}개) — 목표 재고까지 채우는 양": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "권장 발주": {
 "kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"권장값 넣기": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"권장의 {0}배": {
+"kind": "tpl",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -5637,6 +6016,12 @@
 "kind": "rs",
 "src": [
 "router-server/src/reports.rs"
+]
+},
+"그대로 둠": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "그룹": {
@@ -5766,12 +6151,18 @@
 "src/reports/billing.js"
 ]
 },
+"급한 순": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "기간": {
 "kind": "str",
 "src": [
 "src/pages/AdminSecurity.jsx",
 "src/pages/Events.jsx",
-"src/pages/LiveModal.jsx"
+"src/pages/Inventory.jsx"
 ]
 },
 "기간 데이터를 모으는 중…": {
@@ -5813,7 +6204,8 @@
 "기록": {
 "kind": "jsx",
 "src": [
-"src/pages/BiosignalAdmin.jsx"
+"src/pages/BiosignalAdmin.jsx",
+"src/pages/Inventory.jsx"
 ]
 },
 "기록 {0}": {
@@ -5834,6 +6226,12 @@
 "src/pages/Reports.jsx"
 ]
 },
+"기록 밖 사용": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "기록 시간": {
 "kind": "str",
 "src": [
@@ -5844,6 +6242,18 @@
 "kind": "jsx",
 "src": [
 "src/pages/Reports.jsx"
+]
+},
+"기록 없는 재고를 찾음": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"기록 없음": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "기록 종료": {
@@ -5858,10 +6268,40 @@
 "src/pages/EcgEngine.jsx"
 ]
 },
+"기록된 로트가 없습니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "기록된 스캐닝이 없습니다.": {
 "kind": "str",
 "src": [
 "src/pages/AdminSecurity.jsx"
+]
+},
+"기록보다 많이 사용": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"기록에 없는 로트입니다. 아래 '기록에 없는 재고'에 수량을 넣으세요.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"기록에 없는 재고": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"기록에 없는 재고 (발견)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "기록이 없습니다": {
@@ -5874,7 +6314,8 @@
 "kind": "jsx",
 "src": [
 "src/ListKit.jsx",
-"src/pages/AdminAudit.jsx"
+"src/pages/AdminAudit.jsx",
+"src/pages/Inventory.jsx"
 ]
 },
 "기본": {
@@ -5910,6 +6351,18 @@
 "src/pages/BiosignalAdmin.jsx"
 ]
 },
+"기본 단가": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"기본 단가(원)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "기본 리듬: {0}. 평균 심박수 {1} bpm (최저 {2} {3}, 최고 {4} {5}). {6}: {7}. 심실조기수축 {8}%, 상심실성 {9}%. 최장 휴지: {10}.": {
 "kind": "tpl",
 "src": [
@@ -5943,8 +6396,7 @@
 "기준": {
 "kind": "jsx",
 "src": [
-"src/pages/Dashboard.jsx",
-"src/pages/Inventory.jsx"
+"src/pages/Dashboard.jsx"
 ]
 },
 "기준 닫기": {
@@ -5989,6 +6441,24 @@
 "kind": "rs",
 "src": [
 "router-server/src/auth.rs"
+]
+},
+"까지 (": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"까지 발주": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"까지 발주`, text: `권장 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "꺼진 채로 두기": {
@@ -6086,6 +6556,12 @@
 "router-server/src/reports.rs"
 ]
 },
+"날짜별 사용": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "남": {
 "kind": "str",
 "src": [
@@ -6100,6 +6576,12 @@
 "src/pages/Trips.jsx"
 ]
 },
+"남은 로트가 없습니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "남은 백업": {
 "kind": "jsx",
 "src": [
@@ -6112,6 +6594,12 @@
 "src/pages/NasMigration.jsx"
 ]
 },
+"남은 수량": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "남은 시간": {
 "kind": "str",
 "src": [
@@ -6119,16 +6607,28 @@
 "src/pages/AdminControl.jsx"
 ]
 },
+"남은 재고": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"남은 재고 {0} · 오는 중 {1} · 발주 시점 {2} · 목표 {3}": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"남은 재고(예상)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "남음)": {
 "kind": "jsx",
 "src": [
 "src/pages/Trips.jsx"
-]
-},
-"납품 요청 사항": {
-"kind": "str",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 "낮음": {
@@ -6189,6 +6689,12 @@
 "src": [
 "src/model.js",
 "src/pages/Viewers.jsx"
+]
+},
+"높음 (99%) — 재고 많이": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "높이": {
@@ -6284,12 +6790,6 @@
 "src/pages/Reports.jsx"
 ]
 },
-"늦어도 {0} 발주 (리드타임 {1}일)": {
-"kind": "tpl",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "다른 대상의 기존 파일도 미러링": {
 "kind": "jsx",
 "src": [
@@ -6300,6 +6800,24 @@
 "kind": "str",
 "src": [
 "src/App.jsx"
+]
+},
+"다른 병원과 1 이상 수량이 필요합니다": {
+"kind": "rs",
+"src": [
+"router-server/src/inventory.rs"
+]
+},
+"다른 병원에서 이동": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"다른 병원으로 이동": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "다시 누르면 핀에 맞춤": {
@@ -6368,6 +6886,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/Integration.jsx"
+]
+},
+"다음 발주 판단까지 걸리는 기간": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "다음 병동 열기": {
@@ -6634,6 +7158,18 @@
 "src/viewer/History.jsx"
 ]
 },
+"더 필요한 양": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"더 필요한 양 = 예상 사용 − (남은 재고": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "데모 병원 (격리 시험용)": {
 "kind": "rs",
 "src": [
@@ -6705,6 +7241,18 @@
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
+]
+},
+"도착 예정 {0}": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"도착 예정일은 YYYY-MM-DD": {
+"kind": "rs",
+"src": [
+"router-server/src/inventory.rs"
 ]
 },
 "도쿄": {
@@ -6883,6 +7431,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/Viewers.jsx"
+]
+},
+"뜯김·불량": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "라우터 = 이 프로세스가 쓴 CPU(4코어 합, 최대 400 %). 시스템 = 기기 전체 사용률(모든 프로세스, 최대 100 %).": {
@@ -7081,6 +7635,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/EcgEngine.jsx"
+]
+},
+"로": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "로 닫기.": {
@@ -7316,7 +7876,31 @@
 ]
 },
 "로트": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"로트 (모르면 비워 두기 — 유효기간 빠른 것부터)": {
 "kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"로트 {0} 없음": {
+"kind": "rs-tpl",
+"src": [
+"router-server/src/inventory.rs"
+]
+},
+"로트 바코드 스캔 → 그 줄로 이동": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"로트 바코드 스캔 또는 로트 번호 입력 후 Enter": {
+"kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -7333,10 +7917,34 @@
 "router-server/src/inventory.rs"
 ]
 },
+"로트 잔량({0})보다 많습니다": {
+"kind": "rs-tpl",
+"src": [
+"router-server/src/inventory.rs"
+]
+},
+"로트 추적": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"로트를 찾을 수 없습니다": {
+"kind": "rs",
+"src": [
+"router-server/src/inventory.rs"
+]
+},
 "루트(로그인 폴더)에는 쓰지 않습니다. 이 디렉터리는 서버에 미리 만들어 두세요 — 들어가서 그 안에만 폴더를 만들고 기록합니다.": {
 "kind": "jsx",
 "src": [
 "src/pages/BiosignalAdmin.jsx"
+]
+},
+"를 쓸 것으로 예측합니다": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "를 지울까요?`)) return; setBusy(true); try": {
@@ -7349,12 +7957,6 @@
 "kind": "jsx",
 "src": [
 "src/pages/Trips.jsx"
-]
-},
-"리드타임(일)": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 "리듬 (분석)": {
@@ -7393,6 +7995,12 @@
 "kind": "str",
 "src": [
 "src/pages/NetworkSettings.jsx"
+]
+},
+"리콜 · 품질 문의": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "링크 품질 (최근 5분)": {
@@ -7530,22 +8138,28 @@
 "src/pages/AdminUsers.jsx"
 ]
 },
-"만료": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "만료 {0}": {
 "kind": "tpl",
 "src": [
 "src/pages/Integration.jsx"
 ]
 },
+"맡은 병원에서 찾지 못했습니다": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "매우 약함": {
 "kind": "jsx",
 "src": [
 "src/pages/MapPage.jsx"
+]
+},
+"매우 큽니다": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "매칭": {
@@ -7641,6 +8255,12 @@
 "src/pages/Inventory.jsx"
 ]
 },
+"메모 (병원에 보임)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "메모리": {
 "kind": "jsx",
 "src": [
@@ -7709,7 +8329,7 @@
 "src/pages/MapPage.jsx"
 ]
 },
-"명 ÷ 착용 일수, 비중 $": {
+"명 ÷ 착용 $": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -7781,6 +8401,12 @@
 "src/pages/Dashboard.jsx"
 ]
 },
+"모두 받음": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "모두 선택": {
 "kind": "jsx",
 "src": [
@@ -7790,7 +8416,8 @@
 "모두 정상": {
 "kind": "str",
 "src": [
-"src/pages/AdminControl.jsx"
+"src/pages/AdminControl.jsx",
+"src/pages/Inventory.jsx"
 ]
 },
 "모두 지우기": {
@@ -7948,7 +8575,19 @@
 "src/pages/Events.jsx"
 ]
 },
-"목표재고": {
+"목표": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"목표 재고": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"목표 재고 — 채울 때 맞추는 양": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -8318,10 +8957,28 @@
 "src/pages/Patients.jsx"
 ]
 },
+"받은 수량": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"받을 병원 (품절이 빠른 순)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "받을 준비(저장·환자 정보) → 수신 → 화면 → 알림·EMR → 백업 순으로 켭니다. 단계마다 확인한 뒤 다음으로 넘어가세요.": {
 "kind": "str",
 "src": [
 "src/pages/AdminControl.jsx"
+]
+},
+"발견": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "발생": {
@@ -8343,50 +9000,62 @@
 "src/pages/Alarms.jsx"
 ]
 },
-"발주": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"발주 (리드타임 $": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "발주 기한": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
-"발주 없음": {
+"발주 승인은 병원 담당자(IT·간호·원무)가 합니다": {
+"kind": "rs",
+"src": [
+"router-server/src/admin_api.rs"
+]
+},
+"발주 시점": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
-"발주 작성": {
+"발주 시점 — 이 아래로 내려가면 발주": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"발주 시점에 닿으면 권장 수량으로 요청을 만들어 병원 승인을 기다립니다": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"발주 없이 입고": {
 "kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
-"발주 작성 $": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"발주 필요": {
+"발주 요청": {
 "kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
-"발주 필요 품목": {
+"발주 요청 $": {
 "kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"발주 요청 {0}건이 병원 승인을 기다립니다.": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"발주 진행": {
+"kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -8427,6 +9096,18 @@
 "src/pages/Trips.jsx"
 ]
 },
+"방문 점검": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"방문 점검 주기 (일)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "방실 차단 (엔진 미지원)": {
 "kind": "rs",
 "src": [
@@ -8449,6 +9130,30 @@
 "kind": "str",
 "src": [
 "src/geo/world.js"
+]
+},
+"배송 기간 (일)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"배송 기간 안에 떨어짐": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"배송 중": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"배송에": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "배치 중앙값)$": {
@@ -8714,10 +9419,21 @@
 "src/pages/EcgEngine.jsx"
 ]
 },
-"번호": {
+"버티는 기간": {
 "kind": "jsx",
 "src": [
-"src/pages/Inventory.jsx",
+"src/pages/Inventory.jsx"
+]
+},
+"버팁니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"번호": {
+"kind": "str",
+"src": [
 "src/pages/LiveModal.jsx"
 ]
 },
@@ -9005,16 +9721,46 @@
 "src/pages/Inventory.jsx"
 ]
 },
+"병원 간 이동은 두 병원을 모두 맡은 공급사가 합니다": {
+"kind": "rs",
+"src": [
+"router-server/src/admin_api.rs"
+]
+},
 "병원 계정": {
 "kind": "jsx",
 "src": [
 "src/pages/Login.jsx"
 ]
 },
+"병원 단가 (원 · 비우면 품목 기본가)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"병원 발주번호 (구매 시스템 번호 · 없으면 비워 두기)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"병원 발주번호 {0}": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "병원 생체신호 모니터링 콘솔": {
 "kind": "jsx",
 "src": [
 "src/pages/Login.jsx"
+]
+},
+"병원 소유 · 납품(입고) 때 청구": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "병원 수정": {
@@ -9027,6 +9773,30 @@
 "kind": "tpl",
 "src": [
 "src/pages/AdminTenants.jsx"
+]
+},
+"병원 승인": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"병원 승인 대기": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"병원 승인 후에 출고할 수 있습니다": {
+"kind": "rs",
+"src": [
+"router-server/src/inventory.rs"
+]
+},
+"병원 승인을 기다립니다.": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "병원 역할은 소속 병원이 필요합니다": {
@@ -9086,7 +9856,19 @@
 "src/pages/AdminTenants.jsx"
 ]
 },
-"병원·품목": {
+"병원 확인: ______________": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"병원 확인자 (필수)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"병원마다 남은 패치와 품절 시점을 보고, 떨어지기 전에 채워 넣습니다.": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -9098,8 +9880,8 @@
 "src/pages/AdminPermissions.jsx"
 ]
 },
-"병원별 위탁 재고 · 유효기간 선입선출(FEFO) · 사용량 기반 보충 권장": {
-"kind": "jsx",
+"병원에 요청": {
+"kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -9108,6 +9890,12 @@
 "kind": "rs",
 "src": [
 "router-server/src/auth_api.rs"
+]
+},
+"병원이 승인했습니다. 로트를 지정해 출고하세요.": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "보고서 기준 211 ns (M1 Ultra)": {
@@ -9132,6 +9920,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/EcgEngine.jsx"
+]
+},
+"보관 장소의 상자를 로트별로 셉니다 (스캔하면 그 줄로 이동).": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "보관함에 그 버전이 없습니다": {
@@ -9160,6 +9954,12 @@
 "src/pages/Events.jsx"
 ]
 },
+"보기 범위": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "보기 전용 — 이 화면의 설정을 바꾸려면 권한 설정에서 '편집' 이 필요합니다.": {
 "kind": "jsx",
 "src": [
@@ -9170,6 +9970,30 @@
 "kind": "str",
 "src": [
 "src/pages/AdminSecurity.jsx"
+]
+},
+"보내는 상자의 로트를 스캔하세요. 같은 로트를 다시 찍으면 한 상자(": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"보낸 수량": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"보낸 수량과 다릅니다 — 차이가 기록에 남고 공급사가 확인합니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"보낼 로트": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "보낼 환자 범위": {
@@ -9240,8 +10064,8 @@
 "src/pages/NetworkSettings.jsx"
 ]
 },
-"보충 기준": {
-"kind": "str",
+"보충": {
+"kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -9252,6 +10076,12 @@
 "src/ListKit.jsx",
 "src/pages/Live.jsx",
 "src/pages/MapPage.jsx"
+]
+},
+"보통 (90%) — 재고 적게": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "보행": {
@@ -9760,6 +10590,12 @@
 "src/pages/EcgEngine.jsx"
 ]
 },
+"빨강·노랑 카드": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "빼기": {
 "kind": "str",
 "src": [
@@ -9786,8 +10622,26 @@
 "src/pages/AdminUsers.jsx"
 ]
 },
-"사용 · 조정": {
+"사용 (수동)": {
 "kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"사용 · 파손 · 분실": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"사용 기록이 {0}일뿐이라 현재 착용 인원({1}명 ÷ 착용 {2}일 = 하루 {3}개)을 주로 썼습니다.": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"사용 명세 $": {
+"kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -9818,13 +10672,7 @@
 "src/pages/AdminUsers.jsx"
 ]
 },
-"사용(수동)": {
-"kind": "str",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"사용·조정": {
+"사용·파손·분실": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -9846,8 +10694,7 @@
 "kind": "jsx",
 "src": [
 "src/pages/AdminControl.jsx",
-"src/pages/AdminSecurity.jsx",
-"src/pages/Inventory.jsx"
+"src/pages/AdminSecurity.jsx"
 ]
 },
 "사유 (개발 모드: 생략 가능)": {
@@ -10038,14 +10885,26 @@
 "src/pages/Inventory.jsx"
 ]
 },
-"상자 = 목표재고": {
+"상자 ($": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
-"상자 ·": {
+"상자 = $": {
 "kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"상자 · $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"상자 바코드를 스캔하세요 (GS1) — 또는 로트 번호 입력 후 Enter": {
+"kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -10062,13 +10921,31 @@
 "router-server/src/inventory.rs"
 ]
 },
-"상자) 입고로 처리되어 발주가 '입고' 상태가 됩니다.": {
+"상자$": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"상자: 목표 재고": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"상자당": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
 "상자당 수량": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"상자를 열어 로트별로 받은 수량을 확인하세요. 다르면 실제로 받은 수량으로 고칩니다.": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -10374,12 +11251,6 @@
 "router-server/src/reset.rs"
 ]
 },
-"서비스 수준": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "서비스 제어": {
 "kind": "str",
 "src": [
@@ -10642,7 +11513,13 @@
 "router-server/src/inventory.rs"
 ]
 },
-"소비 추이 · 수요 예측": {
+"센 수량을 넣습니다. 기본값은 기록 수량입니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"소비 추이 예측 기준": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -10738,8 +11615,8 @@
 "src/pages/OpsStats.jsx"
 ]
 },
-"송장 · 도착 예정": {
-"kind": "jsx",
+"송장 {0}": {
+"kind": "tpl",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -10795,6 +11672,30 @@
 },
 "수량(개)": {
 "kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"수령": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"수령 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"수령 수량 차이": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"수령 확인": {
+"kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -10919,6 +11820,12 @@
 "kind": "str",
 "src": [
 "src/pages/AdminControl.jsx"
+]
+},
+"수요 예측": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "수정": {
@@ -11073,6 +11980,54 @@
 "src": [
 "router-server/src/auth.rs",
 "src/pages/AdminUsers.jsx"
+]
+},
+"승인": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"승인 (병원 발주번호)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"승인 {0}": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"승인·출고·수령은 각 단계 버튼으로 진행합니다": {
+"kind": "rs",
+"src": [
+"router-server/src/admin_api.rs"
+]
+},
+"승인됨 · 출고 대기": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"승인하기": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"승인하면 공급사가 출고합니다. 수량이 다르면 승인하지 말고 공급사에 연락하세요.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"승인할 수 없는 상태입니다 ({0})": {
+"kind": "rs-tpl",
+"src": [
+"router-server/src/inventory.rs"
 ]
 },
 "시 · $": {
@@ -11271,12 +12226,6 @@
 "src/App.jsx"
 ]
 },
-"시스템 현재고": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "시작": {
 "kind": "str",
 "src": [
@@ -11409,18 +12358,6 @@
 "src/pages/EcgEngine.jsx"
 ]
 },
-"실사": {
-"kind": "str",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"실사 $": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "실사 {0}": {
 "kind": "rs-tpl",
 "src": [
@@ -11431,12 +12368,6 @@
 "kind": "rs-tpl",
 "src": [
 "router-server/src/inventory.rs"
-]
-},
-"실사 차이": {
-"kind": "str",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 "실시간": {
@@ -11477,7 +12408,13 @@
 "src/reports/billing.js"
 ]
 },
-"실제로 센 수량(개)": {
+"실제 사용(하루)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"실제로 센 수량": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -11898,13 +12835,7 @@
 "src/pages/EcgEngine.jsx"
 ]
 },
-"안전": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"안전재고 = z·σ·√리드타임, 재주문점 = 일평균×리드타임 + 안전재고, 목표재고 = 일평균×(리드타임+검토 주기) + 안전재고.": {
+"안전 여유": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -12120,14 +13051,50 @@
 "src/pages/LiveModal.jsx"
 ]
 },
+"앞으로": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"앞으로 30일 예상 사용": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"앞으로 30일 필요": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"앞으로 90일 넘게 버팁니다.": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"앞으로 하루 평균": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"약": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "약 {0}일": {
 "kind": "tpl",
 "src": [
 "src/pages/AdminSecurity.jsx"
 ]
 },
-"약 {0}일분": {
-"kind": "tpl",
+"약정 수량 (월, 개)": {
+"kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -12472,9 +13439,8 @@
 ]
 },
 "여유": {
-"kind": "str",
+"kind": "jsx",
 "src": [
-"src/pages/Inventory.jsx",
 "src/pages/NasMigration.jsx"
 ]
 },
@@ -12714,6 +13680,12 @@
 "src/pages/AdminSecurity.jsx"
 ]
 },
+"예: 7병동 수간호사 김OO": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "예: H003 (영문·숫자, 바꿀 수 없음)": {
 "kind": "str",
 "src": [
@@ -12724,6 +13696,12 @@
 "kind": "str",
 "src": [
 "src/pages/AdminTenants.jsx"
+]
+},
+"예: 다음 주 화요일 오전 배송 희망": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "예: 본관 NAS": {
@@ -12744,10 +13722,34 @@
 "src/pages/AdminTenants.jsx"
 ]
 },
+"예상 금액": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"예상 사용": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "예정 없음": {
 "kind": "jsx",
 "src": [
 "src/pages/Trips.jsx"
+]
+},
+"예측": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"예측 범위 — 10번 중 8번은 이 안": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "옌볜": {
@@ -12920,10 +13922,40 @@
 "src/pages/Reports.jsx"
 ]
 },
+"요청": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"요청 · 승인 · 배송": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"요청 단계까지만 지울 수 있습니다 (그 뒤는 취소)": {
+"kind": "rs",
+"src": [
+"router-server/src/inventory.rs"
+]
+},
 "요청 중…": {
 "kind": "str",
 "src": [
 "src/pages/Integration.jsx"
+]
+},
+"요청 후 병원 담당자가 병원 발주번호를 넣어 승인하면 출고할 수 있습니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"요청(공급사) → 병원 승인 → 출고(공급사) → 수령 확인(병원)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "용량": {
@@ -12986,6 +14018,18 @@
 "kind": "jsx",
 "src": [
 "src/pages/Login.jsx"
+]
+},
+"운영 방식": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"운영 방식은 위탁(consign) 또는 구매(purchase)": {
+"kind": "rs",
+"src": [
+"router-server/src/inventory.rs"
 ]
 },
 "운영 중": {
@@ -13242,6 +14286,30 @@
 "router-server/src/emu_link.rs"
 ]
 },
+"월": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"월 명세": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"월 사용 명세서 — $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"월은 YYYY-MM": {
+"kind": "rs",
+"src": [
+"router-server/src/inventory.rs"
+]
+},
 "웹 뷰어 (탭) · WS 세션": {
 "kind": "str",
 "src": [
@@ -13285,6 +14353,12 @@
 "src/pages/BiosignalAdmin.jsx"
 ]
 },
+"위에서부터 먼저 씁니다 (유효기간 빠른 순).": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "위치": {
 "kind": "jsx",
 "src": [
@@ -13303,6 +14377,24 @@
 "kind": "tpl",
 "src": [
 "src/pages/Gateways.jsx"
+]
+},
+"위탁": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"위탁 — 사용 수량 청구": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"위탁(쓴 만큼 청구)": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "위험": {
@@ -13386,31 +14478,13 @@
 ]
 },
 "유효기간": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"유효기간 60일 이내": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"유효기간 만료": {
 "kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
-"유효기간 순 (먼저 쓰는 순서)": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"유효기간 임박": {
-"kind": "jsx",
+"유효기간 만료(폐기)": {
+"kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -13421,16 +14495,34 @@
 "src/pages/Inventory.jsx"
 ]
 },
-"유효기간 지남": {
+"유효기간 지난 {0}개 — 방문 점검에서 폐기·반품": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"유효기간 지난 로트는 폐기 또는 반품을 고릅니다.": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
+]
+},
+"유효기간 형식 오류: {0}": {
+"kind": "rs-tpl",
+"src": [
+"router-server/src/inventory.rs"
 ]
 },
 "유효기간은 YYYY-MM-DD": {
 "kind": "rs",
 "src": [
 "router-server/src/inventory.rs"
+]
+},
+"유효기간이 가까운 로트를 더 빨리 쓰는 병원으로 옮겨 폐기를 줄입니다. 같은 로트·유효기간으로 옮겨집니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "으로 기존 백업을 복사하는 중": {
@@ -13630,6 +14722,12 @@
 "src/pages/EcgEngine.jsx"
 ]
 },
+"이 달 사용·입고 기록이 없습니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "이 대상에서 다른 작업이 진행 중입니다": {
 "kind": "rs",
 "src": [
@@ -13653,6 +14751,12 @@
 "kind": "tpl",
 "src": [
 "src/pages/Integration.jsx"
+]
+},
+"이 라우터 병원의 패치 부착은 자동으로 빠집니다. 수동 사용은 다른 병원이나 예외에만 쓰세요.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "이 라우터는": {
@@ -13830,8 +14934,9 @@
 ]
 },
 "이동": {
-"kind": "jsx",
+"kind": "str",
 "src": [
+"src/pages/Inventory.jsx",
 "src/pages/Trips.jsx"
 ]
 },
@@ -14074,6 +15179,12 @@
 "router-server/src/auth.rs"
 ]
 },
+"인쇄 · PDF": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "인쇄 · PDF 저장": {
 "kind": "jsx",
 "src": [
@@ -14151,6 +15262,24 @@
 "src/pages/LiveModal.jsx"
 ]
 },
+"일 = 하루 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"일 감안, $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"일 걸리니": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "일 보관) · 시간 기록 $": {
 "kind": "jsx",
 "src": [
@@ -14169,7 +15298,7 @@
 "src/pages/AdminSecurity.jsx"
 ]
 },
-"일 전 · $": {
+"일 지남`, text: `점검 주기 $": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -14178,7 +15307,20 @@
 "일)": {
 "kind": "jsx",
 "src": [
+"src/pages/Inventory.jsx",
 "src/pages/Reports.jsx"
+]
+},
+"일) 동안 쓸 양 + 안전 여유": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"일) 쓸 양 + 안전 여유.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "일, 배터리 약 $": {
@@ -14219,10 +15361,22 @@
 "src/pages/AdminControl.jsx"
 ]
 },
+"일뿐이라 현재 착용 인원($": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "일상 생활의 간헐적 심전도 감시 [1회당]": {
 "kind": "str",
 "src": [
 "src/reports/billing.js"
+]
+},
+"일시": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "일시 중지": {
@@ -14357,14 +15511,14 @@
 "src/pages/Inventory.jsx"
 ]
 },
-"입고 예정": {
-"kind": "str",
+"입고 +": {
+"kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
-"입고 처리": {
-"kind": "jsx",
+"입고를 등록하면 재고 전망을 그립니다.": {
+"kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -14379,6 +15533,12 @@
 "kind": "rs-tpl",
 "src": [
 "router-server/src/admin_api.rs"
+]
+},
+"입력값이": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "입원": {
@@ -14493,7 +15653,20 @@
 "kind": "jsx",
 "src": [
 "router-server/src/security.rs",
+"src/pages/Inventory.jsx",
 "src/pages/OpsStats.jsx"
+]
+},
+"자동 발주 요청": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"자동 발주 요청 (발주 시점 도달)": {
+"kind": "rs",
+"src": [
+"router-server/src/inventory.rs"
 ]
 },
 "자동 배치 (48명 초과 시 숫자만)": {
@@ -14506,6 +15679,12 @@
 "kind": "str",
 "src": [
 "src/pages/Reports.jsx"
+]
+},
+"자동 요청": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "자동 재개": {
@@ -14527,6 +15706,12 @@
 "src/App.jsx"
 ]
 },
+"자동 차감이 안 되는 사용": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "자동 차단": {
 "kind": "str",
 "src": [
@@ -14543,18 +15728,6 @@
 "kind": "str",
 "src": [
 "src/geo/world.js"
-]
-},
-"작성": {
-"kind": "str",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"작성 → 제출 → 확인 → 출고 → 입고": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 "잘못된 버전 키": {
@@ -14605,31 +15778,43 @@
 "src/pages/MapPage.jsx"
 ]
 },
-"재고 로트 없음": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"재고 부족": {
+"재고 관리 시작 전": {
 "kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
-"재고 없음": {
-"kind": "str",
+"재고 기록 없을 때 부착 {0}건": {
+"kind": "tpl",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
-"재고 원장": {
+"재고 기록이 없을 때": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
-"재고 일수": {
+"재고 기록이 없을 때 {0}개가 부착됐습니다. 현장에서 세어 맞춰 주세요.": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"재고 없음 · 지금 발주": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"재고 충분": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"재고 확인 주기 (일)": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -14755,12 +15940,6 @@
 "kind": "str",
 "src": [
 "src/pages/AdminControl.jsx"
-]
-},
-"재주문점": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 "재활": {
@@ -15364,6 +16543,66 @@
 "src/pages/AdminSecurity.jsx"
 ]
 },
+"점검": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"점검 {0}일 지남": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"점검 기록 없음": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"점검 기록이 없습니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"점검 저장": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"점검 저장 — 기록 {0} → 실제 {1}": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"점검 주기 {0}일 — 현장 재고를 세어 기록과 맞춰 주세요.": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"점검 주기 지남": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"점검 차이": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"점검할 곳": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "접기": {
 "kind": "str",
 "src": [
@@ -15524,12 +16763,6 @@
 "src/geo/korea.js"
 ]
 },
-"제출": {
-"kind": "str",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "제한 시간": {
 "kind": "jsx",
 "src": [
@@ -15651,6 +16884,18 @@
 "router-server/src/inventory.rs"
 ]
 },
+"조치": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"조치 필요": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "종료": {
 "kind": "str",
 "src": [
@@ -15726,6 +16971,12 @@
 "src/App.jsx"
 ]
 },
+"주문부터 병동 도착까지 — 병원 창고 이동 포함": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "주민등록번호": {
 "kind": "str",
 "src": [
@@ -15797,6 +17048,12 @@
 "kind": "rs",
 "src": [
 "router-server/src/backup.rs"
+]
+},
+"줄을 누르면 고칠 수 있습니다. 새 코드를 넣으면 추가됩니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "중": {
@@ -15890,12 +17147,6 @@
 "src/ListKit.jsx"
 ]
 },
-"증가 조정": {
-"kind": "str",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "증번호": {
 "kind": "str",
 "src": [
@@ -15952,6 +17203,18 @@
 "src/pages/LiveModal.jsx"
 ]
 },
+"지금 기준: 발주 시점": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"지금 병원에 있는 패치를 로트별로 등록하세요. 이후 사용은 자동으로 빠집니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "지금 보내기": {
 "kind": "jsx",
 "src": [
@@ -15978,10 +17241,22 @@
 "src/pages/Patients.jsx"
 ]
 },
+"지금 재고": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "지금 접속한 IP": {
 "kind": "jsx",
 "src": [
 "src/pages/AdminSecurity.jsx"
+]
+},
+"지금 조치할 곳": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "지금 파일": {
@@ -16000,6 +17275,12 @@
 "kind": "jsx",
 "src": [
 "src/viewer/History.jsx"
+]
+},
+"지난 발주": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "지도 모듈을 불러오지 못했습니다 (": {
@@ -16087,7 +17368,8 @@
 "지우기": {
 "kind": "jsx",
 "src": [
-"src/pages/AdminSecurity.jsx"
+"src/pages/AdminSecurity.jsx",
+"src/pages/Inventory.jsx"
 ]
 },
 "지원 시설": {
@@ -16196,6 +17478,18 @@
 "src/pages/AdminControl.jsx"
 ]
 },
+"진행 중 발주": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"진행 중인 발주가 없습니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "집주소 (시군구·도시 기준)": {
 "kind": "str",
 "src": [
@@ -16287,6 +17581,12 @@
 "src/pages/Patients.jsx"
 ]
 },
+"쯤 다음 발주 (배송 $": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "차단": {
 "kind": "jsx",
 "src": [
@@ -16327,6 +17627,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/AdminSecurity.jsx"
+]
+},
+"차이 기록하고 수령": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "착용": {
@@ -16416,12 +17722,6 @@
 "src/pages/EcgEngine.jsx"
 ]
 },
-"참조": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "창": {
 "kind": "str",
 "src": [
@@ -16438,6 +17738,12 @@
 "kind": "str",
 "src": [
 "src/pages/FloorPlan.jsx"
+]
+},
+"찾을 수 없음": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "채널": {
@@ -16496,16 +17802,46 @@
 "src/pages/AdminSecurity.jsx"
 ]
 },
+"처음 납품한 수량을 입고로 등록하면 남은 양과 품절 시점을 계산합니다.": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "처음부터 다시": {
 "kind": "str",
 "src": [
 "src/pages/MultiViewerTest.jsx"
 ]
 },
+"첫 입고 등록": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "첫 화면으로": {
 "kind": "jsx",
 "src": [
 "src/main.jsx"
+]
+},
+"청구 금액": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"청구 수량": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"청구 수량 × 단가": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "청구액 (추정)": {
@@ -16639,12 +17975,6 @@
 "src/pages/Events.jsx"
 ]
 },
-"최근 300건 · 모든 수량 변화": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "최근 5회 +{0}": {
 "kind": "tpl",
 "src": [
@@ -16657,10 +17987,22 @@
 "src/pages/Events.jsx"
 ]
 },
+"최근 7일 예측 오차": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "최근 {0}표본 · 지금 {1}/s": {
 "kind": "tpl",
 "src": [
 "src/pages/Gateways.jsx"
+]
+},
+"최근 방문 점검": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "최근 오류 (": {
@@ -16687,6 +18029,24 @@
 "src/pages/AdminSecurity.jsx"
 ]
 },
+"최근 추세": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"최근 추세와 요일별 패턴": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"최근 평균": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "최대": {
 "kind": "jsx",
 "src": [
@@ -16705,7 +18065,7 @@
 "src/pages/OpsStats.jsx"
 ]
 },
-"최소 발주(상자)": {
+"최소 발주 (상자)": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -16754,12 +18114,6 @@
 "src/pages/BiosignalAdmin.jsx"
 ]
 },
-"추세 + 요일 계절성 (Holt-Winters)": {
-"kind": "str",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
 "추적 중인 IP 가 없습니다.": {
 "kind": "str",
 "src": [
@@ -16772,7 +18126,49 @@
 "src/pages/Inventory.jsx"
 ]
 },
-"출고 처리": {
+"출고 (로트 지정)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"출고 완료": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"출고 줄마다 로트 번호와 수량(1 이상)이 필요합니다": {
+"kind": "rs",
+"src": [
+"router-server/src/inventory.rs"
+]
+},
+"출고 합계가 발주 수량과 다릅니다. 부분 출고면 그대로 진행해도 됩니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"출고는 공급사(리셀러·영업)가 합니다": {
+"kind": "rs",
+"src": [
+"router-server/src/admin_api.rs"
+]
+},
+"출고된 발주 {0}건 — 도착하면 받은 수량을 확인하세요.": {
+"kind": "tpl",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"출고된 발주만 수령 확인할 수 있습니다": {
+"kind": "rs",
+"src": [
+"router-server/src/inventory.rs"
+]
+},
+"출고하기": {
 "kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
@@ -16788,6 +18184,12 @@
 "kind": "str",
 "src": [
 "src/geo/korea.js"
+]
+},
+"충분": {
+"kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "충전 중": {
@@ -17458,8 +18860,14 @@
 "src/pages/BiosignalAdmin.jsx"
 ]
 },
-"패치 부착(자동)": {
+"패치 부착": {
 "kind": "str",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"패치 부착 {0}건 (자동 차감)": {
+"kind": "tpl",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -17650,8 +19058,13 @@
 "kind": "jsx",
 "src": [
 "src/pages/BiosignalAdmin.jsx",
-"src/pages/Inventory.jsx",
 "src/pages/Reports.jsx"
+]
+},
+"폐기 (만료·파손)": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "포트": {
@@ -17709,7 +19122,7 @@
 "src/pages/MultiViewerTest.jsx"
 ]
 },
-"표시할 재고가 없습니다.": {
+"표시할 병원이 없습니다.": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -17728,19 +19141,13 @@
 ]
 },
 "품목": {
-"kind": "jsx",
+"kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
 "품목 {0} 저장": {
 "kind": "tpl",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"품목 관리": {
-"kind": "str",
 "src": [
 "src/pages/Inventory.jsx"
 ]
@@ -17757,13 +19164,19 @@
 "router-server/src/admin_api.rs"
 ]
 },
-"품절 예상": {
+"품절": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
 ]
 },
-"품절 예상 · 발주 기한": {
+"품절 구간": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
+"품절 방지 수준": {
 "kind": "jsx",
 "src": [
 "src/pages/Inventory.jsx"
@@ -17973,10 +19386,22 @@
 "src/pages/AdminSecurity.jsx"
 ]
 },
+"함께 확인한 병원 담당자 이름을 넣고 저장합니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
+]
+},
 "합격": {
 "kind": "str",
 "src": [
 "src/pages/EcgEngine.jsx"
+]
+},
+"합계": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "합니다. 계속할까요?`)) onAct(s.service,": {
@@ -18008,6 +19433,12 @@
 "src": [
 "src/pages/EcgEngine.jsx",
 "src/pages/Integration.jsx"
+]
+},
+"해야 끊기지 않습니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "해제": {
@@ -18046,6 +19477,12 @@
 "kind": "str",
 "src": [
 "src/pages/LiveModal.jsx"
+]
+},
+"현장에서 세는 간격": {
+"kind": "jsx",
+"src": [
+"src/pages/Inventory.jsx"
 ]
 },
 "현재 {0}": {
@@ -18113,24 +19550,6 @@
 "kind": "jsx",
 "src": [
 "src/pages/EcgEngine.jsx"
-]
-},
-"현재고": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"현재고 + 입고 예정": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
-]
-},
-"현재고 합계": {
-"kind": "jsx",
-"src": [
-"src/pages/Inventory.jsx"
 ]
 },
 "혈당": {
@@ -18266,8 +19685,7 @@
 "kind": "str",
 "src": [
 "src/pages/Alarms.jsx",
-"src/pages/Dashboard.jsx",
-"src/pages/Inventory.jsx"
+"src/pages/Dashboard.jsx"
 ]
 },
 "확인 (A)": {
