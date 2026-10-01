@@ -117,6 +117,8 @@ pub struct AppState {
     pub analysis_up: AtomicBool,
     /// 내장 ECG 분석 허브 (live-ecg 엔진)
     pub analysis: Arc<crate::ecg_analysis::AnalysisHub>,
+    /// 패치 재고관리
+    pub inventory: Arc<crate::inventory::Inventory>,
     /// ingest 수신 통계 (어드민 실시간 표시용)
     pub ingest_conns: AtomicU64,
     pub total_bytes: AtomicU64,
@@ -223,6 +225,7 @@ impl AppState {
             sub_groups: dashmap::DashMap::new(),
             sub_gateways: dashmap::DashMap::new(),
             alarms: AlarmBook::load(&alarm_rules_path),
+            inventory: crate::inventory::Inventory::open(&cfg_db_path),
             analysis: crate::ecg_analysis::AnalysisHub::start(&ecg_lib, ecg_preset, &ecg_stages, ecg_threads, &cfg_db_path),
             last_store_drop_ms: AtomicU64::new(0),
             emr_cache: Mutex::new(std::collections::HashMap::new()),

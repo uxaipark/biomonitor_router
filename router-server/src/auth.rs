@@ -59,7 +59,7 @@ pub fn is_platform(code: &str) -> bool {
 }
 
 /// (코드, 이름, 묶음, 기본값 [SA, SYS, RES, CRM, IT, DOC, NUR, STF])
-pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 29] = [
+pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 31] = [
     // 톱 메뉴 순서대로: 대시보드(첫 화면, 운영 통계) → 이벤트보드 → …
     ("page.ops", "대시보드 (운영 통계 · 첫 화면)", "메뉴", [2, 2, 1, 0, 1, 0, 0, 0]),
     ("page.dashboard", "이벤트보드", "메뉴", [2, 1, 1, 0, 1, 1, 1, 1]),
@@ -86,6 +86,10 @@ pub const RESOURCES: [(&str, &str, &str, [u8; 8]); 29] = [
     ("page.security", "운영관리 › 보안 운영", "메뉴", [2, 2, 0, 0, 2, 0, 0, 0]),
     // ECG 분석 엔진: 버전 보관함·활성화·프리셋/단계 선택·성능 (병원 IT 매니저 편집, 의사 보기)
     ("page.ecg_engine", "운영관리 › ECG 분석 엔진", "메뉴", [2, 2, 0, 0, 2, 1, 0, 0]),
+    // 패치 재고: 리셀러·영업이 납품·보충, 병원 IT 가 입고·실사, 임상은 보기
+    ("page.inventory", "패치 재고", "메뉴", [2, 2, 2, 2, 2, 0, 1, 1]),
+    // 일일 ECG 리포트·보험 청구서: 의료인(의사·간호사·스태프)
+    ("page.reports", "ECG 리포트 · 청구", "메뉴", [2, 1, 0, 0, 1, 2, 2, 2]),
     ("action.alarm_ack", "알람 확인", "동작", [2, 0, 0, 0, 0, 2, 2, 0]),
     ("action.alarm_rules", "알람 규칙 변경", "동작", [2, 0, 0, 0, 0, 2, 1, 0]),
     ("action.groups_edit", "그룹 편집", "동작", [2, 1, 0, 0, 1, 2, 2, 0]),
@@ -1577,6 +1581,12 @@ fn requirement(path: &str, method: &axum::http::Method) -> Option<(Vec<&'static 
     }
     if p == "/api/wave/reset" {
         return r(&["action.wave_reset"], 2);
+    }
+    if p.starts_with("/api/inventory") {
+        return r(&["page.inventory"], if *method == axum::http::Method::GET { 1 } else { 2 });
+    }
+    if p.starts_with("/api/reports") {
+        return r(&["page.reports"], if *method == axum::http::Method::GET { 1 } else { 2 });
     }
     if p == "/api/ecg/engine/reload" || p == "/api/ecg/bench" || (p == "/api/ecg/eval" && *method != axum::http::Method::GET) || (p == "/api/ecg/criteria" && *method != axum::http::Method::GET) || (p == "/api/ecg/config" && *method != axum::http::Method::GET) || (p.ends_with("/activate") && p.starts_with("/api/ecg/versions/")) || (p.starts_with("/api/ecg/versions/") && *method == axum::http::Method::DELETE) {
         return r(&["page.ecg_engine", "page.service_control"], 2);

@@ -33,6 +33,14 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/ecg/engine", get(ecg_engine_status))
         .route("/api/ecg/engine/reload", post(ecg_engine_reload))
         .route("/api/ecg/config", get(ecg_config_get).put(ecg_config_set))
+        .route("/api/inventory", get(inv_summary))
+        .route("/api/inventory/sku", put(inv_sku))
+        .route("/api/inventory/{tenant}", get(inv_detail))
+        .route("/api/inventory/{tenant}/policy", put(inv_policy))
+        .route("/api/inventory/{tenant}/receive", post(inv_receive))
+        .route("/api/inventory/{tenant}/adjust", post(inv_adjust))
+        .route("/api/inventory/{tenant}/po", post(inv_po_create))
+        .route("/api/inventory/{tenant}/po/{id}", put(inv_po_update))
         .route("/api/ecg/versions", get(ecg_versions))
         .route("/api/ecg/versions/{key}/activate", post(ecg_version_activate))
         .route("/api/ecg/versions/{key}", delete(ecg_version_delete))
@@ -1643,3 +1651,70 @@ struct NetTest {
 async fn net_test(Json(t): Json<NetTest>) -> impl IntoResponse {
     Json(crate::netcfg::test(&t.kind, &t.addr).await)
 }
+
+// ───────── 패치 재고 ─────────
+fn inv_tenants(state: &AppState, p: &Principal) -> Vec<(String, String)> {
+    let mut v: Vec<(String, String)> = state.auth.tenants_for(p).iter().filter_map(|t| Some((t.get("id")?.as_str()?.to_string(), t.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string()))).collect();
+    let site = state.auth.site_tenant();
+    if v.is_empty() && p.can_access(&site) { v.push((site, String::new())); }
+    v
+}
+fn inv_res<T: serde::Serialize>(r: Result<T, String>) -> axum::response::Response {
+    match r { Ok(v) => Json(serde_json::json!({ "ok": true, "result": v })).into_response(), Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))).into_response() }
+}
+async fn inv_summary(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> impl IntoResponse {
+    let t = inv_tenants(&state, &p);
+    let inv = state.inventory.clone();
+    let mut v = tokio::task::spawn_blocking(move || inv.summary(&t)).await.unwrap_or_default();
+    v["site"] = serde_json::json!(state.auth.site_tenant());
+    Json(v)
+}
+async fn inv_detail(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(tenant): Path<String>) -> impl IntoResponse {
+    if !p.can_access(&tenant) { return (StatusCode::FORBIDDEN, "이 병원의 재고를 볼 권한이 없습니다").into_response(); }
+    let inv = state.inventory.clone();
+    Json(tokio::task::spawn_blocking(move || inv.detail(&tenant)).await.unwrap_or_default()).into_response()
+}
+#[derive(serde::Deserialize)]
+struct SkuIn { id: String, #[serde(default)] name: String, #[serde(default)] per_box: i64, #[serde(default)] unit_price: f64, #[serde(default)] wear_days: f64, #[serde(default = "yes_true")] active: bool }
+fn yes_true() -> bool { true }
+async fn inv_sku(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Json(b): Json<SkuIn>) -> impl IntoResponse {
+    if !matches!(p.role.as_str(), "super_admin" | "system_admin" | "reseller" | "sales_crm") { return (StatusCode::FORBIDDEN, "품목은 리셀러·영업·관리자만 바꿉니다").into_response(); }
+    state.auth.audit(&p.username, "", "inv_sku", &b.id);
+    inv_res(state.inventory.upsert_sku(&b.id, &b.name, b.per_box, b.unit_price, if b.wear_days > 0.0 { b.wear_days } else { 14.0 }, b.active))
+}
+#[derive(serde::Deserialize)]
+struct PolicyIn { sku: String, lead_days: f64, review_days: f64, service: f64, #[serde(default)] min_boxes: i64 }
+async fn inv_policy(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(tenant): Path<String>, Json(b): Json<PolicyIn>) -> impl IntoResponse {
+    if !p.can_access(&tenant) { return (StatusCode::FORBIDDEN, "권한 없음").into_response(); }
+    state.auth.audit(&p.username, &tenant, "inv_policy", &format!("{} L{} R{} {}", b.sku, b.lead_days, b.review_days, b.service));
+    inv_res(state.inventory.set_policy(&tenant, &b.sku, b.lead_days, b.review_days, b.service, b.min_boxes))
+}
+#[derive(serde::Deserialize)]
+struct ReceiveIn { sku: String, lot: String, #[serde(default)] expiry: String, qty: i64, #[serde(default)] po: Option<i64> }
+async fn inv_receive(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(tenant): Path<String>, Json(b): Json<ReceiveIn>) -> impl IntoResponse {
+    if !p.can_access(&tenant) { return (StatusCode::FORBIDDEN, "권한 없음").into_response(); }
+    state.auth.audit(&p.username, &tenant, "inv_receive", &format!("{} {} ×{}", b.sku, b.lot, b.qty));
+    inv_res(state.inventory.receive(&tenant, &b.sku, &b.lot, &b.expiry, b.qty, b.po, &p.username))
+}
+#[derive(serde::Deserialize)]
+struct AdjustIn { sku: String, kind: String, qty: i64, #[serde(default)] reason: String, #[serde(default)] lot: Option<i64> }
+async fn inv_adjust(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(tenant): Path<String>, Json(b): Json<AdjustIn>) -> impl IntoResponse {
+    if !p.can_access(&tenant) { return (StatusCode::FORBIDDEN, "권한 없음").into_response(); }
+    state.auth.audit(&p.username, &tenant, "inv_adjust", &format!("{} {} {} {}", b.sku, b.kind, b.qty, b.reason));
+    inv_res(state.inventory.adjust(&tenant, &b.sku, &b.kind, b.qty, &b.reason, b.lot, &p.username))
+}
+#[derive(serde::Deserialize)]
+struct PoIn { sku: String, boxes: i64, #[serde(default)] note: String }
+async fn inv_po_create(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path(tenant): Path<String>, Json(b): Json<PoIn>) -> impl IntoResponse {
+    if !p.can_access(&tenant) { return (StatusCode::FORBIDDEN, "권한 없음").into_response(); }
+    state.auth.audit(&p.username, &tenant, "inv_po_create", &format!("{} ×{}", b.sku, b.boxes));
+    inv_res(state.inventory.po_create(&tenant, &b.sku, b.boxes, &b.note, &p.username))
+}
+#[derive(serde::Deserialize)]
+struct PoUpd { status: String, #[serde(default)] tracking: String, #[serde(default)] eta: String, #[serde(default)] boxes: Option<i64> }
+async fn inv_po_update(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>, Path((tenant, id)): Path<(String, i64)>, Json(b): Json<PoUpd>) -> impl IntoResponse {
+    if !p.can_access(&tenant) { return (StatusCode::FORBIDDEN, "권한 없음").into_response(); }
+    state.auth.audit(&p.username, &tenant, "inv_po_update", &format!("PO-{id} → {}", b.status));
+    inv_res(state.inventory.po_update(&tenant, id, &b.status, &b.tracking, &b.eta, b.boxes))
+}
+

@@ -27,6 +27,7 @@ import NetworkSettings from './pages/NetworkSettings.jsx'
 import OpsStats from './pages/OpsStats.jsx'
 import AdminSecurity from './pages/AdminSecurity.jsx'
 import EcgEngine from './pages/EcgEngine.jsx'
+import Inventory from './pages/Inventory.jsx'
 import { LiveModal } from './pages/LiveModal.jsx'
 
 // [hash, 메뉴 이름, 페이지, 묶음 메뉴(선택), 권한 자원]
@@ -43,6 +44,7 @@ const PAGES = [
   ['#/', '운영 통계', OpsStats, '인프라', 'page.ops'],
   ['#/gateways', '게이트웨이', Gateways, '인프라', 'page.gateways'],
   ['#/events', '이벤트 로그', Events, '인프라', 'page.events'],
+  ['#/inventory', '패치 재고', Inventory, '인프라', 'page.inventory'],
   // 관리 — 오른쪽 '관리' 버튼으로 들어가는 설정 셸 (왼쪽 사이드바: 운영 · 계정·보안 · 테스트 도구)
   ['#/settings/network', '네트워크 설정', NetworkSettings, '관리', 'page.settings_network', '운영'],
   ['#/settings/biosignal', '데이터 관리', BiosignalAdmin, '관리', 'page.settings_biosignal', '운영'],

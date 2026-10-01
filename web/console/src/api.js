@@ -144,6 +144,16 @@ export const api = {
     run: (id, what) => send('POST', `/api/integration/${id}/run`, { what }),
     received: (id) => get(`/api/integration/${id}/received`),
   },
+  inventory: { // 패치 재고
+    summary: () => get('/api/inventory'),
+    detail: (t) => get(`/api/inventory/${encodeURIComponent(t)}`),
+    sku: (b) => send('PUT', '/api/inventory/sku', b),
+    policy: (t, b) => send('PUT', `/api/inventory/${encodeURIComponent(t)}/policy`, b),
+    receive: (t, b) => send('POST', `/api/inventory/${encodeURIComponent(t)}/receive`, b),
+    adjust: (t, b) => send('POST', `/api/inventory/${encodeURIComponent(t)}/adjust`, b),
+    poCreate: (t, b) => send('POST', `/api/inventory/${encodeURIComponent(t)}/po`, b),
+    poUpdate: (t, id, b) => send('PUT', `/api/inventory/${encodeURIComponent(t)}/po/${id}`, b),
+  },
   ecg: { // 내장 ECG 분석 엔진(live-ecg)
     engine: () => get('/api/ecg/engine'),
     reload: () => send('POST', '/api/ecg/engine/reload'),
