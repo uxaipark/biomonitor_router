@@ -249,9 +249,14 @@ fn run(state: &Arc<AppState>, who: &str, reason: &str) -> Result<(), String> {
         state.remove_channel(id);
     }
     state.registry.clear_all_pending();
+    // 파형과 함께 그 파형에서 나온 기록도 지운다: 분석 판정 이력, 패치별 환자·기저 리듬 보관, 메모리 정답 캐시
+    // (정답지 시간 파일 truth/ 는 3단계 로컬 저장소 삭제에서 같이 지워짐)
+    let ana_rows = state.analysis.clear_history();
+    let pat_rows = state.inventory.clear_patient_data();
+    crate::reports::clear_cache();
     let gws = state.gateways.clear();
     state.events.lock().unwrap().clear();
-    set_step("counters", if metrics_ok { "ok" } else { "fail" }, format!("패치 {}개 · 게이트웨이 {}개(누계 포함) · 백업 통계 · 카운터 · 운영 통계 {}", ids.len(), gws, if metrics_ok { "삭제" } else { "삭제 실패" }));
+    set_step("counters", if metrics_ok { "ok" } else { "fail" }, format!("패치 {}개 · 게이트웨이 {}개(누계 포함) · 분석 이력 {}행 · 환자 보관 {}행 · 백업 통계 · 카운터 · 운영 통계 {}", ids.len(), gws, ana_rows, pat_rows, if metrics_ok { "삭제" } else { "삭제 실패" }));
     if !metrics_ok {
         failures.push("운영 통계 삭제 실패".into());
     }

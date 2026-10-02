@@ -84,6 +84,43 @@ fn emr_bases(body: &str) -> Vec<(u32, String)> {
         .filter_map(|p| Some((p.get("patch_id").and_then(|x| x.as_u64())? as u32, p.get("rhythm").and_then(|x| x.as_str())?.to_string()))).collect()
 }
 
+/// 데이터 시작 시각(저장소를 지운 시각)보다 앞선 기록 정리: 로컬·백업의 정답 파일, 분석 판정 이력, 패치별 환자 보관.
+/// 가동 초기화가 이 기능 이전 버전에서 실행됐거나 중간에 끊겨 남은 것을 시작할 때 한 번 치운다.
+pub async fn cleanup_before_epoch(state: &Arc<AppState>) {
+    let root = std::path::PathBuf::from(&state.cfg.store_dir);
+    let ep = crate::truth_store::epoch(&root);
+    if ep == 0 { return; }
+    let st = state.clone();
+    let r = tokio::task::spawn_blocking(move || {
+        // 시작 시각이 걸친 시간까지 지운다 (그 시간 파일엔 초기화 전 에피소드가 섞여 있음)
+        let cut_hour_end = ep / 3_600_000 * 3_600_000 + 3_600_000;
+        let mut local = 0;
+        let mut rels = Vec::new();
+        for key in crate::truth_store::keys(&root) {
+            let Some((_, end)) = crate::patch_store::key_range(&key) else { continue };
+            if end > cut_hour_end { continue; }
+            let f = crate::truth_store::file_of(&root, &key);
+            if std::fs::remove_file(&f).is_ok() { local += 1; }
+            let _ = std::fs::remove_file(crate::patch_store::seal_path(&f));
+            rels.push(crate::truth_store::rel_of(&key));
+        }
+        rels.extend(st.backup.catalog_rels_like("truth/%").into_iter().filter(|r| r.trim_start_matches("truth/").trim_end_matches(".jsonl").to_string().as_str() <= crate::patch_store::hour_key(cut_hour_end - 1).as_str()));
+        rels.sort(); rels.dedup();
+        let remote = st.backup.remove_rels(&rels);
+        let ana = st.analysis.clear_before(ep);
+        let pat = st.inventory.clear_patient_before(ep);
+        (local, remote, ana, pat)
+    }).await;
+    if let Ok((l, rm, a, p)) = r {
+        if l + rm + a + p > 0 { tracing::info!("cleanup before data start {}: truth local {l} · remote {rm} · analysis rows {a} · patient rows {p}", ep); }
+    }
+}
+
+/// 메모리의 정답 라벨 저장소 비우기 (가동 초기화) — 동기 스레드에서 부른다
+pub fn clear_cache() {
+    *STORE.blocking_lock() = LabelStore::default();
+}
+
 /// [need_lo, need_hi] 구간 라벨을 저장소에 확보한다. 오늘 쪽 끝은 60초가 지났으면 마지막 30분부터 다시 받아 열린 에피소드의 끝을 갱신.
 async fn ensure(state: &Arc<AppState>, need_lo: u64, need_hi: u64) -> Result<(), String> {
     let addr = state.net.emulator().ok_or("에뮬레이터 주소가 없습니다 (네트워크 설정)")?;
@@ -162,6 +199,9 @@ pub async fn truth_for(state: &Arc<AppState>, patch: u32, date: &str) -> Result<
 /// 정답 파일 쓰기: [h_lo, h_hi) 시간들 — 봉인 안 된 것만 다시 쓰고, 끝난 지 30분 지난 것은 봉인
 async fn persist_hours(state: &Arc<AppState>, h_lo: u64, h_hi: u64) {
     let root = std::path::PathBuf::from(&state.cfg.store_dir);
+    // 데이터 시작 시각 이전 시간은 쓰지 않는다 (지운 파형의 정답이 되살아나지 않게)
+    let ep = crate::truth_store::epoch(&root);
+    let h_lo = if ep > 0 { h_lo.max(ep / 3_600_000 * 3_600_000 + 3_600_000).max(h_lo) } else { h_lo };
     let now = crate::protocol::now_ms();
     let emu = state.net.emulator().unwrap_or_default();
     let mut jobs: Vec<(String, Vec<crate::truth_store::Ep>, HashMap<u32, String>)> = Vec::new();
@@ -195,6 +235,7 @@ async fn persist_hours(state: &Arc<AppState>, h_lo: u64, h_hi: u64) {
 pub async fn run_truth_warm(state: Arc<AppState>) {
     tokio::time::sleep(std::time::Duration::from_secs(15)).await;
     let mut tick: u64 = 0;
+    cleanup_before_epoch(&state).await;
     loop {
         if state.net.emulator().is_some() {
             let now = crate::protocol::now_ms();

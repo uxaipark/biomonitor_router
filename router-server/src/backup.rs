@@ -1289,6 +1289,43 @@ impl Backup {
         self.restore_into(crate::patch_store::restore_dir(&self.root, patch_id), rel)
     }
 
+    /// 백업 목록에서 rel 패턴(LIKE)에 맞는 파일 이름들
+    pub fn catalog_rels_like(&self, like: &str) -> Vec<String> {
+        let db = self.db.lock().unwrap();
+        let Ok(mut st) = db.prepare("SELECT DISTINCT rel FROM backup_catalog WHERE rel LIKE ?1") else { return Vec::new() };
+        st.query_map(params![like], |r| r.get(0)).map(|it| it.flatten().collect()).unwrap_or_default()
+    }
+
+    /// 백업에 올라간 파일들을 모든 대상에서 지우고(사본 .sum 포함) 목록·장부에서도 뺀다. 반환: 지운 원격 파일 수
+    pub fn remove_rels(&self, rels: &[String]) -> usize {
+        if rels.is_empty() { return 0; }
+        let p = self.policy.read().unwrap().clone();
+        let targets = self.targets.read().unwrap().clone();
+        let mut n = 0;
+        for rel in rels {
+            let rows: Vec<(String, Option<String>)> = {
+                let db = self.db.lock().unwrap();
+                let Ok(mut st) = db.prepare("SELECT target, remote FROM backup_catalog WHERE rel = ?1") else { continue };
+                let v = st.query_map(params![rel], |r| Ok((r.get(0)?, r.get(1)?))).map(|it| it.flatten().collect()).unwrap_or_default();
+                v
+            };
+            for (tid, remote) in rows {
+                let Some(t) = targets.iter().find(|t| t.id == tid) else { continue };
+                let remote = remote.filter(|r| !r.is_empty()).unwrap_or_else(|| rel.clone());
+                if self.remove_remote(t, &p, &remote).is_ok() { n += 1; }
+                let sum = crate::patch_store::seal_path(Path::new(&remote)).to_string_lossy().to_string();
+                let _ = self.remove_remote(t, &p, &sum);
+            }
+            self.ledger.lock().unwrap().remove(rel);
+            SAFE.remove(rel);
+            if let Ok(db) = self.db.lock() {
+                let _ = db.execute("DELETE FROM backup_catalog WHERE rel = ?1", params![rel]);
+                let _ = db.execute("DELETE FROM backup_files WHERE rel = ?1", params![rel]);
+            }
+        }
+        n
+    }
+
     /// 정답지 시간 파일(`truth/<키>.jsonl`)을 백업에서 복원 캐시로 받는다 (로컬에서 정리된 지난 시간)
     pub fn restore_truth(&self, rel: &str) -> Result<PathBuf, String> {
         if !rel.starts_with("truth/") { return Err("정답지 파일 아님".into()); }

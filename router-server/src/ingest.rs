@@ -70,6 +70,11 @@ pub async fn run(state: Arc<AppState>) -> anyhow::Result<()> {
     }
 }
 
+/// 아무 데이터도 안 오면 닫는 시간 (정상 게이트웨이는 데이터·keepalive 를 1초 안에 보낸다)
+const IDLE_CLOSE: std::time::Duration = std::time::Duration::from_secs(30);
+/// 유휴로 닫은 연결 누계 (좀비 소켓 정리 횟수)
+pub static IDLE_CLOSED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Per-connection state kept across frames.
 struct Conn {
     id: u64,
@@ -104,10 +109,18 @@ async fn handle_conn(state: Arc<AppState>, stream: TcpStream, peer: std::net::So
     let mut ok_frames: u64 = 0;
     // Frames are 1–2 KB (bundles ≤ ~40 KB); 16 KB keeps 1,800 sockets at ~28 MB instead of 113 MB.
     let mut buf = vec![0u8; 16 * 1024];
+    // 1초마다 깨어나 수신 스위치를 보고, 30초 동안 아무것도 안 오는 연결은 닫는다 — 게이트웨이가 다시 붙으며 남긴
+    // 옛 소켓(좀비)이 영원히 열려 있던 문제(가동 초기화 '연결 N개가 아직 열려 있음'). 정상 게이트웨이는 1초 안에 무언가 보낸다.
+    let mut last_rx = std::time::Instant::now();
     loop {
-        let n = match rd.read(&mut buf).await {
-            Ok(0) | Err(_) => break,
-            Ok(n) => n,
+        let n = match tokio::time::timeout(std::time::Duration::from_secs(1), rd.read(&mut buf)).await {
+            Ok(Ok(0)) | Ok(Err(_)) => break,
+            Ok(Ok(n)) => { last_rx = std::time::Instant::now(); n }
+            Err(_) => {
+                if !crate::control::INGEST_ON.load(Ordering::Relaxed) { break; }
+                if last_rx.elapsed() >= IDLE_CLOSE { debug!("ingest {}: idle {}s, closing", conn.addr, last_rx.elapsed().as_secs()); IDLE_CLOSED.fetch_add(1, Ordering::Relaxed); break; }
+                continue;
+            }
         };
         if !source_allowed(&state, peer_ip) {
             debug!("ingest connection {} dropped (allowlist changed)", peer_ip);

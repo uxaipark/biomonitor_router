@@ -1125,6 +1125,8 @@ impl PatchStore {
         let _ = fs::remove_dir_all(self.root.join("patches"));
         let _ = fs::remove_dir_all(self.root.join("meta"));
         let _ = fs::remove_dir_all(self.root.join(RESTORE_DIR));
+        let _ = fs::remove_dir_all(self.root.join(crate::truth_store::DIR)); // 정답지 시간 파일도 파형과 함께
+        crate::truth_store::set_epoch(&self.root, crate::protocol::now_ms()); // 데이터 시작 시각: 이전 시간의 기록은 다시 만들지 않는다
         fs::create_dir_all(self.root.join("patches")).ok();
         fs::create_dir_all(self.root.join("meta")).ok();
         STORE_BYTES.store(0, Ordering::Relaxed);

@@ -15,6 +15,10 @@ pub const SEAL_GRACE_MS: u64 = 30 * 60_000;
 pub const KEEP_DAYS: u64 = 30;
 
 pub fn dir(root: &Path) -> PathBuf { root.join(DIR) }
+
+/// 데이터 시작 시각(ms): 저장소를 지운(가동 초기화·저장소 리셋) 시각. 이보다 앞선 시간의 정답·분석 기록은 만들지도 남기지도 않는다.
+pub fn epoch(root: &Path) -> u64 { fs::read_to_string(root.join(".epoch")).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0) }
+pub fn set_epoch(root: &Path, ms: u64) { let _ = fs::create_dir_all(root); let _ = fs::write(root.join(".epoch"), ms.to_string()); }
 pub fn file_of(root: &Path, key: &str) -> PathBuf { dir(root).join(format!("{key}.jsonl")) }
 pub fn rel_of(key: &str) -> String { format!("{DIR}/{key}.jsonl") }
 

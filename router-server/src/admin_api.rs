@@ -1384,8 +1384,15 @@ async fn reset_loss(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 async fn wave_reset(State(state): State<Arc<AppState>>, Extension(p): Extension<Principal>) -> impl IntoResponse {
     state.auth.audit(&p.username, p.tenant_id.as_deref().unwrap_or(""), "wave_reset", "로컬 파형 저장소 전체 삭제");
     state.send_store(crate::patch_store::StoreOp::Reset);
-    state.push_event("wave_reset", None, "패치 저장소 리셋 — 저장 파일 전체 삭제".into());
-    Json(serde_json::json!({"ok": true}))
+    // 백업 대상이 없으면 파형이 정말 사라진 것 — 그 파형에서 나온 기록(분석 이력·환자 보관·정답 캐시)도 지운다.
+    // 백업이 있으면 지난 구간을 백업에서 다시 읽을 수 있으므로 기록은 남긴다.
+    let wiped = if state.backup.targets().is_empty() {
+        let st = state.clone();
+        let n = tokio::task::spawn_blocking(move || { let a = st.analysis.clear_history(); let b = st.inventory.clear_patient_data(); crate::reports::clear_cache(); a + b }).await.unwrap_or(0);
+        Some(n)
+    } else { None };
+    state.push_event("wave_reset", None, match wiped { Some(n) => format!("패치 저장소 리셋 — 저장 파일 전체 삭제 · 관련 기록 {n}행 삭제"), None => "패치 저장소 리셋 — 저장 파일 전체 삭제 (백업이 있어 분석 기록은 유지)".into() });
+    Json(serde_json::json!({"ok": true, "records_wiped": wiped}))
 }
 
 #[derive(Serialize)]

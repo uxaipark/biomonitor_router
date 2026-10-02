@@ -142,6 +142,18 @@ impl Inventory {
         self.db.lock().unwrap().query_row("SELECT rhythm FROM patch_base WHERE patch=?1", params![patch as i64], |r| r.get(0)).ok()
     }
 
+    /// 패치별 환자 정보·기저 리듬 보관 삭제 (가동 초기화). 재고 원장·로트·발주는 업무 기록이라 남긴다.
+    pub fn clear_patient_data(&self) -> usize {
+        let db = self.db.lock().unwrap();
+        db.execute("DELETE FROM patch_patient", []).unwrap_or(0) + db.execute("DELETE FROM patch_base", []).unwrap_or(0)
+    }
+
+    /// 데이터 시작 시각 이전에 마지막으로 바뀐 환자 보관 삭제 (지금 연결된 환자는 1분 안에 다시 채워진다)
+    pub fn clear_patient_before(&self, ms: u64) -> usize {
+        let db = self.db.lock().unwrap();
+        db.execute("DELETE FROM patch_patient WHERE ms < ?1", params![ms as i64]).unwrap_or(0) + db.execute("DELETE FROM patch_base WHERE ms < ?1", params![ms as i64]).unwrap_or(0)
+    }
+
     pub fn patient_snapshot(&self, patch: &str) -> Option<(serde_json::Value, u64)> {
         let db = self.db.lock().unwrap();
         db.query_row("SELECT patient, wear_ms FROM patch_patient WHERE patch=?1", params![patch], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))).ok()

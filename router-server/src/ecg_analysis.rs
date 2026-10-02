@@ -500,6 +500,24 @@ impl AnalysisHub {
     }
 
     /// 판정 이력을 DB 에 쓴다 (10초마다). 하루에 한 번 14일 지난 행 정리.
+    /// 판정 이력(DB: ecg_trace · ecg_beatmin) 전부 삭제 — 가동 초기화·저장소 삭제 때 파형과 함께 지운다
+    pub fn clear_history(&self) -> usize {
+        self.flush_db();
+        let g = self.db.lock().unwrap();
+        let Some(db) = g.as_ref() else { return 0 };
+        let a = db.execute("DELETE FROM ecg_trace", []).unwrap_or(0);
+        let b = db.execute("DELETE FROM ecg_beatmin", []).unwrap_or(0);
+        a + b
+    }
+
+    /// ms 보다 앞선 판정 이력 삭제 (데이터 시작 시각 이전)
+    pub fn clear_before(&self, ms: u64) -> usize {
+        self.flush_db();
+        let g = self.db.lock().unwrap();
+        let Some(db) = g.as_ref() else { return 0 };
+        db.execute("DELETE FROM ecg_trace WHERE ms < ?1", [ms as i64]).unwrap_or(0) + db.execute("DELETE FROM ecg_beatmin WHERE minute_ms < ?1", [ms as i64]).unwrap_or(0)
+    }
+
     pub fn flush_db(&self) {
         let (tr, bm) = { let mut q = self.pend_db.lock().unwrap(); (std::mem::take(&mut q.0), std::mem::take(&mut q.1)) };
         if tr.is_empty() && bm.is_empty() && now_ms().saturating_sub(self.last_prune_ms.load(Ordering::Relaxed)) < 86_400_000 {
