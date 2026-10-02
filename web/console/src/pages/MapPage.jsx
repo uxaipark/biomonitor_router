@@ -293,21 +293,29 @@ export default function MapPage({ alarms, hash }) {
         </div>
         <div className="m-floors">{floorList.map((f) => <button key={f.floor} className={f.floor === cur.floor ? 'on' : ''} onClick={() => setSel({ b: cur.building_idx, f: f.floor })}>{f.floor}F</button>)}</div>
         {!roomsWith.length && <p className="muted">이 층에 연결된 환자가 없습니다.</p>}
-        {roomsWith.map(({ r, pats }) => (
-          <section key={r.id} className="m-room">
-            <h4>{r.id}{r.name && !String(r.id).endsWith(r.name) ? ` · ${r.name}` : ""}<small>{pats.length}명</small></h4>
-            {[...pats].sort((a, b) => (SEVR[aidx.get(a.channel_id)?.severity] ?? 9) - (SEVR[aidx.get(b.channel_id)?.severity] ?? 9)).map((p) => {
-              const a = aidx.get(p.channel_id), v = p.vitals || {}, lost = p.stale || !p.connected
-              return (
-                <button key={p.channel_id} className={'m-card' + (a ? ` sev-${a.severity}` : '') + (lost ? ' stale' : '')} onClick={() => openLive(p.channel_id)}>
-                  <span className="m-card-h"><b>{p.patient?.name || p.mrn || p.channel_id}</b><small>{p.patient?.bed || ''}</small>{a ? <span className={'tag sev-' + a.severity}>{SEV_LABEL[a.severity]}</span> : null}</span>
-                  <span className="m-vit"><span><small>HR</small><b>{lost ? '—' : v.hr ?? '—'}</b></span><span><small>SpO₂</small><b>{lost ? '—' : v.spo2 ?? '—'}</b></span><span><small>RR</small><b>{lost ? '—' : v.resp ?? '—'}</b></span><span><small>체온</small><b>{lost || v.temp == null ? '—' : v.temp.toFixed(1)}</b></span></span>
-                  {a && <span className="m-msg">{a.message}</span>}
-                </button>
-              )
-            })}
-          </section>
-        ))}
+        {roomsWith.map(({ r, pats }) => {
+          const sorted = [...pats].sort((x, y) => (SEVR[aidx.get(x.channel_id)?.severity] ?? 9) - (SEVR[aidx.get(y.channel_id)?.severity] ?? 9))
+          const top = sorted.map((p) => aidx.get(p.channel_id)).find(Boolean)
+          const nA = pats.filter((p) => aidx.has(p.channel_id)).length
+          // 병실을 누르면 그 병실의 검은 바탕 뷰어(중앙 모니터 폰 화면)
+          return (
+            <button key={r.id} className={'m-roomcard' + (top ? ` sev-${top.severity}` : '')} onClick={() => { location.hash = viewerUrl({ tpl: 'central', room: r.id, label: `병실 ${r.id}` }) }}>
+              <span className="m-rc-h"><b>{r.id}</b><small>{r.ward ? wardText(r.ward) : ''} · {pats.length}명</small>{nA ? <span className={'tag sev-' + top.severity}>알람 {nA}</span> : null}<i>›</i></span>
+              {sorted.map((p) => {
+                const a = aidx.get(p.channel_id), v = p.vitals || {}, lost = p.stale || !p.connected
+                return (
+                  <span key={p.channel_id} className={'m-rc-p' + (a ? ` sev-${a.severity}` : '') + (lost ? ' stale' : '')}>
+                    <em>{(p.patient?.bed || '').slice(-1) || '·'}</em>
+                    <b>{p.patient?.name || p.mrn || p.channel_id}</b>
+                    <span className="m-rc-v"><small>HR</small>{lost ? '—' : v.hr ?? '—'}</span>
+                    <span className="m-rc-v"><small>SpO₂</small>{lost ? '—' : v.spo2 ?? '—'}</span>
+                    {a ? <span className={'m-rc-a sev-' + a.severity} title={a.message}>{a.message}</span> : <span className="m-rc-a ok">{lost ? (p.connected ? '무신호' : '해제') : '정상'}</span>}
+                  </span>
+                )
+              })}
+            </button>
+          )
+        })}
       </div>
     )
   }
