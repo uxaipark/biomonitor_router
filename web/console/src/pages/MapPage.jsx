@@ -8,6 +8,8 @@ import MapPatientPanel from './MapPatientPanel.jsx'
 import { WaveCard } from '../WaveCard.jsx'
 import { claimLive, releaseLive } from '../ws.js'
 import { useMe } from '../auth.js'
+import { useIsPhone } from '../phone.js'
+import { openLive } from '../App.jsx'
 import Dropdown from '../Dropdown.jsx'
 import FloorPlan, { LEGEND, LOD, bedBox, wallSegments, coveragePolygon, polyPoints, COV_OPEN_M } from './FloorPlan.jsx'
 
@@ -36,6 +38,7 @@ const textWidth = (str, fs) => {
 /** Floor plan from the emulator's layout JSON (proxied by the router), overlaid with live gateway state,
  *  patients (registry rows) and alarms. Rooms are keyed by id; a patient's room comes from the EMR sync. */
 export default function MapPage({ alarms, hash }) {
+  const phone = useIsPhone()
   const [layout, setLayout] = useState(null)
   const [err, setErr] = useState(null)
   const [rows] = usePoll(api.channels, 4000)
@@ -277,6 +280,37 @@ export default function MapPage({ alarms, hash }) {
   const stats = { patients: 0, alarm: 0 }
   for (const r of cur.rooms) for (const p of byRoom.get(r.id) || []) { stats.patients++; if (aidx.has(p.channel_id)) stats.alarm++ }
 
+  // 스마트폰: 도면 대신 층 선택 + 병실별 환자 목록 (알람 병실 먼저), 누르면 실시간 파형
+  if (phone) {
+    const roomsWith = cur.rooms.map((r) => ({ r, pats: byRoom.get(r.id) || [] })).filter((x) => x.pats.length)
+      .sort((a, b) => (b.pats.some((p) => aidx.has(p.channel_id)) - a.pats.some((p) => aidx.has(p.channel_id))) || String(a.r.name || a.r.id).localeCompare(String(b.r.name || b.r.id), 'ko'))
+    const SEVR = { critical: 0, high: 1, medium: 2, low: 3 }
+    return (
+      <div className="page m-page m-map">
+        <div className="m-filter">
+          <Dropdown value={cur.building_idx} options={buildingOpts} onChange={(v) => setSel({ b: Number(v), f: floors.find((x) => x.building_idx === Number(v) && x.wards?.length)?.floor || 1 })} searchable={false} width={170} />
+          <span className="muted small">{stats.patients}명 · 알람 {stats.alarm}</span>
+        </div>
+        <div className="m-floors">{floorList.map((f) => <button key={f.floor} className={f.floor === cur.floor ? 'on' : ''} onClick={() => setSel({ b: cur.building_idx, f: f.floor })}>{f.floor}F</button>)}</div>
+        {!roomsWith.length && <p className="muted">이 층에 연결된 환자가 없습니다.</p>}
+        {roomsWith.map(({ r, pats }) => (
+          <section key={r.id} className="m-room">
+            <h4>{r.id}{r.name && !String(r.id).endsWith(r.name) ? ` · ${r.name}` : ""}<small>{pats.length}명</small></h4>
+            {[...pats].sort((a, b) => (SEVR[aidx.get(a.channel_id)?.severity] ?? 9) - (SEVR[aidx.get(b.channel_id)?.severity] ?? 9)).map((p) => {
+              const a = aidx.get(p.channel_id), v = p.vitals || {}, lost = p.stale || !p.connected
+              return (
+                <button key={p.channel_id} className={'m-card' + (a ? ` sev-${a.severity}` : '') + (lost ? ' stale' : '')} onClick={() => openLive(p.channel_id)}>
+                  <span className="m-card-h"><b>{p.patient?.name || p.mrn || p.channel_id}</b><small>{p.patient?.bed || ''}</small>{a ? <span className={'tag sev-' + a.severity}>{SEV_LABEL[a.severity]}</span> : null}</span>
+                  <span className="m-vit"><span><small>HR</small><b>{lost ? '—' : v.hr ?? '—'}</b></span><span><small>SpO₂</small><b>{lost ? '—' : v.spo2 ?? '—'}</b></span><span><small>RR</small><b>{lost ? '—' : v.resp ?? '—'}</b></span><span><small>체온</small><b>{lost || v.temp == null ? '—' : v.temp.toFixed(1)}</b></span></span>
+                  {a && <span className="m-msg">{a.message}</span>}
+                </button>
+              )
+            })}
+          </section>
+        ))}
+      </div>
+    )
+  }
   return (
     <div className="page map-page">
       <div className="toolbar">

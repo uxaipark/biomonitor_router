@@ -1,3 +1,4 @@
+import { useIsPhone } from '../phone.js'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { can, useMe } from '../auth.js'
 import { api, usePoll } from '../api.js'
@@ -38,6 +39,7 @@ const roomOnly = (id) => wardRoom(id)?.room || id || ''
 const shortTpl = (t) => t.name.split(' (')[0]
 
 export default function Viewers({ alarms, hash }) {
+  const phone = useIsPhone()
   const canGroups = can(useMe(), 'action.groups_edit', 2) // 그룹 저장·편집·삭제
   const [rows, , refreshRows] = usePoll(api.channels, 10000)
   const [gws] = usePoll(api.gateways, 15000)
@@ -252,6 +254,30 @@ export default function Viewers({ alarms, hash }) {
   }
   const toggleSel = (id) => setSel((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const dropText = over ? (dragN ? `놓으면 ${dragN}명 담기` : '여기에 놓아 담기') : dragN ? '여기에 놓아 담기' : members.length ? '여기에 더 놓기' : '하위 대상(병동·병실 등)을 통째로, 또는 세부 대상(환자)을 끌어 놓으세요'
+
+  // 스마트폰: 편집 기능 없이 '열기'만 — 병동별·저장 그룹별 중앙 모니터를 같은 탭에서 (의사가 어디서든 바로)
+  if (phone) {
+    const aSet = new Set((alarms?.alarms || []).map((a) => String(a.channel_id)))
+    const wards = new Map()
+    for (const r of live) { const w = r.patient?.ward || (r.patient?.mode && r.patient.mode !== 'inpatient' ? 'MCOT' : '미지정'); const e = wards.get(w) || { n: 0, a: 0 }; e.n++; if (aSet.has(String(r.channel_id))) e.a++; wards.set(w, e) }
+    const wl = [...wards.entries()].sort((x, y) => (y[1].a > 0) - (x[1].a > 0) || String(x[0]).localeCompare(String(y[0]), 'ko'))
+    const go2 = (scope) => { location.hash = viewerUrl({ tpl: 'central', ...scope }) }
+    const nAll = live.filter((r) => aSet.has(String(r.channel_id))).length
+    // 환자가 있는 그룹만, 알람 많은 순
+    const gl = (groups || []).filter((g) => g.id !== 'all').map((g) => ({ g, n: groupCount(g), a: groupMembers(g).filter((id) => aSet.has(id)).length })).filter((x) => x.n > 0).sort((x, y) => y.a - x.a || String(x.g.name).localeCompare(String(y.g.name), 'ko'))
+    return (
+      <div className="page m-page m-viewers">
+        <button className="m-launch big" onClick={() => go2({ label: '전체' })}><b>전체 환자</b><small>{live.length}명 · 알람 {nAll} — 알람 환자 먼저</small></button>
+        {gl.length > 0 && <h4 className="m-h">저장 그룹</h4>}
+        {gl.map(({ g, n, a }) => { return (
+          <button key={g.id} className={'m-launch' + (a ? ' al' : '')} onClick={() => go2({ group: g.id, label: g.name })}><b>{g.name}</b><small>{n}명{a ? ` · 알람 ${a}` : ''}</small></button>) })}
+        <h4 className="m-h">병동</h4>
+        {wl.map(([w, e]) => (
+          <button key={w} className={'m-launch' + (e.a ? ' al' : '')} onClick={() => go2(w === 'MCOT' ? { mode: 'mcot', label: 'MCOT' } : w === '미지정' ? { label: '병동 미지정' } : { ward: w, label: wardText(w) })}><b>{w === 'MCOT' || w === '미지정' ? w : wardText(w)}</b><small>{e.n}명{e.a ? ` · 알람 ${e.a}` : ''}</small></button>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="page vw" onDragEnd={endDrag}>

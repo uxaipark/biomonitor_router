@@ -1,3 +1,4 @@
+import { useIsPhone } from '../phone.js'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { api, usePoll, fmtAgo, fmtTime } from '../api.js'
 import { alarmIndex, flagNames, sortBy, SEV_LABEL, SEV_ORDER, FLAG_LABEL, FLAG_WARN, wardText, wardRoom, patchLife, fmtDays, nowPlace, spaceName, isAway , RHYTHM_LABEL, RHYTHM_SEV } from '../model.js'
@@ -52,6 +53,7 @@ const vc = (k, v) => {
 
 /** 환자 목록: 요약 칩 · 병동/담당의/검색 필터(주소에 남음) · 표(병동 묶음) · 오른쪽 환자 상세 */
 export default function Patients({ alarms }) {
+  const phone = useIsPhone()
   const [rows] = usePoll(api.channels, 3000)
   const [qs, setQs] = useQuery()
   const q = qs.get('q') || '', ward = qs.get('ward') || '', chip = qs.get('f') || '', sel = qs.get('sel') || '', doctor = qs.get('doc') || ''
@@ -156,6 +158,7 @@ export default function Patients({ alarms }) {
     </div>
   )
   if (view === 'trips') return <div className="page lk">{tabs}<Trips bedIndex={bedIndex} /></div>
+
   const first = shown.length ? cur * PAGE + 1 : 0, lastIdx = Math.min(shown.length, (cur + 1) * PAGE)
 
   let lastWard = null
@@ -206,6 +209,38 @@ export default function Patients({ alarms }) {
     )
   }
 
+  // 스마트폰: 표 대신 카드 — 알람·바이탈을 한눈에, 누르면 바로 실시간 파형
+  if (phone) return (
+    <div className="page lk m-page">
+      <SummaryChips items={chips} value={chip || 'all'} onChange={(k) => { setQs({ f: k === 'all' ? '' : k }); setPage(0) }} unit="명" />
+      <div className="m-filter">
+        <input type="search" placeholder="이름 · 병실 · 패치" value={q} onChange={(e) => { setQs({ q: e.target.value }); setPage(0) }} />
+        <Dropdown value={ward} options={wards} onChange={(v) => { setQs({ ward: v }); setPage(0) }} placeholder="모든 병동" width={140} />
+      </div>
+      <div className="m-cards">
+        {slice.map((r) => {
+          const lost = r.stale || !r.connected
+          const ecg = lost ? null : snaps.current.get(String(r.channel_id)) || null
+          return (
+            <button key={r.channel_id} className={'m-card' + (r.alarmObj ? ` sev-${r.alarmObj.severity}` : '') + (lost ? ' stale' : '')} onClick={() => openLive(r.channel_id)}>
+              <span className="m-card-h"><b>{r.name || r.mrn || r.channel_id}</b><small>{wardRoom(r.room)?.room || r.room || '—'}{r.ward ? ` · ${wardText(r.ward)}` : ''}</small>
+                {r.alarmObj ? <Pill tone={TONE[r.alarmObj.severity]}>{SEV_LABEL[r.alarmObj.severity]}{r.alarmN > 1 ? ` ${r.alarmN}` : ''}</Pill> : lost ? <small className="muted">{r.connected ? '무신호' : '해제'}</small> : null}</span>
+              <span className="m-vit">
+                <span><small>HR</small><b className={vc('hr', lost ? null : r.hr)}>{lost ? '—' : r.hr ?? '—'}</b></span>
+                <span><small>SpO₂</small><b className={vc('spo2', lost ? null : r.spo2)}>{lost ? '—' : r.spo2 ?? '—'}</b></span>
+                <span><small>RR</small><b className={vc('resp', lost ? null : r.resp)}>{lost ? '—' : r.resp ?? '—'}</b></span>
+                <span><small>체온</small><b className={vc('temp', lost ? null : r.temp)}>{lost ? '—' : r.temp != null ? r.temp.toFixed(1) : '—'}</b></span>
+              </span>
+              {r.alarmObj && <span className="m-msg">{r.alarmObj.message}</span>}
+              {ecgOn && ecg && <span className="m-ecg"><Spark values={ecg} tone="ok" width={320} height={32} /></span>}
+            </button>
+          )
+        })}
+        {!shown.length && <p className="muted">조건에 맞는 환자가 없습니다.</p>}
+      </div>
+      <div className="m-pager"><span className="muted">{first.toLocaleString()}–{lastIdx.toLocaleString()} / {shown.length.toLocaleString()}명</span><Pager page={cur} pages={pages} onPage={setPage} /></div>
+    </div>
+  )
   return (
     <div className="page lk">
       {tabs}

@@ -30,6 +30,7 @@ import EcgEngine from './pages/EcgEngine.jsx'
 import Inventory from './pages/Inventory.jsx'
 import Reports from './pages/Reports.jsx'
 import { LiveModal } from './pages/LiveModal.jsx'
+import { useIsPhone } from './phone.js'
 
 // [hash, 메뉴 이름, 페이지, 묶음 메뉴(선택), 권한 자원]
 const PAGES = [
@@ -200,6 +201,14 @@ function Console({ me, setMe, authLost }) {
     window.addEventListener('open-live', f)
     return () => window.removeEventListener('open-live', f)
   }, [])
+  // 바로 열기 링크: …#/patients?live=<패치> → 그 환자의 실시간 파형 (긴급 때 문자·메신저로 보내 폰에서 바로 열도록)
+  useEffect(() => {
+    const live = new URLSearchParams(hash.split('?')[1] || '').get('live')
+    if (live) setModal({ channel_id: live })
+  }, [hash])
+  const phone = useIsPhone()
+  const [mnav, setMnav] = useState(false)
+  useEffect(() => { setMnav(false) }, [hash])
 
   const base0 = hash.split('?')[0]
   const base = base0 === '#/test/ops' || base0 === '#/dashboard' ? '#/' : base0 // 운영 통계 옛 주소
@@ -232,6 +241,21 @@ function Console({ me, setMe, authLost }) {
   }
   return (
     <div className="app">
+      {phone && <header className="m-top">
+        <button className="m-burger" onClick={() => setMnav(!mnav)} aria-label="메뉴">{mnav ? '✕' : '☰'}</button>
+        <b className="m-title">{page?.[1] || appTitle(me.user)}</b>
+        <span className="spacer" />
+        {alarmsVisible && me.site.accessible && s.active ? <a href="#/alarms" className={'m-alarm' + (s.critical ? ' crit' : '')}>{s.critical ? `위험 ${s.critical}` : `알람 ${s.active}`}</a> : null}
+        <i className={'m-sys ' + sys.tone} title={sysTitle} />
+      </header>}
+      {phone && mnav && <nav className="m-nav" aria-label="주 메뉴">
+        {[...TOP_GROUPS, '관리'].map((g) => {
+          const items = allowed.filter((p) => p[3] === g)
+          if (!items.length) return null
+          return <div key={g} className="m-nav-grp"><small>{g}</small>{items.map(([h, label]) => <a key={h} href={h} className={page[0] === h ? 'on' : ''}>{label}{h === '#/alarms' && s.unacked > 0 ? <span className="badge">{s.unacked > 999 ? '999+' : s.unacked}</span> : null}</a>)}</div>
+        })}
+        <div className="m-nav-foot"><UserMenu me={me} setMe={setMe} /><button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? '밝은 테마' : '어두운 테마'}</button></div>
+      </nav>}
       <header className="top">
         <a className="brand" href={allowed[0]?.[0] || '#/'}><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="var(--accent)" /><path d="M4 13h4l2-5 3 9 2-6 1.5 2H20" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>{appTitle(me.user)}</a>
         <nav aria-label="주 메뉴" className="nav-top">

@@ -1,3 +1,4 @@
+import { isPhone } from '../phone.js'
 import { gwLabel } from '../model.js'
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll } from '../api.js'
@@ -63,10 +64,13 @@ export default function Viewer({ alarms, hash }) {
     if (group) v = v.filter((r) => (r.groups || []).includes(group))
     if (b != null && f != null) v = v.filter((r) => String(r.patient?.building_idx ?? '') === b && String(r.patient?.floor) === f)
     v = v.map((r) => ({ ...r, emr: emr.byPatient.get(String(r.patient_id)), bed: emr.bedByPatch.get(r.channel_id) }))
+    // 폰: 160명 상한에 알람 환자가 잘리지 않게 알람 환자를 먼저 세운 뒤 자른다
+    if (isPhone()) { const al = new Set((alarms?.alarms || []).map((a) => String(a.channel_id))); v = [...v].sort((x, y) => al.has(String(y.channel_id)) - al.has(String(x.channel_id))) }
     return v.slice(0, Math.min(tpl.maxRows || MAX_VIEW, MAX_VIEW)) // 최대 160 (요청이 더 많아도 강제)
-  }, [rows, q, emr, tpl, gws])
+  }, [rows, q, emr, tpl, gws, alarms])
   const ids = scoped.map((r) => r.channel_id).join(',')
-  useEffect(() => { claimLive('viewer', ids ? ids.split(',') : []); return () => releaseLive('viewer') }, [ids])
+  // 폰은 보이는 환자만 파형을 받는다(중앙 모니터 폰 화면이 따로 구독) — 모바일 데이터 절약
+  useEffect(() => { if (isPhone() && tpl.id === 'central') return; claimLive('viewer', ids ? ids.split(',') : []); return () => releaseLive('viewer') }, [ids, tpl.id])
   const unit = useMemo(() => {
     if (q.get('label')) return q.get('label')
     const gw = q.get('gw')

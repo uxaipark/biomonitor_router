@@ -1,3 +1,4 @@
+import { useIsPhone } from '../phone.js'
 import React, { useEffect, useMemo, useState } from 'react'
 import { api, usePoll, fmtTime, fmtBytes } from '../api.js'
 import { claimLive, releaseLive, latest } from '../ws.js'
@@ -139,6 +140,7 @@ export function EmrPanel({ emr, p, row, platform, onMap }) {
  *  side cards with alarms, the EMR profile (via the router's EMR proxy) and the storage index. */
 /** initialHistory = 열자마자 '이력' 탭 (병원 지도 패널의 이력 버튼) */
 export function LiveModal({ channelId, alarms, onClose, initialHistory = false }) {
+  const phone = useIsPhone()
   // only this patch's row (the full list is ~1.7 MB for 2,100 patches)
   const [rows] = usePoll(() => api.channelsScoped(`ids=${encodeURIComponent(channelId)}`), 3000, [channelId])
   const row = useMemo(() => (rows || []).find((r) => r.channel_id === channelId), [rows, channelId])
@@ -193,7 +195,8 @@ export function LiveModal({ channelId, alarms, onClose, initialHistory = false }
   // highlight the vital tile the alarm is about (alarm kinds: hr_*, spo2_*, resp_*, temp_*)
   const sevOf = (prefix) => (alarm?.kind?.startsWith(prefix) ? `sev-${alarm.severity}` : '')
 
-  const WW = 920, WH = 190, WS = 60
+  // 폰: 캔버스를 세로로 더 길게(화면 폭에 맞춰 줄어도 ECG 가 충분히 크게)
+  const WW = phone ? 640 : 920, WH = phone ? 300 : 190, WS = phone ? 90 : 60
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className={'modal lm' + (alarm ? ` lm-sev-${alarm.severity}` : '')} onClick={(e) => e.stopPropagation()}>
@@ -240,14 +243,14 @@ export function LiveModal({ channelId, alarms, onClose, initialHistory = false }
                   {waves.includes('temp') && <Vital label="체온" value={v.temp != null ? v.temp.toFixed(1) : null} unit="°C" cls={'temp ' + sevOf('temp_')} />}
                   {v.glucose != null && <Vital label="혈당" value={Math.round(v.glucose)} unit="mg/dL" cls="glu" />}
                 </div>
-                <section className="lm-panel">
+                <section className="lm-panel lm-ecg">
                   <div className="lm-ph"><b>ECG</b><span className="muted">{row.sample_rate} Hz · 6초 스윕</span>{live?.pace?.length ? <span className="tag small">페이스 {live.pace.length}</span> : null}</div>
                   <WaveCanvas id={channelId} wave="ecg" width={WW} height={WH} />
                   {waves.includes('resp_wave') && <><div className="lm-ph sub"><b>호흡 파형</b></div><WaveCanvas id={channelId} wave="resp_wave" width={WW} height={WS} color="#7cc4ff" /></>}
                   {waves.includes('ppg') && <><div className="lm-ph sub"><b>Pleth</b></div><WaveCanvas id={channelId} wave="ppg" width={WW} height={WS} color="#ff9f6b" /></>}
                 </section>
                 {waves.includes('accel') && (
-                  <section className="lm-panel">
+                  <section className="lm-panel lm-accel">
                     <div className="lm-ph">
                       <b>가속도</b><span className="muted">g · 최근 6초</span>
                       <span className="spacer" />
@@ -274,7 +277,7 @@ export function LiveModal({ channelId, alarms, onClose, initialHistory = false }
           </main>
 
           <aside className="lm-side">
-            <section className="lm-card">
+            <section className="lm-card lm-c-alarm">
               <h4>알람 <span className="lm-count">{mine.length}</span></h4>
               {mine.length ? mine.map((a) => (
                 <div key={a.id} className={`lm-alarm sev-${a.severity}`}>
@@ -284,11 +287,11 @@ export function LiveModal({ channelId, alarms, onClose, initialHistory = false }
                 </div>
               )) : <p className="muted">활성 알람이 없습니다.</p>}
             </section>
-            <section className="lm-card">
+            <section className="lm-card lm-c-emr">
               <h4>환자 정보</h4>
               {emr ? <EmrPanel emr={emr} p={p} row={row} platform={!me?.user?.tenant_id} onMap={showOnMap} /> : <p className="muted">EMR 정보를 불러오지 못했습니다.</p>}
             </section>
-            <section className="lm-card">
+            <section className="lm-card lm-c-store">
               <h4>파형 저장</h4>
               {ix ? (
                 <dl className="lm-dl">

@@ -1,3 +1,5 @@
+import { useIsPhone } from '../phone.js'
+import { claimLive, releaseLive } from '../ws.js'
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Sweep from './Sweep.jsx'
 import { CS_C, CS_TH, CS_PRESETS, LIMITS, BAT_LOW, csLayout, monAlarm, shortAlarm, alarmKey } from './central.js'
@@ -102,7 +104,67 @@ function NumTile({ row, alarm, onOpen }) {
  * Central Station template: n-up grid of bed tiles for `rows` (registry rows already scoped by the caller),
  * paged fixed presets or auto layout, numeric boards above 48, red/yellow alarm heads, tile → bed viewer.
  */
-export default function CentralStation({ rows, alarms, unit, onClose }) {
+/** 스마트폰: 한 줄에 한 명 — 상태·ECG(전폭)·핵심 수치. 알람 환자 먼저, 8명씩 넘김(보이는 환자만 파형 수신 — 모바일 데이터 절약). */
+const PH_PAGE = 8
+function PhoneCentral({ rows, alarms, unit, onClose }) {
+  const [page, setPage] = useState(0)
+  const [onlyAlarm, setOnlyAlarm] = useState(false)
+  const [open, setOpen] = useState(rows.length === 1 ? rows[0].channel_id : null)
+  const solo = rows.length === 1 ? rows[0].channel_id : null
+  useEffect(() => { if (solo) setOpen(solo) }, [solo]) // 1명 범위(ids=…)는 곧바로 단일 침상
+  const [, tick] = useState(0)
+  const clock = useClock()
+  const aidx = useMemo(() => alarmIndex(alarms?.alarms), [alarms])
+  useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(t) }, [])
+  const rank = (r) => { const a = monAlarm(r, latest.get(r.channel_id), aidx.get(r.channel_id)); return a[0] === 'red' ? 0 : a[0] === 'yellow' ? 1 : 2 }
+  const sorted = [...rows].sort((a, b) => rank(a) - rank(b) || bedOf(a).localeCompare(bedOf(b), 'ko'))
+  const list = onlyAlarm ? sorted.filter((r) => rank(r) < 2) : sorted
+  const nAl = sorted.filter((r) => rank(r) < 2).length
+  const pages = Math.max(1, Math.ceil(list.length / PH_PAGE))
+  const cur = Math.min(page, pages - 1)
+  const shown = list.slice(cur * PH_PAGE, cur * PH_PAGE + PH_PAGE)
+  const ids = shown.map((r) => r.channel_id).join(',')
+  useEffect(() => { claimLive('viewer-phone', ids ? ids.split(',') : []); return () => releaseLive('viewer-phone') }, [ids])
+  if (open) return <div className="ds dark cs ph"><BedViewer row={rows.find((r) => r.channel_id === open)} alarms={alarms} unit={unit} onBack={() => (rows.length === 1 && onClose ? onClose() : setOpen(null))} /></div>
+  return (
+    <div className="ds dark ph-cs">
+      <header className="ph-head">
+        <div className="ph-unit"><b>CENTRAL</b><small>{unit}</small></div>
+        <span className={'ph-al' + (nAl ? '' : ' none')}>{nAl} alarm{nAl === 1 ? '' : 's'}</span>
+        <span className="ph-clock">{clock}</span>
+        {onClose && <button className="btn btn-secondary" onClick={onClose}>✕</button>}
+      </header>
+      <div className="ph-bar">
+        <span className="ph-seg"><button className={!onlyAlarm ? 'on' : ''} onClick={() => { setOnlyAlarm(false); setPage(0) }}>전체 {rows.length}</button><button className={onlyAlarm ? 'on' : ''} onClick={() => { setOnlyAlarm(true); setPage(0) }}>알람 {nAl}</button></span>
+        {pages > 1 && <span className="ph-pager"><button className="btn btn-secondary" disabled={cur === 0} onClick={() => setPage(cur - 1)}>‹</button><span>{cur + 1}/{pages}</span><button className="btn btn-secondary" disabled={cur >= pages - 1} onClick={() => setPage(cur + 1)}>›</button></span>}
+      </div>
+      <main className="ph-list">
+        {!list.length && <div className="cs-empty">{onlyAlarm ? '알람 환자가 없습니다.' : '표시할 환자가 없습니다.'}</div>}
+        {shown.map((r) => {
+          const id = r.channel_id, live = latest.get(id)
+          const v = { ...(r.vitals || {}), ...(live?.vitals || {}) }
+          const a = monAlarm(r, live, aidx.get(id))
+          const flag = alarmKey(a[1])
+          const N = ({ k, l, val, fmt }) => <span className="ph-n" style={{ color: CS_C[k] }}><small>{l}</small><b className={(val == null ? 'ds-none' : '') + (flag === k ? ' cs-flag' : '')}>{val == null ? '--' : (fmt ? fmt(val) : val)}</b></span>
+          return (
+            <article key={id} className={'ph-tile' + (a[0] ? ` ph-${a[0]}` : '')} onClick={() => setOpen(id)}>
+              <div className="ph-th"><span className="cs-bed">{bedOf(r)}</span><span className="ph-nm">{r.patient?.name || r.mrn}</span><span className={'ph-st' + (a[0] ? ` ph-${a[0]}` : '')}>{a[1]}</span></div>
+              <div className="ph-wave"><Sweep id={id} wave="ecg" range={[-1.5, 2.0]} color={CS_C.hr} theme={CS_TH} /><div className="ds-off">LEAD OFF</div></div>
+              <div className="ph-nums"><N k="hr" l="HR" val={v.hr} /><N k="spo2" l="SpO₂" val={v.spo2} /><N k="rr" l="RR" val={v.resp} /><N k="temp" l="Temp" val={v.temp} fmt={(x) => x.toFixed(1)} /></div>
+            </article>
+          )
+        })}
+      </main>
+    </div>
+  )
+}
+
+export default function CentralStation(props) {
+  const phone = useIsPhone()
+  return phone ? <PhoneCentral {...props} /> : <CentralStationWide {...props} />
+}
+
+function CentralStationWide({ rows, alarms, unit, onClose }) {
   const gridRef = useRef(null)
   const [preset, setPreset] = useState(() => { try { return CS_PRESETS.find((x) => x.id === localStorage.getItem('cs:preset') && x.c) || null } catch { return null } })
   const [page, setPage] = useState(0)

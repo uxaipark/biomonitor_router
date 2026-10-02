@@ -993,6 +993,12 @@
 "src/pages/Events.jsx"
 ]
 },
+": w === '미지정' ?": {
+"kind": "jsx",
+"src": [
+"src/pages/Viewers.jsx"
+]
+},
 "<p>기록 없음</p>": {
 "kind": "str",
 "src": [
@@ -2122,6 +2128,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/BiosignalAdmin.jsx"
+]
+},
+"` : `알람 $": {
+"kind": "jsx",
+"src": [
+"src/App.jsx"
 ]
 },
 "` : cur?.source === 'env' ? `환경변수 $": {
@@ -3886,7 +3898,8 @@
 "· 알람 {0}": {
 "kind": "tpl",
 "src": [
-"src/pages/Patients.jsx"
+"src/pages/Patients.jsx",
+"src/pages/Viewers.jsx"
 ]
 },
 "· 약 {0}": {
@@ -4405,6 +4418,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/Trips.jsx"
+]
+},
+"— 알람 환자 먼저": {
+"kind": "jsx",
+"src": [
+"src/pages/Viewers.jsx"
 ]
 },
 "— 업로드 거부 (쓰기 권한·디스크 용량)": {
@@ -8449,9 +8468,10 @@
 ]
 },
 "메뉴": {
-"kind": "rs",
+"kind": "str",
 "src": [
-"router-server/src/auth.rs"
+"router-server/src/auth.rs",
+"src/App.jsx"
 ]
 },
 "메뉴 · 기능": {
@@ -8543,7 +8563,8 @@
 "명 · 알람": {
 "kind": "jsx",
 "src": [
-"src/pages/MapPage.jsx"
+"src/pages/MapPage.jsx",
+"src/pages/Viewers.jsx"
 ]
 },
 "명 ÷ 착용 $": {
@@ -9042,6 +9063,12 @@
 "src/pages/EcgEngine.jsx"
 ]
 },
+"미지정": {
+"kind": "str",
+"src": [
+"src/pages/Viewers.jsx"
+]
+},
 "미확인": {
 "kind": "str",
 "src": [
@@ -9295,6 +9322,12 @@
 "kind": "rs",
 "src": [
 "router-server/src/inventory.rs"
+]
+},
+"밝은 테마": {
+"kind": "str",
+"src": [
+"src/App.jsx"
 ]
 },
 "밝은 테마로": {
@@ -9780,7 +9813,8 @@
 "병동 미지정": {
 "kind": "str",
 "src": [
-"src/pages/Patients.jsx"
+"src/pages/Patients.jsx",
+"src/pages/Viewers.jsx"
 ]
 },
 "병동 선택 (전체)": {
@@ -13210,6 +13244,12 @@
 "src/model.js"
 ]
 },
+"알람 {0}": {
+"kind": "tpl",
+"src": [
+"src/App.jsx"
+]
+},
 "알람 → 병실": {
 "kind": "str",
 "src": [
@@ -13313,6 +13353,12 @@
 "kind": "rs",
 "src": [
 "router-server/src/auth.rs"
+]
+},
+"알람 환자가 없습니다.": {
+"kind": "str",
+"src": [
+"src/viewer/CentralStation.jsx"
 ]
 },
 "알람만": {
@@ -13441,6 +13487,12 @@
 "kind": "jsx",
 "src": [
 "src/pages/OpsStats.jsx"
+]
+},
+"어두운 테마": {
+"kind": "str",
+"src": [
+"src/App.jsx"
 ]
 },
 "어두운 테마로": {
@@ -14793,6 +14845,12 @@
 "src/pages/Alarms.jsx"
 ]
 },
+"위험 {0}": {
+"kind": "tpl",
+"src": [
+"src/App.jsx"
+]
+},
 "위험 등급은 계속 알림": {
 "kind": "jsx",
 "src": [
@@ -15249,6 +15307,12 @@
 "src/pages/Viewers.jsx"
 ]
 },
+"이 층에 연결된 환자가 없습니다.": {
+"kind": "jsx",
+"src": [
+"src/pages/MapPage.jsx"
+]
+},
 "이 콘솔에서 연 뷰어 탭 (닫히면 5초 안에 줄어듭니다)": {
 "kind": "str",
 "src": [
@@ -15416,6 +15480,12 @@
 "src/pages/AdminUsers.jsx",
 "src/pages/BiosignalAdmin.jsx",
 "src/pages/Inventory.jsx"
+]
+},
+"이름 · 병실 · 패치": {
+"kind": "str",
+"src": [
+"src/pages/Patients.jsx"
 ]
 },
 "이름 · 지역 · MRN": {
@@ -16394,6 +16464,12 @@
 "src/pages/BiosignalAdmin.jsx"
 ]
 },
+"저장 그룹": {
+"kind": "jsx",
+"src": [
+"src/pages/Viewers.jsx"
+]
+},
 "저장 단위 (현지 시각)": {
 "kind": "jsx",
 "src": [
@@ -16959,7 +17035,8 @@
 "전체 환자": {
 "kind": "jsx",
 "src": [
-"src/pages/Patients.jsx"
+"src/pages/Patients.jsx",
+"src/pages/Viewers.jsx"
 ]
 },
 "절대 차단하지 않음": {
@@ -17083,6 +17160,12 @@
 "kind": "str",
 "src": [
 "src/pages/Reports.jsx"
+]
+},
+"정답지 파일 아님": {
+"kind": "rs",
+"src": [
+"router-server/src/backup.rs"
 ]
 },
 "정답지를 받지 못했습니다: {0}": {
@@ -18366,7 +18449,7 @@
 "src": [
 "src/pages/Alarms.jsx",
 "src/pages/LiveModal.jsx",
-"src/pages/Patients.jsx"
+"src/pages/MapPage.jsx"
 ]
 },
 "체온/혈당/호흡": {
@@ -19334,7 +19417,7 @@
 "src/pages/Viewers.jsx"
 ]
 },
-"패치 {0}개 · 게이트웨이 {1}개(누계 포함) · 백업 통계 · 카운터 · 운영 통계 {2}": {
+"패치 {0}개 · 게이트웨이 {1}개(누계 포함) · 분석 이력 {2}행 · 환자 보관 {3}행 · 백업 통계 · 카운터 · 운영 통계 {4}": {
 "kind": "rs-tpl",
 "src": [
 "router-server/src/reset.rs"
@@ -19475,8 +19558,14 @@
 "src/pages/Dashboard.jsx"
 ]
 },
-"패치 저장소 리셋 — 저장 파일 전체 삭제": {
+"패치 저장소 리셋 — 저장 파일 전체 삭제 (백업이 있어 분석 기록은 유지)": {
 "kind": "rs",
+"src": [
+"router-server/src/admin_api.rs"
+]
+},
+"패치 저장소 리셋 — 저장 파일 전체 삭제 · 관련 기록 {0}행 삭제": {
+"kind": "rs-tpl",
 "src": [
 "router-server/src/admin_api.rs"
 ]
@@ -19706,7 +19795,7 @@
 ]
 },
 "표시할 환자가 없습니다.": {
-"kind": "jsx",
+"kind": "str",
 "src": [
 "src/viewer/CentralStation.jsx"
 ]
