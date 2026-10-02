@@ -92,8 +92,8 @@ pub async fn cleanup_before_epoch(state: &Arc<AppState>) {
     if ep == 0 { return; }
     let st = state.clone();
     let r = tokio::task::spawn_blocking(move || {
-        // 시작 시각이 걸친 시간까지 지운다 (그 시간 파일엔 초기화 전 에피소드가 섞여 있음)
-        let cut_hour_end = ep / 3_600_000 * 3_600_000 + 3_600_000;
+        // 시작 시각 이전에 끝난 시간 파일만 지운다 (시작 시간 파일은 시작 이후만 담아 다시 쓴다 — 봉인 전이면 덮어씀)
+        let cut_hour_end = ep / 3_600_000 * 3_600_000;
         let mut local = 0;
         let mut rels = Vec::new();
         for key in crate::truth_store::keys(&root) {
@@ -201,7 +201,7 @@ async fn persist_hours(state: &Arc<AppState>, h_lo: u64, h_hi: u64) {
     let root = std::path::PathBuf::from(&state.cfg.store_dir);
     // 데이터 시작 시각 이전 시간은 쓰지 않는다 (지운 파형의 정답이 되살아나지 않게)
     let ep = crate::truth_store::epoch(&root);
-    let h_lo = if ep > 0 { h_lo.max(ep / 3_600_000 * 3_600_000 + 3_600_000).max(h_lo) } else { h_lo };
+    let h_lo = if ep > 0 { h_lo.max(ep / 3_600_000 * 3_600_000) } else { h_lo }; // 시작 시각이 걸친 시간부터 (그 시간은 시작 이후만 담음)
     let now = crate::protocol::now_ms();
     let emu = state.net.emulator().unwrap_or_default();
     let mut jobs: Vec<(String, Vec<crate::truth_store::Ep>, HashMap<u32, String>)> = Vec::new();
@@ -215,7 +215,8 @@ async fn persist_hours(state: &Arc<AppState>, h_lo: u64, h_hi: u64) {
             let key = crate::patch_store::hour_key(h);
             if crate::patch_store::read_seal(&crate::truth_store::file_of(&root, &key)).is_none() {
                 let (a, b) = (h, h + 3_600_000);
-                let eps: Vec<crate::truth_store::Ep> = st.labels.iter().filter(|((_, s0, _, _), e)| *s0 < b && e.unwrap_or(now) > a).map(|((p, s0, k, v), e)| (*p, k.clone(), v.clone(), *s0, *e)).collect();
+                // 데이터 시작 시각 이전 부분은 잘라 낸다 (초기화 전 에피소드가 시작 시간에 섞이지 않게)
+                let eps: Vec<crate::truth_store::Ep> = st.labels.iter().filter(|((_, s0, _, _), e)| *s0 < b && e.unwrap_or(now) > a.max(ep)).map(|((p, s0, k, v), e)| (*p, k.clone(), v.clone(), (*s0).max(ep), *e)).collect();
                 let pats: std::collections::HashSet<u32> = eps.iter().map(|e| e.0).collect();
                 let bases: HashMap<u32, String> = st.base.iter().filter(|(p, _)| pats.contains(p) || (b + 3_600_000 > now && live.contains(p))).map(|(p, v)| (*p, v.clone())).collect();
                 jobs.push((key, eps, bases));
